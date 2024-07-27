@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, process};
 use std::iter::Peekable;
 use std::rc::Rc;
 
@@ -7,6 +7,7 @@ enum Op {
     Assign,
     Equals,
     Minus,
+    Plus,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +15,8 @@ enum Token {
     End,
     Literal(String),
     Operator(Op),
+    LeftParen,
+    RightParen,
 }
 
 struct Location {
@@ -53,6 +56,18 @@ where
                 break;
             }
             match c {
+                '(' => {
+                    self.next();
+                    tok = Token::LeftParen;
+                }
+                ')' => {
+                    self.next();
+                    tok = Token::RightParen;
+                }
+                '+' => {
+                    self.next();
+                    tok = Token::Operator(Op::Plus);
+                }
                 '-' => {
                     self.next();
                     if self.is_arg_expected() {
@@ -110,7 +125,10 @@ where
                             }
                         }
                         has_chars = true;
-                        if self.quoted || self.escaped || !next_c.is_whitespace() {
+                        if self.quoted
+                            || self.escaped
+                            || !matches!(next_c, ' ' | '\t' | '\n' | '\r' | '(' | ')')
+                        {
                             literal.push(next_c);
                             self.next();
                         } else {
@@ -147,7 +165,7 @@ where
             Expression::Empty => {
                 self.current = Rc::clone(expr);
             }
-            Expression::Literal(_) => {
+            Expression::Lit(_) => {
                 return self.error("Expression after literal");
             }
         }
@@ -175,7 +193,7 @@ enum Expression {
     Empty,
     Bin(BinExpr),
     Cmd(Command),
-    Literal(Token),
+    Lit(Token),
 }
 
 impl Expression {
@@ -220,6 +238,9 @@ impl Eval for BinExpr {
             Op::Minus => {
                 return Ok(Value::Str("TODO: Minus".to_owned()));
             }
+            Op::Plus => {
+                return Ok(Value::Str("TODO: Plus".to_owned()));
+            }
         }
     }
 }
@@ -232,8 +253,7 @@ struct Command {
 
 impl Eval for Command {
     fn eval(&self) -> Result<Value, String> {
-        println!("command: {}", self.cmd);
-        Ok(Value::Int(0))
+        Ok(Value::Str("TODO: Command".to_string()))
     }
 }
 
@@ -280,7 +300,7 @@ impl Eval for Expression {
             Expression::Empty => {
                 return Err("Empty expression".to_owned());
             }
-            Expression::Literal(t) => match &t {
+            Expression::Lit(t) => match &t {
                 Token::Literal(s) => {
                     let i = s.parse::<i64>();
                     if i.is_ok() {
@@ -319,25 +339,43 @@ impl Interp {
             current: Rc::new(Expression::Empty),
         };
 
+        let mut stack: Vec<Rc<Expression>> = Vec::new();
+
         loop {
             let tok = parser.next_token()?;
-            dbg!(&tok);
+            //dbg!(&tok);
             match &tok {
                 Token::End => {
                     break;
                 }
-                Token::Literal(ident) => {
-                    if parser.current.is_empty() && self.is_command(ident) {
+                Token::LeftParen => {
+                    stack.push(Rc::clone(&parser.current));
+                    parser.current = Rc::new(Expression::Empty);
+                }
+                Token::RightParen => {
+                    if stack.is_empty() {
+                        return parser.error("Unmatched closed parenthesis");
+                    }
+                    let expr = parser.current;
+                    parser.current = stack.pop().unwrap();
+                    parser.add_expr(&expr)?;
+                }
+                Token::Literal(s) => {
+                    if s == "exit" {
+                        process::exit(0);
+                    }
+                    if parser.current.is_empty() && self.is_command(s) {
                         let expr = Rc::new(Expression::Cmd(Command {
-                            cmd: ident.to_owned(),
+                            cmd: s.to_owned(),
                             args: Default::default(),
                         }));
                         parser.add_expr(&expr)?;
                     } else {
-                        let expr = Rc::new(Expression::Literal(tok));
+                        let expr = Rc::new(Expression::Lit(tok));
                         parser.add_expr(&expr)?;
                     }
                 }
+                // TODO: remove duplication.
                 Token::Operator(Op::Assign) => {
                     if parser.current.is_empty() {
                         return parser.error("Missing left-hand term in assignment");
@@ -358,9 +396,32 @@ impl Interp {
                         rhs: Rc::new(Expression::Empty),
                     }));
                 }
-                Token::Operator(Op::Minus) => {}
+                Token::Operator(Op::Minus) => {
+                    if parser.current.is_empty() {
+                        return parser.error("Unary minus not supported");
+                    }
+                    parser.current = Rc::new(Expression::Bin(BinExpr {
+                        op: Op::Minus,
+                        lhs: parser.current.clone(),
+                        rhs: Rc::new(Expression::Empty),
+                    }));
+                }
+                Token::Operator(Op::Plus) => {
+                    if parser.current.is_empty() {
+                        return parser.error("Unary plus not supported");
+                    }
+                    parser.current = Rc::new(Expression::Bin(BinExpr {
+                        op: Op::Plus,
+                        lhs: parser.current.clone(),
+                        rhs: Rc::new(Expression::Empty),
+                    }));
+                }
             }
         }
+        if !stack.is_empty() {
+            return parser.error("Unmatched parenthesis");
+        }
+        dbg!(&parser.current);
         parser.current.eval()
     }
 }

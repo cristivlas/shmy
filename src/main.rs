@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 
 mod eval;
 use eval::Interp;
@@ -25,6 +25,10 @@ impl Shell {
         let mut input: String = String::new();
 
         loop {
+            if self.interactive {
+                print!("mysh> ");
+                io::stdout().flush().unwrap();
+            }
             buffer.clear();
             match reader.read_line(&mut buffer) {
                 Ok(0) => {
