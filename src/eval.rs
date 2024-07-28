@@ -19,6 +19,7 @@ enum Token {
     RightParen,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct Location {
     line: u32,
     col: u32,
@@ -30,12 +31,27 @@ impl fmt::Display for Location {
     }
 }
 
+// Trait for objects with location info.
+trait HasLocation {
+    fn loc(&self) -> &Location;
+}
+
+fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
+    return Err(format!("{} {}", t.loc(), s));
+}
+
 struct Parser<I: Iterator<Item = char>> {
     chars: Peekable<I>,
     loc: Location,
     escaped: bool,
     quoted: bool,
     current: Rc<Expression>, // Current expression
+}
+
+impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
+    fn loc(&self) -> &Location {
+        &self.loc
+    }
 }
 
 impl<T> Parser<T>
@@ -137,7 +153,7 @@ where
                         self.escaped = false;
                     }
                     if has_chars && literal.is_empty() {
-                        return self.error("Unrecognized token");
+                        return error(self, "Unrecognized token");
                     } else {
                         tok = Token::Literal(literal);
                     }
@@ -145,7 +161,7 @@ where
             }
         }
         if self.quoted {
-            return self.error("Unbalanced quotes");
+            return error(self, "Unbalanced quotes");
         }
         Ok(tok)
     }
@@ -153,9 +169,10 @@ where
     // Add an expression to the AST.
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         if expr.is_empty() {
-            return self.error("Unexpected empty expression");
+            return error(self, "Unexpected empty expression");
         }
-        match &*self.current {
+        let ref current = *self.current;
+        match current {
             Expression::Bin(e) => {
                 self.current = e.add_child(expr);
             }
@@ -166,19 +183,16 @@ where
                 self.current = Rc::clone(expr);
             }
             Expression::Lit(_) => {
-                return self.error("Expression after literal");
+                return error(self, "Expression after literal");
             }
         }
 
         Ok(())
     }
 
-    fn error<R>(&self, s: &str) -> Result<R, String> {
-        return Err(format!("{} {}", self.loc, s));
-    }
-
     fn is_arg_expected(&self) -> bool {
-        match &*self.current {
+        let ref current = *self.current;
+        match current {
             Expression::Cmd(_) => {
                 return true;
             }
@@ -211,6 +225,13 @@ struct BinExpr {
     op: Op,
     lhs: Rc<Expression>,
     rhs: Rc<Expression>,
+    loc: Location,
+}
+
+impl HasLocation for BinExpr {
+    fn loc(&self) -> &Location {
+        &self.loc
+    }
 }
 
 impl ExprNode for BinExpr {
@@ -224,7 +245,7 @@ impl ExprNode for BinExpr {
 }
 
 impl BinExpr {
-    fn eval_plus(lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => {
@@ -260,7 +281,7 @@ impl BinExpr {
         }
     }
 
-    fn eval_minus(lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => {
@@ -270,7 +291,7 @@ impl BinExpr {
                     return Ok(Value::Real(i as f64 - j));
                 }
                 Value::Str(_) => {
-                    return Err("Can't subtract string from integer".to_owned());
+                    return error(self, "Can't subtract string from integer");
                 }
             },
             Value::Real(i) => match rhs {
@@ -281,15 +302,15 @@ impl BinExpr {
                     return Ok(Value::Real(i - j));
                 }
                 Value::Str(_) => {
-                    return Err("Can't subtract string from number".to_owned());
+                    return error(self, "Can't subtract string from number");
                 }
             },
             Value::Str(_) => match rhs {
                 Value::Int(_) | Value::Real(_) => {
-                    return Err("Can't subtract number from string".to_owned());
+                    return error(self, "Can't subtract number from string");
                 }
                 Value::Str(_) => {
-                    return Err("Can't subtract strings".to_owned());
+                    return error(self, "Can't subtract strings");
                 }
             },
         }
@@ -312,9 +333,9 @@ impl Eval for BinExpr {
                 return Ok(Value::Str("TODO: Equals".to_owned()));
             }
             Op::Minus => {
-                return BinExpr::eval_minus(lhs, rhs);
+                return self.eval_minus(lhs, rhs);
             }
-            Op::Plus => BinExpr::eval_plus(lhs, rhs),
+            Op::Plus => self.eval_plus(lhs, rhs),
         }
     }
 }
@@ -323,6 +344,13 @@ impl Eval for BinExpr {
 struct Command {
     cmd: String,
     args: Vec<Rc<Expression>>,
+    loc: Location,
+}
+
+impl HasLocation for Command {
+    fn loc(&self) -> &Location {
+        &self.loc
+    }
 }
 
 impl Eval for Command {
@@ -427,7 +455,7 @@ impl Interp {
                 }
                 Token::RightParen => {
                     if stack.is_empty() {
-                        return parser.error("Unmatched closed parenthesis");
+                        return error(&parser, "Unmatched closed parenthesis");
                     }
                     let expr = parser.current;
                     parser.current = stack.pop().unwrap();
@@ -441,6 +469,7 @@ impl Interp {
                         let expr = Rc::new(Expression::Cmd(Command {
                             cmd: s.to_owned(),
                             args: Default::default(),
+                            loc: parser.loc,
                         }));
                         parser.add_expr(&expr)?;
                     } else {
@@ -450,18 +479,19 @@ impl Interp {
                 }
                 Token::Operator(op) => {
                     if parser.current.is_empty() {
-                        return parser.error("Missing left-hand term in operation");
+                        return error(&parser, "Missing left-hand term in operation");
                     }
                     parser.current = Rc::new(Expression::Bin(BinExpr {
                         op: op.clone(),
                         lhs: parser.current.clone(),
                         rhs: Rc::new(Expression::Empty),
+                        loc: parser.loc,
                     }));
                 }
             }
         }
         if !stack.is_empty() {
-            return parser.error("Unmatched parenthesis");
+            return error(&parser, "Unmatched parenthesis");
         }
         dbg!(&parser.current);
         parser.current.eval()
