@@ -209,7 +209,7 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 enum Expression {
     Empty,
     Bin(RefCell<BinExpr>),
@@ -223,7 +223,7 @@ impl Expression {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct BinExpr {
     op: Op,
     lhs: Rc<Expression>,
@@ -352,7 +352,7 @@ impl Eval for BinExpr {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct Command {
     cmd: String,
     args: Vec<Rc<Expression>>,
