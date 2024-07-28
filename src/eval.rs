@@ -4,6 +4,11 @@ use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
 
+fn is_reserved(c: char) -> bool {
+    const RESERVED_CHARS: &str = " \t\n\r()+-";
+    RESERVED_CHARS.contains(c)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     Assign,
@@ -148,10 +153,7 @@ where
                             }
                         }
                         has_chars = true;
-                        if self.quoted
-                            || self.escaped
-                            || !matches!(next_c, ' ' | '\t' | '\n' | '\r' | '(' | ')')
-                        {
+                        if self.quoted || self.escaped || !is_reserved(next_c) {
                             literal.push(next_c);
                             self.next();
                         } else {
@@ -257,7 +259,7 @@ impl ExprNode for BinExpr {
                     return Ok(());
                 }
             }
-            error(self, "Unexpected expression, consider using parenthesis")
+            error(self, "Unexpected dangling expression")
         }
     }
 }
