@@ -49,6 +49,8 @@ fn format_file_type(metadata: &fs::Metadata) -> char {
         'd'
     } else if metadata.is_file() {
         '-'
+    } else if metadata.is_symlink() {
+        'l'
     } else {
         '?'
     }
@@ -124,29 +126,34 @@ fn list_directories(paths: &[String], details: bool, megs: bool) -> Result<Value
 
         if details {
             println!("total {}", entries.len());
-            for entry in entries {
+            for entry in &entries {
                 let metadata = entry
                     .metadata()
                     .map_err(|e| format!("Failed to get metadata: {}", e))?;
-                let file_name = entry.file_name();
+                let mut file_name = entry.file_name().to_string_lossy().to_string();
                 let size = if megs {
                     format!("{:.2}M", metadata.len() as f64 / 1_048_576.0)
                 } else {
                     metadata.len().to_string()
                 };
+                if metadata.is_symlink() {
+                    if let Ok(path) = fs::read_link(entry.path()) {
+                        file_name = format!("{} -> {}", file_name, path.to_string_lossy());
+                    }
+                }
                 let file_type = format_file_type(&metadata);
                 let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
                 let (owner, group) = get_owner_and_group(&metadata);
                 let permissions = get_permissions(&metadata);
                 println!(
-                    "{}  {}  {:>8} {:>8} {:>8} {:>16}  {}",
+                    "{}{} {:>8} {:>8} {:>8} {:>16}  {}",
                     file_type,
                     permissions,
                     owner,
                     group,
                     size,
                     modified_time,
-                    file_name.to_string_lossy()
+                    file_name
                 );
             }
         } else {
