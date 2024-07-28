@@ -1,4 +1,5 @@
 use crate::cmds::{get_command, Exec};
+use std::cell::RefCell;
 use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
@@ -41,8 +42,9 @@ fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
     return Err(format!("{} {}", t.loc(), s));
 }
 
+/// Non-terminal AST node.
 trait ExprNode {
-    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String>;
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String>;
 }
 
 struct Parser<I: Iterator<Item = char>> {
@@ -179,10 +181,10 @@ where
         let ref current = *self.current;
         match current {
             Expression::Bin(e) => {
-                self.current = e.add_child(expr)?;
+                return e.borrow_mut().add_child(expr);
             }
             Expression::Cmd(e) => {
-                self.current = e.add_child(expr)?;
+                return e.borrow_mut().add_child(expr);
             }
             Expression::Empty => {
                 self.current = Rc::clone(expr);
@@ -210,14 +212,14 @@ where
 #[derive(Clone, Debug, PartialEq)]
 enum Expression {
     Empty,
-    Bin(BinExpr),
-    Cmd(Command),
+    Bin(RefCell<BinExpr>),
+    Cmd(RefCell<Command>),
     Lit(Token),
 }
 
 impl Expression {
     fn is_empty(&self) -> bool {
-        *self == Expression::Empty
+        matches!(self, Expression::Empty)
     }
 }
 
@@ -236,15 +238,26 @@ impl HasLocation for BinExpr {
 }
 
 impl ExprNode for BinExpr {
-    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String> {
+    /// Add right hand-side child expression.
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.lhs.is_empty());
 
-        if !self.rhs.is_empty() {
-            error(self, "Unexpected expression, consider using parenthesis")
+        if self.rhs.is_empty() {
+            self.rhs = Rc::clone(child);
+            Ok(())
         } else {
-            let mut e = self.clone();
-            e.rhs = Rc::clone(child);
-            Ok(Rc::new(Expression::Bin(e)))
+            if let Expression::Lit(Token::Literal(s)) = &*self.rhs {
+                if is_command(s) {
+                    let cmd = Expression::Cmd(RefCell::new(Command {
+                        cmd: s.to_owned(),
+                        args: vec![Rc::clone(child)],
+                        loc: self.loc,
+                    }));
+                    self.rhs = Rc::new(cmd);
+                    return Ok(());
+                }
+            }
+            error(self, "Unexpected expression, consider using parenthesis")
         }
     }
 }
@@ -372,11 +385,10 @@ impl Eval for Command {
 }
 
 impl ExprNode for Command {
-    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.cmd.is_empty());
-        let mut e = self.clone();
-        e.args.push(Rc::clone(child));
-        Ok(Rc::new(Expression::Cmd(e)))
+        self.args.push(Rc::clone(child));
+        Ok(())
     }
 }
 
@@ -409,8 +421,8 @@ trait Eval {
 impl Eval for Expression {
     fn eval(&self) -> Result<Value, String> {
         match &self {
-            Expression::Bin(b) => b.eval(),
-            Expression::Cmd(c) => c.eval(),
+            Expression::Bin(b) => b.borrow().eval(),
+            Expression::Cmd(c) => c.borrow().eval(),
             Expression::Empty => {
                 panic!("Empty expression");
             }
@@ -434,11 +446,11 @@ impl Eval for Expression {
 
 pub struct Interp;
 
-impl Interp {
-    fn is_command(&self, literal: &String) -> bool {
-        get_command(&literal).is_some()
-    }
+fn is_command(literal: &String) -> bool {
+    get_command(&literal).is_some()
+}
 
+impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
         let mut parser = Parser {
             chars: input.chars().peekable(),
@@ -472,12 +484,12 @@ impl Interp {
                     if s == "exit" || s == "quit" {
                         process::exit(0);
                     }
-                    if parser.current.is_empty() && self.is_command(s) {
-                        let expr = Rc::new(Expression::Cmd(Command {
+                    if parser.current.is_empty() && is_command(s) {
+                        let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                             cmd: s.to_owned(),
                             args: Default::default(),
                             loc: parser.loc,
-                        }));
+                        })));
                         parser.add_expr(&expr)?;
                     } else {
                         let expr = Rc::new(Expression::Lit(tok));
@@ -488,12 +500,12 @@ impl Interp {
                     if parser.current.is_empty() {
                         return error(&parser, "Missing left-hand term in operation");
                     }
-                    parser.current = Rc::new(Expression::Bin(BinExpr {
+                    parser.current = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
                         lhs: parser.current.clone(),
                         rhs: Rc::new(Expression::Empty),
                         loc: parser.loc,
-                    }));
+                    })));
                 }
             }
         }
