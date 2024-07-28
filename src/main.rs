@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
-
+mod cmds;
 mod eval;
 use eval::Interp;
 

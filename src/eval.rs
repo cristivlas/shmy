@@ -1,3 +1,4 @@
+use crate::cmds::{get_command, Exec};
 use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
@@ -355,7 +356,20 @@ impl HasLocation for Command {
 
 impl Eval for Command {
     fn eval(&self) -> Result<Value, String> {
-        Ok(Value::Str("TODO: Command".to_string()))
+        if let Some(cmd) = get_command(&self.cmd) {
+            let mut args: Vec<String> = Vec::new();
+            for a in &self.args {
+                let v = a.eval()?;
+                args.push(format!("{}", v));
+            }
+
+            match cmd.exec(args) {
+                Ok(v) => Ok(v),
+                Err(e) => error(self, e.as_str()),
+            }
+        } else {
+            panic!("Command not found");
+        }
     }
 }
 
@@ -424,10 +438,7 @@ pub struct Interp;
 
 impl Interp {
     fn is_command(&self, literal: &String) -> bool {
-        if literal == "ls" {
-            return true;
-        }
-        false
+        get_command(&literal).is_some()
     }
 
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
@@ -460,7 +471,7 @@ impl Interp {
                     parser.add_expr(&expr)?;
                 }
                 Token::Literal(ref s) => {
-                    if s == "exit" {
+                    if s == "exit" || s == "quit" {
                         process::exit(0);
                     }
                     if parser.current.is_empty() && self.is_command(s) {
@@ -491,7 +502,9 @@ impl Interp {
         if !stack.is_empty() {
             return error(&parser, "Unmatched parenthesis");
         }
-        dbg!(&parser.current);
-        parser.current.eval()
+
+        let ref ast_root = *parser.current;
+        dbg!(ast_root);
+        ast_root.eval()
     }
 }
