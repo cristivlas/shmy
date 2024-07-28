@@ -331,15 +331,9 @@ impl Eval for BinExpr {
         let rhs = self.rhs.eval()?;
 
         match self.op {
-            Op::Assign => {
-                return Ok(Value::Str("TODO: Assign".to_owned()));
-            }
-            Op::Equals => {
-                return Ok(Value::Str("TODO: Equals".to_owned()));
-            }
-            Op::Minus => {
-                return self.eval_minus(lhs, rhs);
-            }
+            Op::Assign => Ok(Value::Str("TODO: Assign".to_owned())),
+            Op::Equals => Ok(Value::Str("TODO: Equals".to_owned())),
+            Op::Minus => self.eval_minus(lhs, rhs),
             Op::Plus => self.eval_plus(lhs, rhs),
         }
     }
