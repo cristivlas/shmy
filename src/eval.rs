@@ -400,22 +400,20 @@ impl Eval for Expression {
             Expression::Bin(b) => b.eval(),
             Expression::Cmd(c) => c.eval(),
             Expression::Empty => {
-                return Err("Empty expression".to_owned());
+                panic!("Empty expression");
             }
             Expression::Lit(t) => match &t {
                 Token::Literal(s) => {
-                    let i = s.parse::<i64>();
-                    if i.is_ok() {
-                        return Ok(Value::Int(i.unwrap()));
+                    if let Ok(i) = s.parse::<i64>() {
+                        Ok(Value::Int(i))
+                    } else if let Ok(f) = s.parse::<f64>() {
+                        Ok(Value::Real(f))
+                    } else {
+                        Ok(Value::Str(s.to_owned()))
                     }
-                    let f = s.parse::<f64>();
-                    if f.is_ok() {
-                        return Ok(Value::Real(f.unwrap()));
-                    }
-                    return Ok(Value::Str(s.to_owned()));
                 }
                 _ => {
-                    return Err("Invalid token in literal eval".to_owned());
+                    panic!("Invalid token in literal eval");
                 }
             },
         }
