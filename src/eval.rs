@@ -1,6 +1,6 @@
-use std::{fmt, process};
 use std::iter::Peekable;
 use std::rc::Rc;
+use std::{fmt, process};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
@@ -223,10 +223,86 @@ impl ExprNode for BinExpr {
     }
 }
 
+impl BinExpr {
+    fn eval_plus(lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Int(i + j));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Real(i as f64 + j));
+                }
+                Value::Str(ref s) => {
+                    return Ok(Value::Str(format!("{}{}", i, s)));
+                }
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Real(i + j as f64));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Real(i + j));
+                }
+                Value::Str(ref s) => {
+                    return Ok(Value::Str(format!("{}{}", i, s)));
+                }
+            },
+            Value::Str(i) => {
+                let format_string = |j: &dyn fmt::Display| Ok(Value::Str(format!("{}{}", i, j)));
+
+                match rhs {
+                    Value::Int(j) => format_string(&j),
+                    Value::Real(j) => format_string(&j),
+                    Value::Str(ref j) => format_string(j),
+                }
+            }
+        }
+    }
+
+    fn eval_minus(lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Int(i - j));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Real(i as f64 - j));
+                }
+                Value::Str(_) => {
+                    return Err("Can't subtract string from integer".to_owned());
+                }
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Real(i - j as f64));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Real(i - j));
+                }
+                Value::Str(_) => {
+                    return Err("Can't subtract string from number".to_owned());
+                }
+            },
+            Value::Str(_) => match rhs {
+                Value::Int(_) | Value::Real(_) => {
+                    return Err("Can't subtract number from string".to_owned());
+                }
+                Value::Str(_) => {
+                    return Err("Can't subtract strings".to_owned());
+                }
+            },
+        }
+    }
+}
+
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         assert!(!self.lhs.is_empty());
         assert!(!self.rhs.is_empty());
+
+        let lhs = self.lhs.eval()?;
+        let rhs = self.rhs.eval()?;
 
         match self.op {
             Op::Assign => {
@@ -236,11 +312,9 @@ impl Eval for BinExpr {
                 return Ok(Value::Str("TODO: Equals".to_owned()));
             }
             Op::Minus => {
-                return Ok(Value::Str("TODO: Minus".to_owned()));
+                return BinExpr::eval_minus(lhs, rhs);
             }
-            Op::Plus => {
-                return Ok(Value::Str("TODO: Plus".to_owned()));
-            }
+            Op::Plus => BinExpr::eval_plus(lhs, rhs),
         }
     }
 }
@@ -323,8 +397,8 @@ impl Eval for Expression {
 pub struct Interp;
 
 impl Interp {
-    fn is_command(&self, ident: &String) -> bool {
-        if ident == "ls" {
+    fn is_command(&self, literal: &String) -> bool {
+        if literal == "ls" {
             return true;
         }
         false
@@ -343,7 +417,6 @@ impl Interp {
 
         loop {
             let tok = parser.next_token()?;
-            //dbg!(&tok);
             match &tok {
                 Token::End => {
                     break;
@@ -360,7 +433,7 @@ impl Interp {
                     parser.current = stack.pop().unwrap();
                     parser.add_expr(&expr)?;
                 }
-                Token::Literal(s) => {
+                Token::Literal(ref s) => {
                     if s == "exit" {
                         process::exit(0);
                     }
@@ -375,43 +448,12 @@ impl Interp {
                         parser.add_expr(&expr)?;
                     }
                 }
-                // TODO: remove duplication.
-                Token::Operator(Op::Assign) => {
+                Token::Operator(op) => {
                     if parser.current.is_empty() {
-                        return parser.error("Missing left-hand term in assignment");
+                        return parser.error("Missing left-hand term in operation");
                     }
                     parser.current = Rc::new(Expression::Bin(BinExpr {
-                        op: Op::Assign,
-                        lhs: parser.current.clone(),
-                        rhs: Rc::new(Expression::Empty),
-                    }));
-                }
-                Token::Operator(Op::Equals) => {
-                    if parser.current.is_empty() {
-                        return parser.error("Missing left-hand term in equality expression");
-                    }
-                    parser.current = Rc::new(Expression::Bin(BinExpr {
-                        op: Op::Equals,
-                        lhs: parser.current.clone(),
-                        rhs: Rc::new(Expression::Empty),
-                    }));
-                }
-                Token::Operator(Op::Minus) => {
-                    if parser.current.is_empty() {
-                        return parser.error("Unary minus not supported");
-                    }
-                    parser.current = Rc::new(Expression::Bin(BinExpr {
-                        op: Op::Minus,
-                        lhs: parser.current.clone(),
-                        rhs: Rc::new(Expression::Empty),
-                    }));
-                }
-                Token::Operator(Op::Plus) => {
-                    if parser.current.is_empty() {
-                        return parser.error("Unary plus not supported");
-                    }
-                    parser.current = Rc::new(Expression::Bin(BinExpr {
-                        op: Op::Plus,
+                        op: op.clone(),
                         lhs: parser.current.clone(),
                         rhs: Rc::new(Expression::Empty),
                     }));
