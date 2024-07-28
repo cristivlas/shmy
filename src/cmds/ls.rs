@@ -87,6 +87,31 @@ fn get_owner_and_group(_metadata: &fs::Metadata) -> (String, String) {
     ("unknown".to_string(), "unknown".to_string())
 }
 
+#[cfg(unix)]
+fn get_permissions(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = metadata.permissions().mode();
+    let flags = [
+        (0o400, 'r'), (0o200, 'w'), (0o100, 'x'),
+        (0o040, 'r'), (0o020, 'w'), (0o010, 'x'),
+        (0o004, 'r'), (0o002, 'w'), (0o001, 'x')
+    ];
+
+    let mut perms = String::with_capacity(9);
+    for &(bit, ch) in &flags {
+        perms.push(if mode & bit != 0 { ch } else { '-' });
+    }
+
+    perms
+}
+
+#[cfg(not(unix))]
+fn get_permissions(_metadata: &fs::Metadata) -> String {
+    "---------".to_string()
+}
+
+
 fn list_directories(paths: &[String], details: bool, megs: bool) -> Result<Value, String> {
     for path in paths {
         let entries = fs::read_dir(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
@@ -112,9 +137,11 @@ fn list_directories(paths: &[String], details: bool, megs: bool) -> Result<Value
                 let file_type = format_file_type(&metadata);
                 let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
                 let (owner, group) = get_owner_and_group(&metadata);
+                let permissions = get_permissions(&metadata);
                 println!(
-                    "{} {:>8} {:>8} {:>8} {:>16} {}",
+                    "{}  {}  {:>8} {:>8} {:>8} {:>16}  {}",
                     file_type,
+                    permissions,
                     owner,
                     group,
                     size,
@@ -150,8 +177,15 @@ fn list_directories(paths: &[String], details: bool, megs: bool) -> Result<Value
 
 #[ctor::ctor]
 fn register() {
+    let exec = Rc::new(Dir);
+
     register_command(BuiltinCommand {
         name: "ls",
-        exec: Rc::new(Dir),
+        exec: Rc::clone(&exec) as Rc<dyn Exec>
+    });
+
+    register_command(BuiltinCommand {
+        name: "dir",
+        exec: Rc::clone(&exec) as Rc<dyn Exec>
     });
 }
