@@ -41,6 +41,10 @@ fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
     return Err(format!("{} {}", t.loc(), s));
 }
 
+trait ExprNode {
+    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String>;
+}
+
 struct Parser<I: Iterator<Item = char>> {
     chars: Peekable<I>,
     loc: Location,
@@ -175,10 +179,10 @@ where
         let ref current = *self.current;
         match current {
             Expression::Bin(e) => {
-                self.current = e.add_child(expr);
+                self.current = e.add_child(expr)?;
             }
             Expression::Cmd(e) => {
-                self.current = e.add_child(expr);
+                self.current = e.add_child(expr)?;
             }
             Expression::Empty => {
                 self.current = Rc::clone(expr);
@@ -217,10 +221,6 @@ impl Expression {
     }
 }
 
-trait ExprNode {
-    fn add_child(&self, child: &Rc<Expression>) -> Rc<Expression>;
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct BinExpr {
     op: Op,
@@ -236,12 +236,16 @@ impl HasLocation for BinExpr {
 }
 
 impl ExprNode for BinExpr {
-    fn add_child(&self, child: &Rc<Expression>) -> Rc<Expression> {
+    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String> {
         assert!(!self.lhs.is_empty());
-        assert!(self.rhs.is_empty());
-        let mut e = self.clone();
-        e.rhs = Rc::clone(child);
-        Rc::new(Expression::Bin(e))
+
+        if !self.rhs.is_empty() {
+            error(self, "Unexpected expression, consider using parenthesis")
+        } else {
+            let mut e = self.clone();
+            e.rhs = Rc::clone(child);
+            Ok(Rc::new(Expression::Bin(e)))
+        }
     }
 }
 
@@ -374,11 +378,11 @@ impl Eval for Command {
 }
 
 impl ExprNode for Command {
-    fn add_child(&self, child: &Rc<Expression>) -> Rc<Expression> {
+    fn add_child(&self, child: &Rc<Expression>) -> Result<Rc<Expression>, String> {
         assert!(!self.cmd.is_empty());
         let mut e = self.clone();
         e.args.push(Rc::clone(child));
-        Rc::new(Expression::Cmd(e))
+        Ok(Rc::new(Expression::Cmd(e)))
     }
 }
 
