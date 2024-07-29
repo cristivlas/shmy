@@ -175,7 +175,7 @@ where
         Ok(tok)
     }
 
-    // Add an expression to the AST.
+    /// Add an expression to the AST.
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         if expr.is_empty() {
             return error(self, "Unexpected empty expression");

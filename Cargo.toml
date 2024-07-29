@@ -10,3 +10,18 @@ lazy_static = "1.4.0"
 
 [target.'cfg(unix)'.dependencies]
 users = "0.11.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.48", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Memory",
+    "Win32_Storage_FileSystem",
+] }
+windows-sys = { version = "0.48", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Memory"
+] }
