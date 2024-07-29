@@ -1,8 +1,7 @@
 use super::{register_command, BuiltinCommand, Exec};
 use crate::eval::Value;
 use chrono::DateTime;
-use std::cmp::min;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -103,6 +102,7 @@ fn get_owner_and_group_sids(
     mut path: PathBuf,
     metadata: &fs::Metadata,
 ) -> (Option<String>, Option<String>) {
+    use std::fs::OpenOptions;
     use std::os::windows::prelude::*;
     use windows::core::PWSTR;
     use windows::Win32::Foundation::{HANDLE, PSID, WIN32_ERROR};
@@ -172,6 +172,7 @@ fn get_owner_and_group_sids(
 
 #[cfg(windows)]
 fn name_from_sid(opt_sid: Option<String>) -> String {
+    use std::cmp::min;
     use std::ffi::c_void;
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
     use windows_sys::Win32::Security::LookupAccountSidW;
