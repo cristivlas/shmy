@@ -503,7 +503,7 @@ impl ExprNode for BranchExpr {
         } else if self.else_branch.is_empty() {
             self.else_branch = Rc::clone(child);
         } else {
-            return error(self, "Unexpected conditional branch");
+            return error(self, "Dangling expression after else branch");
         }
         Ok(())
     }
