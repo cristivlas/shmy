@@ -178,17 +178,27 @@ where
     }
 
     /// Add an expression to the AST.
-    fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
+    fn add_expr(
+        &mut self,
+        expr: &Rc<Expression>,
+        stack: &mut Vec<Rc<Expression>>,
+    ) -> Result<(), String> {
         if expr.is_empty() {
             return error(self, "Unexpected empty expression");
         }
+
+        if self.expect_else_expr {
+            self.current = stack.pop().unwrap();
+            self.expect_else_expr = false;
+        }
+
         let ref current = *self.current;
         match current {
             Expression::Bin(e) => {
-                return e.borrow_mut().add_child(expr);
+                e.borrow_mut().add_child(expr)?;
             }
             Expression::Cmd(e) => {
-                return e.borrow_mut().add_child(expr);
+                e.borrow_mut().add_child(expr)?;
             }
             Expression::Empty => {
                 self.current = Rc::clone(expr);
@@ -197,12 +207,7 @@ where
                 return error(self, "Dangling expression after literal");
             }
             Expression::Branch(e) => {
-                if self.expect_else_expr {
-                    e.borrow_mut().else_branch = Rc::clone(expr);
-                    self.expect_else_expr = false;
-                    return Ok(());
-                }
-                return e.borrow_mut().add_child(expr);
+                e.borrow_mut().add_child(expr)?;
             }
         }
 
@@ -451,12 +456,18 @@ impl HasLocation for BranchExpr {
     }
 }
 
+impl BranchExpr {
+    fn is_else_expected(&self) -> bool {
+        return !self.condition.is_empty() && !self.if_branch.is_empty();
+    }
+}
+
 impl Eval for BranchExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.condition.is_empty() {
-            return error(self, "Missing if condition");
+            return error(self, "Missing IF condition");
         } else if self.if_branch.is_empty() {
-            return error(self, "Missing if branch");
+            return error(self, "Missing IF branch");
         }
         let cond_value = match self.condition.eval()? {
             Value::Int(i) => i != 0,
@@ -479,6 +490,10 @@ impl ExprNode for BranchExpr {
             self.condition = Rc::clone(child);
         } else if self.if_branch.is_empty() {
             self.if_branch = Rc::clone(child);
+        } else if self.else_branch.is_empty() {
+            self.else_branch = Rc::clone(child);
+        } else {
+            return error(self, "Unexpected conditional branch");
         }
         Ok(())
     }
@@ -572,7 +587,7 @@ impl Interp {
                     }
                     let expr = parser.current;
                     parser.current = stack.pop().unwrap();
-                    parser.add_expr(&expr)?;
+                    parser.add_expr(&expr, &mut stack)?;
                 }
                 Token::Literal(ref s) => {
                     if s == "exit" || s == "quit" {
@@ -585,12 +600,20 @@ impl Interp {
                             else_branch: Rc::new(Expression::Empty),
                             loc: parser.loc,
                         })));
-                        parser.add_expr(&expr)?;
+                        parser.add_expr(&expr, &mut stack)?;
                     } else if s == "else" {
-                        if matches!(&*parser.current, Expression::Branch(_)) {
+                        if let Expression::Branch(b) = &*parser.current {
+                            if !b.borrow().is_else_expected() {
+                                return error(
+                                    &parser,
+                                    "Conditional expression or IF branch missing",
+                                );
+                            }
                             parser.expect_else_expr = true;
+                            stack.push(Rc::clone(&parser.current));
+                            parser.current = Rc::new(Expression::Empty);
                         } else {
-                            return error(&parser, "else without if");
+                            return error(&parser, "ELSE without IF");
                         }
                     } else if parser.current.is_empty() && is_command(s) {
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
@@ -598,10 +621,10 @@ impl Interp {
                             args: Default::default(),
                             loc: parser.loc,
                         })));
-                        parser.add_expr(&expr)?;
+                        parser.add_expr(&expr, &mut stack)?;
                     } else {
                         let expr = Rc::new(Expression::Lit(tok));
-                        parser.add_expr(&expr)?;
+                        parser.add_expr(&expr, &mut stack)?;
                     }
                 }
                 Token::Operator(op) => {
@@ -618,7 +641,12 @@ impl Interp {
             }
         }
         if !stack.is_empty() {
-            return error(&parser, "Unmatched parenthesis");
+            let msg = if parser.expect_else_expr {
+                "Dangling else"
+            } else {
+                "Unbalanced parenthesis"
+            };
+            return error(&parser, msg);
         }
 
         let ref ast_root = *parser.current;
