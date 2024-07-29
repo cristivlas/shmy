@@ -259,17 +259,6 @@ impl ExprNode for BinExpr {
             self.rhs = Rc::clone(child);
             Ok(())
         } else {
-            // if let Expression::Lit(Token::Literal(s)) = &*self.rhs {
-            //     if is_command(s) {
-            //         let cmd = Expression::Cmd(RefCell::new(Command {
-            //             cmd: s.to_owned(),
-            //             args: vec![Rc::clone(child)],
-            //             loc: self.loc,
-            //         }));
-            //         self.rhs = Rc::new(cmd);
-            //         return Ok(());
-            //     }
-            // }
             error(self, "Dangling expression")
         }
     }
