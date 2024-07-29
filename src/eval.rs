@@ -59,6 +59,7 @@ struct Parser<I: Iterator<Item = char>> {
     escaped: bool,
     quoted: bool,
     expect_else_expr: bool,
+    empty: Rc<Expression>,
     current: Rc<Expression>, // Current expression
 }
 
@@ -72,6 +73,10 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
+    fn empty(&self) -> Rc<Expression> {
+        Rc::clone(&self.empty)
+    }
+
     fn next(&mut self) {
         self.loc.col += 1;
         self.chars.next();
@@ -223,6 +228,11 @@ where
             _ => {}
         }
         false
+    }
+
+    fn push(&mut self, stack: &mut Vec<Rc<Expression>>) {
+        stack.push(Rc::clone(&self.current));
+        self.current = self.empty();
     }
 }
 
@@ -560,13 +570,16 @@ fn is_command(literal: &String) -> bool {
 
 impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
+        let empty = Rc::new(Expression::Empty);
+
         let mut parser = Parser {
             chars: input.chars().peekable(),
             loc: Location { line: 1, col: 1 },
             escaped: false,
             quoted: false,
             expect_else_expr: false,
-            current: Rc::new(Expression::Empty),
+            empty: Rc::clone(&empty),
+            current: Rc::clone(&empty),
         };
 
         let mut stack: Vec<Rc<Expression>> = Vec::new();
@@ -578,12 +591,11 @@ impl Interp {
                     break;
                 }
                 Token::LeftParen => {
-                    stack.push(Rc::clone(&parser.current));
-                    parser.current = Rc::new(Expression::Empty);
+                    parser.push(&mut stack);
                 }
                 Token::RightParen => {
                     if stack.is_empty() {
-                        return error(&parser, "Unmatched closed parenthesis");
+                        return error(&parser, "Unmatched right parenthesis");
                     }
                     let expr = parser.current;
                     parser.current = stack.pop().unwrap();
@@ -595,9 +607,9 @@ impl Interp {
                     }
                     if s == "if" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
-                            condition: Rc::new(Expression::Empty),
-                            if_branch: Rc::new(Expression::Empty),
-                            else_branch: Rc::new(Expression::Empty),
+                            condition: parser.empty(),
+                            if_branch: parser.empty(),
+                            else_branch: parser.empty(),
                             loc: parser.loc,
                         })));
                         parser.add_expr(&expr, &mut stack)?;
@@ -610,8 +622,7 @@ impl Interp {
                                 );
                             }
                             parser.expect_else_expr = true;
-                            stack.push(Rc::clone(&parser.current));
-                            parser.current = Rc::new(Expression::Empty);
+                            parser.push(&mut stack);
                         } else {
                             return error(&parser, "ELSE without IF");
                         }
@@ -634,7 +645,7 @@ impl Interp {
                     parser.current = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
                         lhs: parser.current.clone(),
-                        rhs: Rc::new(Expression::Empty),
+                        rhs: parser.empty(),
                         loc: parser.loc,
                     })));
                 }
