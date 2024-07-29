@@ -1,5 +1,6 @@
 use crate::cmds::{get_command, Exec};
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
@@ -57,6 +58,7 @@ struct Parser<I: Iterator<Item = char>> {
     loc: Location,
     escaped: bool,
     quoted: bool,
+    expect_else_expr: bool,
     current: Rc<Expression>, // Current expression
 }
 
@@ -162,7 +164,7 @@ where
                         self.escaped = false;
                     }
                     if has_chars && literal.is_empty() {
-                        return error(self, "Unrecognized token");
+                        return error(self, "Empty token");
                     } else {
                         tok = Token::Literal(literal);
                     }
@@ -192,7 +194,15 @@ where
                 self.current = Rc::clone(expr);
             }
             Expression::Lit(_) => {
-                return error(self, "Expression after literal");
+                return error(self, "Dangling expression after literal");
+            }
+            Expression::Branch(e) => {
+                if self.expect_else_expr {
+                    e.borrow_mut().else_branch = Rc::clone(expr);
+                    self.expect_else_expr = false;
+                    return Ok(());
+                }
+                return e.borrow_mut().add_child(expr);
             }
         }
 
@@ -217,6 +227,7 @@ enum Expression {
     Bin(RefCell<BinExpr>),
     Cmd(RefCell<Command>),
     Lit(Token),
+    Branch(RefCell<BranchExpr>),
 }
 
 impl Expression {
@@ -248,18 +259,18 @@ impl ExprNode for BinExpr {
             self.rhs = Rc::clone(child);
             Ok(())
         } else {
-            if let Expression::Lit(Token::Literal(s)) = &*self.rhs {
-                if is_command(s) {
-                    let cmd = Expression::Cmd(RefCell::new(Command {
-                        cmd: s.to_owned(),
-                        args: vec![Rc::clone(child)],
-                        loc: self.loc,
-                    }));
-                    self.rhs = Rc::new(cmd);
-                    return Ok(());
-                }
-            }
-            error(self, "Unexpected dangling expression")
+            // if let Expression::Lit(Token::Literal(s)) = &*self.rhs {
+            //     if is_command(s) {
+            //         let cmd = Expression::Cmd(RefCell::new(Command {
+            //             cmd: s.to_owned(),
+            //             args: vec![Rc::clone(child)],
+            //             loc: self.loc,
+            //         }));
+            //         self.rhs = Rc::new(cmd);
+            //         return Ok(());
+            //     }
+            // }
+            error(self, "Dangling expression")
         }
     }
 }
@@ -311,7 +322,7 @@ impl BinExpr {
                     return Ok(Value::Real(i as f64 - j));
                 }
                 Value::Str(_) => {
-                    return error(self, "Can't subtract string from integer");
+                    return error(self, "Cannot subtract string from integer");
                 }
             },
             Value::Real(i) => match rhs {
@@ -322,15 +333,55 @@ impl BinExpr {
                     return Ok(Value::Real(i - j));
                 }
                 Value::Str(_) => {
-                    return error(self, "Can't subtract string from number");
+                    return error(self, "Cannot subtract string from number");
                 }
             },
             Value::Str(_) => match rhs {
                 Value::Int(_) | Value::Real(_) => {
-                    return error(self, "Can't subtract number from string");
+                    return error(self, "Cannot subtract number from string");
                 }
                 Value::Str(_) => {
-                    return error(self, "Can't subtract strings");
+                    return error(self, "Cannot subtract strings");
+                }
+            },
+        }
+    }
+
+    fn eval_cmp(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Int(i - j));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Int((i as f64 - j) as i64));
+                }
+                Value::Str(_) => {
+                    return error(self, "Cannot compare number to string");
+                }
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => {
+                    return Ok(Value::Int((i - j as f64) as i64));
+                }
+                Value::Real(j) => {
+                    return Ok(Value::Int((i - j) as i64));
+                }
+                Value::Str(_) => {
+                    return error(self, "Cannot compare number to string");
+                }
+            },
+            Value::Str(s1) => match rhs {
+                Value::Int(_) | Value::Real(_) => {
+                    return error(self, "Cannot comapre string to number");
+                }
+                Value::Str(s2) => {
+                    let ord = match s1.cmp(&s2) {
+                        Ordering::Equal => 0,
+                        Ordering::Less => -1,
+                        Ordering::Greater => 1,
+                    };
+                    Ok(Value::Int(ord))
                 }
             },
         }
@@ -347,7 +398,10 @@ impl Eval for BinExpr {
 
         match self.op {
             Op::Assign => Ok(Value::Str("TODO: Assign".to_owned())),
-            Op::Equals => Ok(Value::Str("TODO: Equals".to_owned())),
+            Op::Equals => match self.eval_cmp(lhs, rhs)? {
+                Value::Int(i) => Ok(Value::Int((i == 0) as i64)),
+                _ => panic!("Unexpected non-integer result"),
+            },
             Op::Minus => self.eval_minus(lhs, rhs),
             Op::Plus => self.eval_plus(lhs, rhs),
         }
@@ -390,6 +444,53 @@ impl ExprNode for Command {
     fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.cmd.is_empty());
         self.args.push(Rc::clone(child));
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BranchExpr {
+    condition: Rc<Expression>,
+    if_branch: Rc<Expression>,
+    else_branch: Rc<Expression>,
+    loc: Location,
+}
+
+impl HasLocation for BranchExpr {
+    fn loc(&self) -> &Location {
+        &self.loc
+    }
+}
+
+impl Eval for BranchExpr {
+    fn eval(&self) -> Result<Value, String> {
+        if self.condition.is_empty() {
+            return error(self, "Missing if condition");
+        } else if self.if_branch.is_empty() {
+            return error(self, "Missing if branch");
+        }
+        let cond_value = match self.condition.eval()? {
+            Value::Int(i) => i != 0,
+            Value::Real(r) => r != 0.0,
+            Value::Str(s) => !s.is_empty(),
+        };
+        if cond_value {
+            self.if_branch.eval()
+        } else if self.else_branch.is_empty() {
+            Ok(Value::Int(0))
+        } else {
+            self.else_branch.eval()
+        }
+    }
+}
+
+impl ExprNode for BranchExpr {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+        if self.condition.is_empty() {
+            self.condition = Rc::clone(child);
+        } else if self.if_branch.is_empty() {
+            self.if_branch = Rc::clone(child);
+        }
         Ok(())
     }
 }
@@ -442,6 +543,7 @@ impl Eval for Expression {
                     panic!("Invalid token in literal eval");
                 }
             },
+            Expression::Branch(b) => b.borrow().eval(),
         }
     }
 }
@@ -459,6 +561,7 @@ impl Interp {
             loc: Location { line: 1, col: 1 },
             escaped: false,
             quoted: false,
+            expect_else_expr: false,
             current: Rc::new(Expression::Empty),
         };
 
@@ -486,7 +589,21 @@ impl Interp {
                     if s == "exit" || s == "quit" {
                         process::exit(0);
                     }
-                    if parser.current.is_empty() && is_command(s) {
+                    if s == "if" {
+                        let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
+                            condition: Rc::new(Expression::Empty),
+                            if_branch: Rc::new(Expression::Empty),
+                            else_branch: Rc::new(Expression::Empty),
+                            loc: parser.loc,
+                        })));
+                        parser.add_expr(&expr)?;
+                    } else if s == "else" {
+                        if matches!(&*parser.current, Expression::Branch(_)) {
+                            parser.expect_else_expr = true;
+                        } else {
+                            return error(&parser, "else without if");
+                        }
+                    } else if parser.current.is_empty() && is_command(s) {
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                             cmd: s.to_owned(),
                             args: Default::default(),
