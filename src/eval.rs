@@ -56,6 +56,16 @@ trait HasLocation {
     fn loc(&self) -> &Location;
 }
 
+macro_rules! derive_has_location {
+    ($type:ty) => {
+        impl HasLocation for $type {
+            fn loc(&self) -> &Location {
+                &self.loc
+            }
+        }
+    };
+}
+
 fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
     return Err(format!("{} {}", t.loc(), s));
 }
@@ -224,9 +234,7 @@ where
                 Ok(())
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
-            Expression::Lit(_, _) => {
-                return error(self, "Dangling expression after literal");
-            }
+            Expression::Lit(_, _) => error(self, "Dangling expression after literal"),
         }
     }
 
@@ -263,11 +271,7 @@ where
             let current_scope = Rc::clone(&self.scope);
             self.scope_stack.push(current_scope.clone());
             // Create new scope and make it current
-            self.scope = Rc::new(Scope {
-                parent: Some(current_scope),
-                vars: RefCell::new(HashMap::new()),
-            });
-
+            self.scope = Scope::new(Some(current_scope));
             // Start a new group
             self.group_stack.push(Rc::clone(&self.group));
             self.group = new_group(self.loc);
@@ -320,14 +324,17 @@ impl Scope {
         match self.vars.borrow().get(s) {
             Some(v) => Some(v.clone()),
             None => match &self.parent {
-                Some(scope) => {
-                    return scope.lookup(s);
-                }
-                _ => {
-                    return None;
-                }
+                Some(scope) => scope.lookup(s),
+                _ => None,
             },
         }
+    }
+
+    fn new(parent: Option<Rc<Scope>>) -> Rc<Scope> {
+        Rc::new(Scope {
+            parent: parent,
+            vars: RefCell::new(HashMap::new()),
+        })
     }
 }
 
@@ -356,11 +363,7 @@ struct BinExpr {
     scope: Rc<Scope>, // Scope needed for assignment op.
 }
 
-impl HasLocation for BinExpr {
-    fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
+derive_has_location!(BinExpr);
 
 impl ExprNode for BinExpr {
     /// Add right hand-side child expression.
@@ -380,26 +383,14 @@ impl BinExpr {
     fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Int(i + j));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Real(i as f64 + j));
-                }
-                Value::Str(ref s) => {
-                    return Ok(Value::Str(format!("{}{}", i, s)));
-                }
+                Value::Int(j) => Ok(Value::Int(i + j)),
+                Value::Real(j) => Ok(Value::Real(i as f64 + j)),
+                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
             },
             Value::Real(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Real(i + j as f64));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Real(i + j));
-                }
-                Value::Str(ref s) => {
-                    return Ok(Value::Str(format!("{}{}", i, s)));
-                }
+                Value::Int(j) => Ok(Value::Real(i + j as f64)),
+                Value::Real(j) => Ok(Value::Real(i + j)),
+                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
             },
             Value::Str(i) => {
                 let format_string = |j: &dyn fmt::Display| Ok(Value::Str(format!("{}{}", i, j)));
@@ -416,34 +407,18 @@ impl BinExpr {
     fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Int(i - j));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Real(i as f64 - j));
-                }
-                Value::Str(_) => {
-                    return error(self, "Cannot subtract string from integer");
-                }
+                Value::Int(j) => Ok(Value::Int(i - j)),
+                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
+                Value::Str(_) => error(self, "Cannot subtract string from integer"),
             },
             Value::Real(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Real(i - j as f64));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Real(i - j));
-                }
-                Value::Str(_) => {
-                    return error(self, "Cannot subtract string from number");
-                }
+                Value::Int(j) => Ok(Value::Real(i - j as f64)),
+                Value::Real(j) => Ok(Value::Real(i - j)),
+                Value::Str(_) => error(self, "Cannot subtract string from number"),
             },
             Value::Str(_) => match rhs {
-                Value::Int(_) | Value::Real(_) => {
-                    return error(self, "Cannot subtract number from string");
-                }
-                Value::Str(_) => {
-                    return error(self, "Cannot subtract strings");
-                }
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot subtract number from string"),
+                Value::Str(_) => error(self, "Cannot subtract strings"),
             },
         }
     }
@@ -451,31 +426,17 @@ impl BinExpr {
     fn eval_cmp(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Int(i - j));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Int((i as f64 - j) as i64));
-                }
-                Value::Str(_) => {
-                    return error(self, "Cannot compare number to string");
-                }
+                Value::Int(j) => Ok(Value::Int(i - j)),
+                Value::Real(j) => Ok(Value::Int((i as f64 - j) as i64)),
+                Value::Str(_) => error(self, "Cannot compare number to string"),
             },
             Value::Real(i) => match rhs {
-                Value::Int(j) => {
-                    return Ok(Value::Int((i - j as f64) as i64));
-                }
-                Value::Real(j) => {
-                    return Ok(Value::Int((i - j) as i64));
-                }
-                Value::Str(_) => {
-                    return error(self, "Cannot compare number to string");
-                }
+                Value::Int(j) => Ok(Value::Int((i - j as f64) as i64)),
+                Value::Real(j) => Ok(Value::Int((i - j) as i64)),
+                Value::Str(_) => error(self, "Cannot compare number to string"),
             },
             Value::Str(s1) => match rhs {
-                Value::Int(_) | Value::Real(_) => {
-                    return error(self, "Cannot comapre string to number");
-                }
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot comapre string to number"),
                 Value::Str(s2) => {
                     let ord = match s1.cmp(&s2) {
                         Ordering::Equal => 0,
@@ -527,11 +488,7 @@ struct GroupExpr {
     loc: Location,
 }
 
-impl HasLocation for GroupExpr {
-    fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
+derive_has_location!(GroupExpr);
 
 impl Eval for GroupExpr {
     fn eval(&self) -> Result<Value, String> {
@@ -557,11 +514,7 @@ struct Command {
     loc: Location,
 }
 
-impl HasLocation for Command {
-    fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
+derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> Result<Value, String> {
@@ -599,11 +552,7 @@ struct BranchExpr {
     loc: Location,
 }
 
-impl HasLocation for BranchExpr {
-    fn loc(&self) -> &Location {
-        &self.loc
-    }
-}
+derive_has_location!(BranchExpr);
 
 impl BranchExpr {
     fn is_else_expected(&mut self) -> bool {
@@ -645,7 +594,6 @@ impl ExprNode for BranchExpr {
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
             if !self.expect_else {
-
                 return error(self, "Missing ELSE keyword");
             }
             self.else_branch = Rc::clone(child);
@@ -741,10 +689,7 @@ impl Interp {
             expect_else_expr: false,
             empty: Rc::clone(&empty),
             expr: Rc::clone(&empty),
-            scope: Rc::new(Scope {
-                parent: None,
-                vars: RefCell::new(HashMap::new()),
-            }),
+            scope: Scope::new(None),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
             group: new_group(loc),
