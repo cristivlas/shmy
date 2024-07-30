@@ -17,7 +17,7 @@ macro_rules! debug_dbg {
 }
 
 fn is_reserved(c: char) -> bool {
-    const RESERVED_CHARS: &str = " \t\n\r()+-";
+    const RESERVED_CHARS: &str = " \t\n\r()+-=;";
     RESERVED_CHARS.contains(c)
 }
 
@@ -36,6 +36,7 @@ enum Token {
     Operator(Op),
     LeftParen,
     RightParen,
+    Semicolon,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -50,7 +51,7 @@ impl fmt::Display for Location {
     }
 }
 
-// Trait for objects with location info.
+/// Trait for objects with location info.
 trait HasLocation {
     fn loc(&self) -> &Location;
 }
@@ -75,6 +76,8 @@ struct Parser<I: Iterator<Item = char>> {
     scope: Rc<Scope>,
     expr_stack: Vec<Rc<Expression>>,
     scope_stack: Vec<Rc<Scope>>,
+    group: Rc<Expression>,
+    group_stack: Vec<Rc<Expression>>,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -112,6 +115,10 @@ where
                 ')' => {
                     self.next();
                     tok = Token::RightParen;
+                }
+                ';' => {
+                    self.next();
+                    tok = Token::Semicolon;
                 }
                 '+' => {
                     self.next();
@@ -209,57 +216,96 @@ where
 
         let ref current = *self.expr;
         match current {
-            Expression::Bin(e) => {
-                e.borrow_mut().add_child(expr)?;
-            }
-            Expression::Cmd(e) => {
-                e.borrow_mut().add_child(expr)?;
-            }
+            Expression::Bin(e) => e.borrow_mut().add_child(expr),
+            Expression::Branch(e) => e.borrow_mut().add_child(expr),
+            Expression::Cmd(e) => e.borrow_mut().add_child(expr),
             Expression::Empty => {
                 self.expr = Rc::clone(expr);
+                Ok(())
             }
+            Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::Lit(_, _) => {
                 return error(self, "Dangling expression after literal");
             }
-            Expression::Branch(e) => {
-                e.borrow_mut().add_child(expr)?;
-            }
         }
+    }
 
-        Ok(())
+    fn add_current_expr_to_group(&mut self) {
+        if !self.expr.is_empty() {
+            match &*self.group {
+                Expression::Group(g) => {
+                    g.borrow_mut().group.push(Rc::clone(&self.expr));
+                }
+                _ => {
+                    dbg!(&self.group);
+                    panic!("Expression is not a group");
+                }
+            }
+            self.expr = self.empty(); // Clear the current expression
+        }
+    }
+
+    fn finalize_group(&mut self) {
+        self.add_current_expr_to_group();
     }
 
     fn is_arg_expected(&self) -> bool {
         let ref current = *self.expr;
         match current {
-            Expression::Cmd(_) => {
-                return true;
-            }
-            _ => {}
+            Expression::Cmd(_) => true,
+            _ => false,
         }
-        false
     }
 
-    fn push(&mut self) {
-        // Create new scope and make it current
-        let scope = Rc::new(Scope {
-            parent: Some(Rc::clone(&self.scope)),
-            vars: RefCell::new(HashMap::new()),
-        });
-        self.scope_stack.push(Rc::clone(&self.scope));
-        self.scope = scope;
+    fn push(&mut self, make_group: bool) {
+        if make_group {
+            // Save the current scope
+            let current_scope = Rc::clone(&self.scope);
+            self.scope_stack.push(current_scope.clone());
+            // Create new scope and make it current
+            self.scope = Rc::new(Scope {
+                parent: Some(current_scope),
+                vars: RefCell::new(HashMap::new()),
+            });
+
+            // Start a new group
+            self.group_stack.push(Rc::clone(&self.group));
+            self.group = new_group(self.loc);
+        }
+
         // Push current expression, and make the empty expression current
         self.expr_stack.push(Rc::clone(&self.expr));
         self.expr = self.empty();
     }
 
-    fn pop(&mut self) {
-        self.expr = self.expr_stack.pop().unwrap();
-        self.scope = self.scope_stack.pop().unwrap();
-    }
+    fn pop(&mut self) -> Result<(), String> {
+        self.finalize_group();
+        assert!(self.expr.is_empty());
 
-    fn get_current_expr(&self) -> Rc<Expression> {
-        return Rc::clone(&self.expr);
+        self.expr = self.expr_stack.pop().unwrap();
+
+        let expr = {
+            match &*self.group {
+                Expression::Group(g) => {
+                    let group = &g.borrow().group;
+                    if group.len() == 1 {
+                        Rc::clone(&group[0])
+                    } else {
+                        Rc::clone(&self.group)
+                    }
+                }
+                _ => {
+                    dbg!(&self.group);
+                    panic!("Expression is not a group");
+                }
+            }
+        };
+
+        self.add_expr(&expr)?;
+
+        self.group = self.group_stack.pop().unwrap(); // Restore group.
+        self.scope = self.scope_stack.pop().unwrap(); // Restore scope
+        Ok(())
     }
 }
 
@@ -285,13 +331,14 @@ impl Scope {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum Expression {
     Empty,
     Bin(RefCell<BinExpr>),
+    Group(RefCell<GroupExpr>),
+    Branch(RefCell<BranchExpr>),
     Cmd(RefCell<Command>),
     Lit(Token, Rc<Scope>),
-    Branch(RefCell<BranchExpr>),
 }
 
 impl Expression {
@@ -300,13 +347,13 @@ impl Expression {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct BinExpr {
     op: Op,
     lhs: Rc<Expression>,
     rhs: Rc<Expression>,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Rc<Scope>, // Scope needed for assignment op.
 }
 
 impl HasLocation for BinExpr {
@@ -449,10 +496,7 @@ impl BinExpr {
                 .insert(s.to_owned(), rhs.clone());
             Ok(rhs)
         } else {
-            error(
-                self,
-                "Identifier expected on left hand-side of assignment",
-            )
+            error(self, "Identifier expected on left hand-side of assignment")
         }
     }
 }
@@ -477,7 +521,36 @@ impl Eval for BinExpr {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+struct GroupExpr {
+    group: Vec<Rc<Expression>>,
+    loc: Location,
+}
+
+impl HasLocation for GroupExpr {
+    fn loc(&self) -> &Location {
+        &self.loc
+    }
+}
+
+impl Eval for GroupExpr {
+    fn eval(&self) -> Result<Value, String> {
+        let mut result = error(self, "Empty group");
+        for e in &self.group {
+            result = e.eval();
+        }
+        return result; // Return the result of the last evaluation
+    }
+}
+
+impl ExprNode for GroupExpr {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+        self.group.push(Rc::clone(child));
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 struct Command {
     cmd: String,
     args: Vec<Rc<Expression>>,
@@ -517,11 +590,12 @@ impl ExprNode for Command {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct BranchExpr {
     condition: Rc<Expression>,
     if_branch: Rc<Expression>,
     else_branch: Rc<Expression>,
+    expect_else: bool,
     loc: Location,
 }
 
@@ -532,8 +606,12 @@ impl HasLocation for BranchExpr {
 }
 
 impl BranchExpr {
-    fn is_else_expected(&self) -> bool {
-        return !self.condition.is_empty() && !self.if_branch.is_empty();
+    fn is_else_expected(&mut self) -> bool {
+        if !self.condition.is_empty() && !self.if_branch.is_empty() {
+            self.expect_else = true;
+            return true;
+        }
+        false
     }
 }
 
@@ -566,6 +644,10 @@ impl ExprNode for BranchExpr {
         } else if self.if_branch.is_empty() {
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
+            if !self.expect_else {
+
+                return error(self, "Missing ELSE keyword");
+            }
             self.else_branch = Rc::clone(child);
         } else {
             return error(self, "Dangling expression after else branch");
@@ -605,6 +687,8 @@ impl Eval for Expression {
     fn eval(&self) -> Result<Value, String> {
         match &self {
             Expression::Bin(b) => b.borrow().eval(),
+            Expression::Group(b) => b.borrow().eval(),
+            Expression::Branch(b) => b.borrow().eval(),
             Expression::Cmd(c) => c.borrow().eval(),
             Expression::Empty => {
                 panic!("Empty expression");
@@ -628,7 +712,6 @@ impl Eval for Expression {
                     panic!("Invalid token in literal eval");
                 }
             },
-            Expression::Branch(b) => b.borrow().eval(),
         }
     }
 }
@@ -639,13 +722,20 @@ fn is_command(literal: &String) -> bool {
     get_command(&literal).is_some()
 }
 
+fn new_group(loc: Location) -> Rc<Expression> {
+    return Rc::new(Expression::Group(RefCell::new(GroupExpr {
+        group: Vec::new(),
+        loc: loc.clone(),
+    })));
+}
+
 impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
         let empty = Rc::new(Expression::Empty);
-
+        let loc = Location { line: 1, col: 1 };
         let mut parser = Parser {
             chars: input.chars().peekable(),
-            loc: Location { line: 1, col: 1 },
+            loc: loc,
             escaped: false,
             quoted: false,
             expect_else_expr: false,
@@ -657,6 +747,8 @@ impl Interp {
             }),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
+            group: new_group(loc),
+            group_stack: Vec::new(),
         };
 
         loop {
@@ -666,15 +758,16 @@ impl Interp {
                     break;
                 }
                 Token::LeftParen => {
-                    parser.push();
+                    parser.push(true);
                 }
                 Token::RightParen => {
                     if parser.expr_stack.is_empty() {
                         return error(&parser, "Unmatched right parenthesis");
                     }
-                    let expr = parser.get_current_expr();
-                    parser.pop();
-                    parser.add_expr(&expr)?;
+                    parser.pop()?;
+                }
+                Token::Semicolon => {
+                    parser.add_current_expr_to_group();
                 }
                 Token::Literal(ref s) => {
                     if s == "exit" || s == "quit" {
@@ -685,19 +778,20 @@ impl Interp {
                             condition: parser.empty(),
                             if_branch: parser.empty(),
                             else_branch: parser.empty(),
+                            expect_else: false,
                             loc: parser.loc,
                         })));
                         parser.add_expr(&expr)?;
                     } else if s == "else" {
                         if let Expression::Branch(b) = &*parser.expr {
-                            if !b.borrow().is_else_expected() {
+                            if !b.borrow_mut().is_else_expected() {
                                 return error(
                                     &parser,
                                     "Conditional expression or IF branch missing",
                                 );
                             }
                             parser.expect_else_expr = true;
-                            parser.push();
+                            parser.push(false);
                         } else {
                             return error(&parser, "ELSE without IF");
                         }
@@ -735,8 +829,12 @@ impl Interp {
             };
             return error(&parser, msg);
         }
+        assert!(parser.group_stack.is_empty()); // because the expr_stack is empty
 
-        let ast_root = parser.get_current_expr();
+        parser.finalize_group();
+
+        // Evaluate the AST
+        let ast_root = parser.group;
         debug_dbg!(&ast_root);
         ast_root.eval()
     }
