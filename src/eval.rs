@@ -1,9 +1,20 @@
 use crate::cmds::{get_command, Exec};
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
+
+macro_rules! debug_dbg {
+    ($($arg:tt)*) => {
+        if cfg!(debug_assertions) {
+            dbg!($($arg)*)
+        } else {
+            ($($arg)*)
+        }
+    };
+}
 
 fn is_reserved(c: char) -> bool {
     const RESERVED_CHARS: &str = " \t\n\r()+-";
@@ -60,7 +71,10 @@ struct Parser<I: Iterator<Item = char>> {
     quoted: bool,
     expect_else_expr: bool,
     empty: Rc<Expression>,
-    current: Rc<Expression>, // Current expression
+    expr: Rc<Expression>,
+    scope: Rc<Scope>,
+    expr_stack: Vec<Rc<Expression>>,
+    scope_stack: Vec<Rc<Scope>>,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -183,21 +197,17 @@ where
     }
 
     /// Add an expression to the AST.
-    fn add_expr(
-        &mut self,
-        expr: &Rc<Expression>,
-        stack: &mut Vec<Rc<Expression>>,
-    ) -> Result<(), String> {
+    fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         if expr.is_empty() {
             return error(self, "Unexpected empty expression");
         }
 
         if self.expect_else_expr {
-            self.current = stack.pop().unwrap();
+            self.expr = self.expr_stack.pop().unwrap();
             self.expect_else_expr = false;
         }
 
-        let ref current = *self.current;
+        let ref current = *self.expr;
         match current {
             Expression::Bin(e) => {
                 e.borrow_mut().add_child(expr)?;
@@ -206,9 +216,9 @@ where
                 e.borrow_mut().add_child(expr)?;
             }
             Expression::Empty => {
-                self.current = Rc::clone(expr);
+                self.expr = Rc::clone(expr);
             }
-            Expression::Lit(_) => {
+            Expression::Lit(_, _) => {
                 return error(self, "Dangling expression after literal");
             }
             Expression::Branch(e) => {
@@ -220,7 +230,7 @@ where
     }
 
     fn is_arg_expected(&self) -> bool {
-        let ref current = *self.current;
+        let ref current = *self.expr;
         match current {
             Expression::Cmd(_) => {
                 return true;
@@ -230,9 +240,48 @@ where
         false
     }
 
-    fn push(&mut self, stack: &mut Vec<Rc<Expression>>) {
-        stack.push(Rc::clone(&self.current));
-        self.current = self.empty();
+    fn push(&mut self) {
+        // Create new scope and make it current
+        let scope = Rc::new(Scope {
+            parent: Some(Rc::clone(&self.scope)),
+            vars: RefCell::new(HashMap::new()),
+        });
+        self.scope_stack.push(Rc::clone(&self.scope));
+        self.scope = scope;
+        // Push current expression, and make the empty expression current
+        self.expr_stack.push(Rc::clone(&self.expr));
+        self.expr = self.empty();
+    }
+
+    fn pop(&mut self) {
+        self.expr = self.expr_stack.pop().unwrap();
+        self.scope = self.scope_stack.pop().unwrap();
+    }
+
+    fn get_current_expr(&self) -> Rc<Expression> {
+        return Rc::clone(&self.expr);
+    }
+}
+
+#[derive(Debug)]
+struct Scope {
+    parent: Option<Rc<Scope>>,
+    vars: RefCell<HashMap<String, Value>>,
+}
+
+impl Scope {
+    fn lookup(&self, s: &str) -> Option<Value> {
+        match self.vars.borrow().get(s) {
+            Some(v) => Some(v.clone()),
+            None => match &self.parent {
+                Some(scope) => {
+                    return scope.lookup(s);
+                }
+                _ => {
+                    return None;
+                }
+            },
+        }
     }
 }
 
@@ -241,7 +290,7 @@ enum Expression {
     Empty,
     Bin(RefCell<BinExpr>),
     Cmd(RefCell<Command>),
-    Lit(Token),
+    Lit(Token, Rc<Scope>),
     Branch(RefCell<BranchExpr>),
 }
 
@@ -257,6 +306,7 @@ struct BinExpr {
     lhs: Rc<Expression>,
     rhs: Rc<Expression>,
     loc: Location,
+    scope: Rc<Scope>,
 }
 
 impl HasLocation for BinExpr {
@@ -390,6 +440,21 @@ impl BinExpr {
             },
         }
     }
+
+    fn eval_assign(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        if let Value::Str(s) = lhs {
+            self.scope
+                .vars
+                .borrow_mut()
+                .insert(s.to_owned(), rhs.clone());
+            Ok(rhs)
+        } else {
+            error(
+                self,
+                "Identifier expected on left hand-side of assignment",
+            )
+        }
+    }
 }
 
 impl Eval for BinExpr {
@@ -401,7 +466,7 @@ impl Eval for BinExpr {
         let rhs = self.rhs.eval()?;
 
         match self.op {
-            Op::Assign => Ok(Value::Str("TODO: Assign".to_owned())),
+            Op::Assign => self.eval_assign(lhs, rhs),
             Op::Equals => match self.eval_cmp(lhs, rhs)? {
                 Value::Int(i) => Ok(Value::Int((i == 0) as i64)),
                 _ => panic!("Unexpected non-integer result"),
@@ -509,6 +574,7 @@ impl ExprNode for BranchExpr {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Value {
     Int(i64),
     Real(f64),
@@ -543,12 +609,17 @@ impl Eval for Expression {
             Expression::Empty => {
                 panic!("Empty expression");
             }
-            Expression::Lit(t) => match &t {
+            Expression::Lit(t, scope) => match &t {
                 Token::Literal(s) => {
                     if let Ok(i) = s.parse::<i64>() {
                         Ok(Value::Int(i))
                     } else if let Ok(f) = s.parse::<f64>() {
                         Ok(Value::Real(f))
+                    } else if s.starts_with("$") {
+                        match scope.lookup(&s[1..]) {
+                            None => Err(format!("Variable not found: {}", s)),
+                            Some(v) => Ok(v),
+                        }
                     } else {
                         Ok(Value::Str(s.to_owned()))
                     }
@@ -579,10 +650,14 @@ impl Interp {
             quoted: false,
             expect_else_expr: false,
             empty: Rc::clone(&empty),
-            current: Rc::clone(&empty),
+            expr: Rc::clone(&empty),
+            scope: Rc::new(Scope {
+                parent: None,
+                vars: RefCell::new(HashMap::new()),
+            }),
+            expr_stack: Vec::new(),
+            scope_stack: Vec::new(),
         };
-
-        let mut stack: Vec<Rc<Expression>> = Vec::new();
 
         loop {
             let tok = parser.next_token()?;
@@ -591,15 +666,15 @@ impl Interp {
                     break;
                 }
                 Token::LeftParen => {
-                    parser.push(&mut stack);
+                    parser.push();
                 }
                 Token::RightParen => {
-                    if stack.is_empty() {
+                    if parser.expr_stack.is_empty() {
                         return error(&parser, "Unmatched right parenthesis");
                     }
-                    let expr = parser.current;
-                    parser.current = stack.pop().unwrap();
-                    parser.add_expr(&expr, &mut stack)?;
+                    let expr = parser.get_current_expr();
+                    parser.pop();
+                    parser.add_expr(&expr)?;
                 }
                 Token::Literal(ref s) => {
                     if s == "exit" || s == "quit" {
@@ -612,9 +687,9 @@ impl Interp {
                             else_branch: parser.empty(),
                             loc: parser.loc,
                         })));
-                        parser.add_expr(&expr, &mut stack)?;
+                        parser.add_expr(&expr)?;
                     } else if s == "else" {
-                        if let Expression::Branch(b) = &*parser.current {
+                        if let Expression::Branch(b) = &*parser.expr {
                             if !b.borrow().is_else_expected() {
                                 return error(
                                     &parser,
@@ -622,36 +697,37 @@ impl Interp {
                                 );
                             }
                             parser.expect_else_expr = true;
-                            parser.push(&mut stack);
+                            parser.push();
                         } else {
                             return error(&parser, "ELSE without IF");
                         }
-                    } else if parser.current.is_empty() && is_command(s) {
+                    } else if parser.expr.is_empty() && is_command(s) {
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                             cmd: s.to_owned(),
                             args: Default::default(),
                             loc: parser.loc,
                         })));
-                        parser.add_expr(&expr, &mut stack)?;
+                        parser.add_expr(&expr)?;
                     } else {
-                        let expr = Rc::new(Expression::Lit(tok));
-                        parser.add_expr(&expr, &mut stack)?;
+                        let expr = Rc::new(Expression::Lit(tok, Rc::clone(&parser.scope)));
+                        parser.add_expr(&expr)?;
                     }
                 }
                 Token::Operator(op) => {
-                    if parser.current.is_empty() {
+                    if parser.expr.is_empty() {
                         return error(&parser, "Missing left-hand term in operation");
                     }
-                    parser.current = Rc::new(Expression::Bin(RefCell::new(BinExpr {
+                    parser.expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
-                        lhs: parser.current.clone(),
+                        lhs: parser.expr.clone(),
                         rhs: parser.empty(),
                         loc: parser.loc,
+                        scope: Rc::clone(&parser.scope),
                     })));
                 }
             }
         }
-        if !stack.is_empty() {
+        if !parser.expr_stack.is_empty() {
             let msg = if parser.expect_else_expr {
                 "Dangling else"
             } else {
@@ -660,8 +736,8 @@ impl Interp {
             return error(&parser, msg);
         }
 
-        let ref ast_root = *parser.current;
-        dbg!(ast_root);
+        let ast_root = parser.get_current_expr();
+        debug_dbg!(&ast_root);
         ast_root.eval()
     }
 }
