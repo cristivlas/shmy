@@ -17,7 +17,7 @@ macro_rules! debug_dbg {
 }
 
 fn is_reserved(c: char) -> bool {
-    const RESERVED_CHARS: &str = " \t\n\r()+-=;";
+    const RESERVED_CHARS: &str = " \t\n\r()+-=;/*";
     RESERVED_CHARS.contains(c)
 }
 
@@ -27,6 +27,8 @@ enum Op {
     Equals,
     Minus,
     Plus,
+    Div,
+    Mul,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +144,14 @@ where
                         tok = Token::Operator(Op::Minus);
                     }
                 }
+                '/' => {
+                    self.next();
+                    tok = Token::Operator(Op::Div);
+                }
+                '*' => {
+                    self.next();
+                    tok = Token::Operator(Op::Mul);
+                }
                 '=' => {
                     self.next();
                     if let Some(&next_c) = self.chars.peek() {
@@ -200,7 +210,7 @@ where
                         self.escaped = false;
                     }
                     if has_chars && literal.is_empty() {
-                        return error(self, "Empty token");
+                        error(self, "Empty token")?;
                     } else {
                         tok = Token::Literal(literal);
                     }
@@ -208,7 +218,7 @@ where
             }
         }
         if self.quoted {
-            return error(self, "Unbalanced quotes");
+            error(self, "Unbalanced quotes")?;
         }
         Ok(tok)
     }
@@ -216,7 +226,7 @@ where
     /// Add an expression to the AST.
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         if expr.is_empty() {
-            return error(self, "Unexpected empty expression");
+            error(self, "Unexpected empty expression")?;
         }
 
         if self.expect_else_expr {
@@ -379,50 +389,40 @@ impl ExprNode for BinExpr {
     }
 }
 
-impl BinExpr {
-    fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int(i + j)),
-                Value::Real(j) => Ok(Value::Real(i as f64 + j)),
-                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i + j as f64)),
-                Value::Real(j) => Ok(Value::Real(i + j)),
-                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
-            },
-            Value::Str(i) => {
-                let format_string = |j: &dyn fmt::Display| Ok(Value::Str(format!("{}{}", i, j)));
-
-                match rhs {
-                    Value::Int(j) => format_string(&j),
-                    Value::Real(j) => format_string(&j),
-                    Value::Str(ref j) => format_string(j),
+macro_rules! div_match {
+    ($self:expr, $i:expr, $rhs:expr) => {
+        match $rhs {
+            Value::Int(j) => {
+                if j == 0 {
+                    error($self, "Division by zero")
+                } else {
+                    Ok(Value::Real(($i as f64) / (j as f64)))
                 }
             }
+            Value::Real(j) => {
+                if j == 0.0 {
+                    error($self, "Division by zero")
+                } else {
+                    Ok(Value::Real(($i as f64) / j))
+                }
+            }
+            Value::Str(_) => error($self, "Cannot divide number by string"),
+        }
+    };
+}
+
+impl BinExpr {
+    fn eval_assign(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        if let Value::Str(s) = lhs {
+            self.scope
+                .vars
+                .borrow_mut()
+                .insert(s.to_owned(), rhs.clone());
+            Ok(rhs)
+        } else {
+            error(self, "Identifier expected on left hand-side of assignment")
         }
     }
-
-    fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int(i - j)),
-                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
-                Value::Str(_) => error(self, "Cannot subtract string from integer"),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i - j as f64)),
-                Value::Real(j) => Ok(Value::Real(i - j)),
-                Value::Str(_) => error(self, "Cannot subtract string from number"),
-            },
-            Value::Str(_) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot subtract number from string"),
-                Value::Str(_) => error(self, "Cannot subtract strings"),
-            },
-        }
-    }
-
     fn eval_cmp(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
@@ -449,15 +449,76 @@ impl BinExpr {
         }
     }
 
-    fn eval_assign(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
-        if let Value::Str(s) = lhs {
-            self.scope
-                .vars
-                .borrow_mut()
-                .insert(s.to_owned(), rhs.clone());
-            Ok(rhs)
-        } else {
-            error(self, "Identifier expected on left hand-side of assignment")
+    fn eval_div(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => div_match!(self, i, rhs),
+            Value::Real(i) => div_match!(self, i, rhs),
+            Value::Str(_) => match rhs {
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot divide string by number"),
+                Value::Str(_) => error(self, "Cannot divide strings"),
+            },
+        }
+    }
+
+    fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => Ok(Value::Int(i - j)),
+                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
+                Value::Str(_) => error(self, "Cannot subtract string from number"),
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => Ok(Value::Real(i - j as f64)),
+                Value::Real(j) => Ok(Value::Real(i - j)),
+                Value::Str(_) => error(self, "Cannot subtract string from number"),
+            },
+            Value::Str(_) => match rhs {
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot subtract number from string"),
+                Value::Str(_) => error(self, "Cannot subtract strings"),
+            },
+        }
+    }
+
+    fn eval_mul(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => Ok(Value::Int(i * j)),
+                Value::Real(j) => Ok(Value::Real(i as f64 * j)),
+                Value::Str(_) => error(self, "Cannot multiply number by string"),
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => Ok(Value::Real(i * j as f64)),
+                Value::Real(j) => Ok(Value::Real(i * j)),
+                Value::Str(_) => error(self, "Cannot multiply number by string"),
+            },
+            Value::Str(_) => match rhs {
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot multiply string by number"),
+                Value::Str(_) => error(self, "Cannot multiply strings"),
+            },
+        }
+    }
+
+    fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => Ok(Value::Int(i + j)),
+                Value::Real(j) => Ok(Value::Real(i as f64 + j)),
+                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => Ok(Value::Real(i + j as f64)),
+                Value::Real(j) => Ok(Value::Real(i + j)),
+                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+            },
+            Value::Str(i) => {
+                let format_string = |j: &dyn fmt::Display| Ok(Value::Str(format!("{}{}", i, j)));
+
+                match rhs {
+                    Value::Int(j) => format_string(&j),
+                    Value::Real(j) => format_string(&j),
+                    Value::Str(ref j) => format_string(j),
+                }
+            }
         }
     }
 }
@@ -465,7 +526,10 @@ impl BinExpr {
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         assert!(!self.lhs.is_empty());
-        assert!(!self.rhs.is_empty());
+
+        if self.rhs.is_empty() {
+            error(self, "Missing right hand-side expression")?;
+        }
 
         let lhs = self.lhs.eval()?;
         let rhs = self.rhs.eval()?;
@@ -478,6 +542,8 @@ impl Eval for BinExpr {
             },
             Op::Minus => self.eval_minus(lhs, rhs),
             Op::Plus => self.eval_plus(lhs, rhs),
+            Op::Div => self.eval_div(lhs, rhs),
+            Op::Mul => self.eval_mul(lhs, rhs),
         }
     }
 }
@@ -567,9 +633,9 @@ impl BranchExpr {
 impl Eval for BranchExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.condition.is_empty() {
-            return error(self, "Missing IF condition");
+            error(self, "Missing IF condition")?;
         } else if self.if_branch.is_empty() {
-            return error(self, "Missing IF branch");
+            error(self, "Missing IF branch")?;
         }
         let cond_value = match self.condition.eval()? {
             Value::Int(i) => i != 0,
@@ -594,11 +660,11 @@ impl ExprNode for BranchExpr {
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
             if !self.expect_else {
-                return error(self, "Missing ELSE keyword");
+                error(self, "Missing ELSE keyword")?;
             }
             self.else_branch = Rc::clone(child);
         } else {
-            return error(self, "Dangling expression after else branch");
+            error(self, "Dangling expression after else branch")?;
         }
         Ok(())
     }
@@ -707,7 +773,7 @@ impl Interp {
                 }
                 Token::RightParen => {
                     if parser.expr_stack.is_empty() {
-                        return error(&parser, "Unmatched right parenthesis");
+                        error(&parser, "Unmatched right parenthesis")?;
                     }
                     parser.pop()?;
                 }
@@ -730,15 +796,12 @@ impl Interp {
                     } else if s == "else" {
                         if let Expression::Branch(b) = &*parser.expr {
                             if !b.borrow_mut().is_else_expected() {
-                                return error(
-                                    &parser,
-                                    "Conditional expression or IF branch missing",
-                                );
+                                error(&parser, "Conditional expression or IF branch missing")?;
                             }
                             parser.expect_else_expr = true;
                             parser.push(false);
                         } else {
-                            return error(&parser, "ELSE without IF");
+                            error(&parser, "ELSE without IF")?;
                         }
                     } else if parser.expr.is_empty() && is_command(s) {
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
@@ -754,7 +817,7 @@ impl Interp {
                 }
                 Token::Operator(op) => {
                     if parser.expr.is_empty() {
-                        return error(&parser, "Missing left-hand term in operation");
+                        error(&parser, "Missing left-hand term in operation")?;
                     }
                     parser.expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
@@ -772,7 +835,7 @@ impl Interp {
             } else {
                 "Unbalanced parenthesis"
             };
-            return error(&parser, msg);
+            error(&parser, msg)?;
         }
         assert!(parser.group_stack.is_empty()); // because the expr_stack is empty
 
