@@ -17,18 +17,28 @@ macro_rules! debug_dbg {
 }
 
 fn is_reserved(c: char) -> bool {
-    const RESERVED_CHARS: &str = " \t\n\r()+-=;/*";
+    const RESERVED_CHARS: &str = " \t\n\r()+-=;/*|&<>!";
     RESERVED_CHARS.contains(c)
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
+    And,
     Assign,
-    Equals,
-    Minus,
-    Plus,
     Div,
+    Equals,
+    Gt,
+    Gte,
+    IntDiv,
+    Minus,
+    Mod,
     Mul,
+    Lt,
+    Lte,
+    NotEquals,
+    Or,
+    Pipe,
+    Plus,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,7 +84,7 @@ fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
 
 /// Non-terminal AST node.
 trait ExprNode {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String>;
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String>;
 }
 
 struct Parser<I: Iterator<Item = char>> {
@@ -98,6 +108,43 @@ impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
     }
 }
 
+/// Tokenizer helper.
+///
+macro_rules! token {
+    // Single character token
+    ($self:expr, $tok:expr, $single_token:expr) => {{
+        $self.next();
+        $tok = $single_token;
+    }};
+
+    // Double character token only
+    ($self:expr, $tok:expr, $second:expr, $double_token:expr) => {{
+        $self.next();
+        if let Some(&next_c) = $self.chars.peek() {
+            if next_c == $second {
+                $self.next();
+                $tok = $double_token;
+                continue;
+            }
+        }
+    }};
+
+    // Single or double character token
+    ($self:expr, $tok:expr,$second:expr, $single_token:expr, $double_token:expr) => {{
+        $self.next();
+        if let Some(&next_c) = $self.chars.peek() {
+            if next_c == $second {
+                $self.next();
+                $tok = $double_token;
+                continue;
+            }
+        }
+        $tok = $single_token;
+    }};
+}
+
+/// Parser implementation
+///
 impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
@@ -120,22 +167,11 @@ where
                 break;
             }
             match c {
-                '(' => {
-                    self.next();
-                    tok = Token::LeftParen;
-                }
-                ')' => {
-                    self.next();
-                    tok = Token::RightParen;
-                }
-                ';' => {
-                    self.next();
-                    tok = Token::Semicolon;
-                }
-                '+' => {
-                    self.next();
-                    tok = Token::Operator(Op::Plus);
-                }
+                '%' => token!(self, tok, Token::Operator(Op::Mod)),
+                '(' => token!(self, tok, Token::LeftParen),
+                ')' => token!(self, tok, Token::RightParen),
+                ';' => token!(self, tok, Token::Semicolon),
+                '+' => token!(self, tok, Token::Operator(Op::Plus)),
                 '-' => {
                     self.next();
                     if self.is_arg_expected() {
@@ -144,25 +180,14 @@ where
                         tok = Token::Operator(Op::Minus);
                     }
                 }
-                '/' => {
-                    self.next();
-                    tok = Token::Operator(Op::Div);
-                }
-                '*' => {
-                    self.next();
-                    tok = Token::Operator(Op::Mul);
-                }
-                '=' => {
-                    self.next();
-                    if let Some(&next_c) = self.chars.peek() {
-                        if next_c == '=' {
-                            tok = Token::Operator(Op::Equals);
-                            self.next();
-                            continue;
-                        }
-                    }
-                    tok = Token::Operator(Op::Assign);
-                }
+                '*' => token!(self, tok, Token::Operator(Op::Mul)),
+                '&' => token!(self, tok, '&', Token::Operator(Op::And)),
+                '|' => token!(self, tok, '|', Token::Operator(Op::Or), Token::Operator(Op::Pipe)),
+                '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
+                '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
+                '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
+                '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
+                '/' => token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv)),
                 '\n' => {
                     self.loc.line += 1;
                     self.loc.col = 1;
@@ -236,19 +261,17 @@ where
 
         let ref current = *self.current_expr;
         match current {
-            Expression::Bin(e) => e.borrow_mut().add_child(expr)?,
-            Expression::Branch(e) => e.borrow_mut().add_child(expr)?,
-            Expression::Cmd(e) => e.borrow_mut().add_child(expr)?,
+            Expression::Bin(e) => e.borrow_mut().add_child(expr),
+            Expression::Branch(e) => e.borrow_mut().add_child(expr),
+            Expression::Cmd(e) => e.borrow_mut().add_child(expr),
             Expression::Empty => {
                 self.current_expr = Rc::clone(expr);
-                true
+                Ok(())
             }
-            Expression::Group(e) => e.borrow_mut().add_child(expr)?,
-            Expression::Lit(_, _) => error(self, "Dangling expression after literal")?,
-            Expression::Loop(e) => e.borrow_mut().add_child(expr)?,
-        };
-
-        Ok(())
+            Expression::Group(e) => e.borrow_mut().add_child(expr),
+            Expression::Lit(_, _) => error(self, "Dangling expression after literal"),
+            Expression::Loop(e) => e.borrow_mut().add_child(expr),
+        }
     }
 
     fn add_current_expr_to_group(&mut self) {
@@ -399,18 +422,19 @@ derive_has_location!(BinExpr);
 
 impl ExprNode for BinExpr {
     /// Add right hand-side child expression.
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.lhs.is_empty());
 
         if self.rhs.is_empty() {
             self.rhs = Rc::clone(child);
-            Ok(true)
+            Ok(())
         } else {
             error(self, "Dangling expression")
         }
     }
 }
 
+/// Division evaluator helper
 macro_rules! div_match {
     ($self:expr, $i:expr, $rhs:expr) => {
         match $rhs {
@@ -433,7 +457,24 @@ macro_rules! div_match {
     };
 }
 
+/// Macro to generate comparison functions
+macro_rules! eval_cmp_fn {
+    ($fn_name:ident, $op:tt) => {
+        fn $fn_name(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+            match self.eval_cmp(lhs, rhs)? {
+                Value::Real(r) => Ok(Value::Int((r $op 0.0) as i64)),
+                _ => panic!("Unexpected result type in comparison"),
+            }
+        }
+    }
+}
+
+
 impl BinExpr {
+    fn eval_and(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        Ok(Value::Int((value_as_bool(lhs) && value_as_bool(rhs)) as _))
+    }
+
     fn eval_assign(&self, rhs: Value) -> Result<Value, String> {
         if let Expression::Lit(tok, scope) = &*self.lhs {
             if let Token::Literal(name) = tok {
@@ -456,13 +497,13 @@ impl BinExpr {
     fn eval_cmp(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int(i - j)),
-                Value::Real(j) => Ok(Value::Int((i as f64 - j) as i64)),
+                Value::Int(j) => Ok(Value::Real((i - j) as _)),
+                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
             },
             Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int((i - j as f64) as i64)),
-                Value::Real(j) => Ok(Value::Int((i - j) as i64)),
+                Value::Int(j) => Ok(Value::Real(i - j as f64)),
+                Value::Real(j) => Ok(Value::Real(i - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
             },
             Value::Str(s1) => match rhs {
@@ -473,11 +514,18 @@ impl BinExpr {
                         Ordering::Less => -1,
                         Ordering::Greater => 1,
                     };
-                    Ok(Value::Int(ord))
+                    Ok(Value::Real(ord as _))
                 }
             },
         }
     }
+
+    eval_cmp_fn!(eval_equals, ==);
+    eval_cmp_fn!(eval_not_equals, !=);
+    eval_cmp_fn!(eval_lt, <);
+    eval_cmp_fn!(eval_lte, <=);
+    eval_cmp_fn!(eval_gt, >);
+    eval_cmp_fn!(eval_gte, >=);
 
     fn eval_div(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
@@ -489,6 +537,11 @@ impl BinExpr {
             },
         }
     }
+
+    fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
+        Err("NOT IMPLEMENTED".to_string())
+    }
+
 
     fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
@@ -509,6 +562,10 @@ impl BinExpr {
         }
     }
 
+    fn eval_mod(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
+        Err("NOT IMPLEMENTED".to_string())
+    }
+
     fn eval_mul(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
@@ -526,6 +583,14 @@ impl BinExpr {
                 Value::Str(_) => error(self, "Cannot multiply strings"),
             },
         }
+    }
+
+    fn eval_or(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
+        Err("NOT IMPLEMENTED".to_string())
+    }
+
+    fn eval_pipe(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
+        Err("NOT IMPLEMENTED".to_string())
     }
 
     fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
@@ -564,15 +629,22 @@ impl Eval for BinExpr {
         let rhs = self.rhs.eval()?;
 
         match self.op {
+            Op::And => self.eval_and(self.lhs.eval()?, rhs),
             Op::Assign => self.eval_assign(rhs.clone()),
-            Op::Equals => match self.eval_cmp(self.lhs.eval()?, rhs)? {
-                Value::Int(i) => Ok(Value::Int((i == 0) as i64)),
-                _ => panic!("Unexpected non-integer result"),
-            },
-            Op::Minus => self.eval_minus(self.lhs.eval()?, rhs),
-            Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
             Op::Div => self.eval_div(self.lhs.eval()?, rhs),
+            Op::Gt => self.eval_gt(self.lhs.eval()?, rhs),
+            Op::Gte => self.eval_gte(self.lhs.eval()?, rhs),
+            Op::IntDiv => self.eval_int_div(self.lhs.eval()?, rhs),
+            Op::Equals => self.eval_equals(self.lhs.eval()?, rhs),
+            Op::Lt => self.eval_lt(self.lhs.eval()?, rhs),
+            Op::Lte => self.eval_lte(self.lhs.eval()?, rhs),
+            Op::Minus => self.eval_minus(self.lhs.eval()?, rhs),
+            Op::Mod => self.eval_mod(self.lhs.eval()?, rhs),
             Op::Mul => self.eval_mul(self.lhs.eval()?, rhs),
+            Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
+            Op::Or => self.eval_or(self.lhs.eval()?, rhs),
+            Op::Pipe => self.eval_pipe(self.lhs.eval()?, rhs),
+            Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
         }
     }
 }
@@ -591,14 +663,14 @@ impl Eval for GroupExpr {
         for e in &self.group {
             result = e.eval();
         }
-        return result; // Return the result of the last evaluation
+        result // return the last evaluation
     }
 }
 
 impl ExprNode for GroupExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         self.group.push(Rc::clone(child));
-        Ok(false)
+        Ok(())
     }
 }
 
@@ -631,10 +703,10 @@ impl Eval for Command {
 }
 
 impl ExprNode for Command {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.cmd.is_empty());
         self.args.push(Rc::clone(child));
-        Ok(false)
+        Ok(())
     }
 }
 
@@ -659,12 +731,16 @@ impl BranchExpr {
     }
 }
 
-fn eval_as_bool(expr: &Rc<Expression>) -> Result<bool, String> {
-    match expr.eval()? {
-        Value::Int(i) => Ok(i != 0),
-        Value::Real(r) => Ok(r != 0.0),
-        Value::Str(s) => Ok(!s.is_empty()),
+fn value_as_bool(val: Value) -> bool {
+    match val {
+        Value::Int(i) => i != 0,
+        Value::Real(r) => r != 0.0,
+        Value::Str(s) => !s.is_empty(),
     }
+}
+
+fn eval_as_bool(expr: &Rc<Expression>) -> Result<bool, String> {
+    Ok(value_as_bool(expr.eval()?))
 }
 
 impl Eval for BranchExpr {
@@ -685,7 +761,7 @@ impl Eval for BranchExpr {
 }
 
 impl ExprNode for BranchExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
@@ -695,11 +771,10 @@ impl ExprNode for BranchExpr {
                 error(self, "Expecting ELSE keyword")?;
             }
             self.else_branch = Rc::clone(child);
-            return Ok(true);
         } else {
             error(self, "Dangling expression after else branch")?;
         }
-        Ok(false)
+        Ok(())
     }
 }
 
@@ -735,7 +810,7 @@ impl Eval for LoopExpr {
 }
 
 impl ExprNode for LoopExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
@@ -747,10 +822,8 @@ impl ExprNode for LoopExpr {
                 &Rc::new(Expression::Group(g))
             };
             self.body = Rc::clone(expr);
-            return Ok(true); // Completed
         }
-
-        Ok(false)
+        Ok(())
     }
 }
 
