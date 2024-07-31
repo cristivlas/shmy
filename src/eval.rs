@@ -434,19 +434,20 @@ macro_rules! div_match {
 }
 
 impl BinExpr {
-    fn eval_assign(&self, rhs: Value) -> Result<(), String> {
+    fn eval_assign(&self, rhs: Value) -> Result<Value, String> {
         if let Expression::Lit(tok, scope) = &*self.lhs {
             if let Token::Literal(name) = tok {
                 if name.starts_with('$') {
                     if let Some(var) = scope.lookup(&name[1..]) {
                         var.assign(rhs);
+                        return Ok(var.value());
                     } else {
                         error(self, "Variable not found")?;
                     }
                 } else {
-                    self.scope.insert(name.to_owned(), rhs);
+                    self.scope.insert(name.to_owned(), rhs.clone());
+                    return Ok(rhs);
                 }
-                return Ok(());
             }
         }
         error(self, "Identifier expected on left hand-side of assignment")
@@ -563,10 +564,7 @@ impl Eval for BinExpr {
         let rhs = self.rhs.eval()?;
 
         match self.op {
-            Op::Assign => {
-                self.eval_assign(rhs.clone())?;
-                Ok(rhs)
-            } // Return rhs value
+            Op::Assign => self.eval_assign(rhs.clone()),
             Op::Equals => match self.eval_cmp(self.lhs.eval()?, rhs)? {
                 Value::Int(i) => Ok(Value::Int((i == 0) as i64)),
                 _ => panic!("Unexpected non-integer result"),
