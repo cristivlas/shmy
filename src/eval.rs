@@ -74,7 +74,7 @@ fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
 
 /// Non-terminal AST node.
 trait ExprNode {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String>;
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String>;
 }
 
 struct Parser<I: Iterator<Item = char>> {
@@ -84,7 +84,7 @@ struct Parser<I: Iterator<Item = char>> {
     quoted: bool,
     expect_else_expr: bool,
     empty: Rc<Expression>,
-    expr: Rc<Expression>,
+    current_expr: Rc<Expression>,
     scope: Rc<Scope>,
     expr_stack: Vec<Rc<Expression>>,
     scope_stack: Vec<Rc<Scope>>,
@@ -230,33 +230,35 @@ where
         }
 
         if self.expect_else_expr {
-            self.expr = self.expr_stack.pop().unwrap();
+            self.current_expr = self.expr_stack.pop().unwrap();
             self.expect_else_expr = false;
         }
 
-        let ref current = *self.expr;
+        let ref current = *self.current_expr;
         match current {
-            Expression::Bin(e) => e.borrow_mut().add_child(expr),
-            Expression::Branch(e) => e.borrow_mut().add_child(expr),
-            Expression::Cmd(e) => e.borrow_mut().add_child(expr),
+            Expression::Bin(e) => e.borrow_mut().add_child(expr)?,
+            Expression::Branch(e) => e.borrow_mut().add_child(expr)?,
+            Expression::Cmd(e) => e.borrow_mut().add_child(expr)?,
             Expression::Empty => {
-                self.expr = Rc::clone(expr);
-                Ok(())
+                self.current_expr = Rc::clone(expr);
+                true
             }
-            Expression::Group(e) => e.borrow_mut().add_child(expr),
-            Expression::Lit(_, _) => error(self, "Dangling expression after literal"),
-            Expression::Loop(e) => e.borrow_mut().add_child(expr),
-        }
+            Expression::Group(e) => e.borrow_mut().add_child(expr)?,
+            Expression::Lit(_, _) => error(self, "Dangling expression after literal")?,
+            Expression::Loop(e) => e.borrow_mut().add_child(expr)?,
+        };
+
+        Ok(())
     }
 
     fn add_current_expr_to_group(&mut self) {
-        if !self.expr.is_empty() {
+        if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*self.group {
-                g.borrow_mut().group.push(Rc::clone(&self.expr));
+                g.borrow_mut().group.push(Rc::clone(&self.current_expr));
             } else {
                 panic!("Unexpected group error");
             }
-            self.expr = self.empty(); // Clear the current expression
+            self.current_expr = self.empty(); // Clear the current expression
         }
     }
 
@@ -265,11 +267,8 @@ where
     }
 
     fn is_arg_expected(&self) -> bool {
-        let ref current = *self.expr;
-        match current {
-            Expression::Cmd(_) => true,
-            _ => false,
-        }
+        let ref current = *self.current_expr;
+        matches!(current, Expression::Cmd(_))
     }
 
     fn push(&mut self, make_group: bool) {
@@ -285,15 +284,15 @@ where
         }
 
         // Push current expression, and make the empty expression current
-        self.expr_stack.push(Rc::clone(&self.expr));
-        self.expr = self.empty();
+        self.expr_stack.push(Rc::clone(&self.current_expr));
+        self.current_expr = self.empty();
     }
 
     fn pop(&mut self) -> Result<(), String> {
         self.finalize_group();
-        assert!(self.expr.is_empty());
+        assert!(self.current_expr.is_empty());
 
-        self.expr = self.expr_stack.pop().unwrap();
+        self.current_expr = self.expr_stack.pop().unwrap();
 
         let expr = {
             if let Expression::Group(g) = &*self.group {
@@ -310,8 +309,9 @@ where
 
         self.add_expr(&expr)?;
 
-        self.group = self.group_stack.pop().unwrap(); // Restore group.
+        self.group = self.group_stack.pop().unwrap(); // Restore group
         self.scope = self.scope_stack.pop().unwrap(); // Restore scope
+
         Ok(())
     }
 }
@@ -399,12 +399,12 @@ derive_has_location!(BinExpr);
 
 impl ExprNode for BinExpr {
     /// Add right hand-side child expression.
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
         assert!(!self.lhs.is_empty());
 
         if self.rhs.is_empty() {
             self.rhs = Rc::clone(child);
-            Ok(())
+            Ok(true)
         } else {
             error(self, "Dangling expression")
         }
@@ -598,9 +598,9 @@ impl Eval for GroupExpr {
 }
 
 impl ExprNode for GroupExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
         self.group.push(Rc::clone(child));
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -633,10 +633,10 @@ impl Eval for Command {
 }
 
 impl ExprNode for Command {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
         assert!(!self.cmd.is_empty());
         self.args.push(Rc::clone(child));
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -687,7 +687,7 @@ impl Eval for BranchExpr {
 }
 
 impl ExprNode for BranchExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
@@ -697,10 +697,11 @@ impl ExprNode for BranchExpr {
                 error(self, "Expecting ELSE keyword")?;
             }
             self.else_branch = Rc::clone(child);
+            return Ok(true);
         } else {
             error(self, "Dangling expression after else branch")?;
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -736,7 +737,7 @@ impl Eval for LoopExpr {
 }
 
 impl ExprNode for LoopExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<bool, String> {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
@@ -748,9 +749,10 @@ impl ExprNode for LoopExpr {
                 &Rc::new(Expression::Group(g))
             };
             self.body = Rc::clone(expr);
+            return Ok(true); // Completed
         }
 
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -850,7 +852,7 @@ impl Interp {
             quoted: false,
             expect_else_expr: false,
             empty: Rc::clone(&empty),
-            expr: Rc::clone(&empty),
+            current_expr: Rc::clone(&empty),
             scope: Scope::new(None),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
@@ -891,7 +893,7 @@ impl Interp {
                         })));
                         parser.add_expr(&expr)?;
                     } else if s == "else" {
-                        if let Expression::Branch(b) = &*parser.expr {
+                        if let Expression::Branch(b) = &*parser.current_expr {
                             if !b.borrow_mut().is_else_expected() {
                                 error(&parser, "Conditional expression or IF branch missing")?;
                             }
@@ -908,7 +910,7 @@ impl Interp {
                         })));
                         parser.add_expr(&expr)?;
                     // commands
-                    } else if parser.expr.is_empty() && is_command(s) {
+                    } else if parser.current_expr.is_empty() && is_command(s) {
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                             cmd: s.to_owned(),
                             args: Default::default(),
@@ -922,16 +924,18 @@ impl Interp {
                     }
                 }
                 Token::Operator(op) => {
-                    if parser.expr.is_empty() {
+                    if parser.current_expr.is_empty() {
                         error(&parser, "Expecting left-hand term in binary operation")?;
                     }
-                    parser.expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
+                    let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
-                        lhs: parser.expr.clone(),
+                        lhs: Rc::clone(&parser.current_expr),
                         rhs: parser.empty(),
                         loc: parser.loc,
                         scope: Rc::clone(&parser.scope),
                     })));
+
+                    parser.current_expr = expr;
                 }
             }
         }
