@@ -158,6 +158,7 @@ where
         self.chars.next();
     }
 
+    #[rustfmt::skip]
     pub fn next_token(&mut self) -> Result<Token, String> {
         let mut tok = Token::End;
         let mut dashes = String::new();
@@ -274,19 +275,27 @@ where
         }
     }
 
-    fn add_current_expr_to_group(&mut self) {
+    fn add_current_expr_to_group(&mut self) -> Result<(), String> {
         if !self.current_expr.is_empty() {
-            if let Expression::Group(g) = &*self.group {
+            if let Expression::Group(g) = &*Rc::clone(&self.group) {
+                if let Some(stack_top) = self.expr_stack.last() {
+                    if stack_top.is_assignment() {
+                        let expr = Rc::clone(&self.current_expr);
+                        self.current_expr = self.expr_stack.pop().unwrap();
+                        self.add_expr(&expr)?;
+                    }
+                }
                 g.borrow_mut().group.push(Rc::clone(&self.current_expr));
             } else {
                 panic!("Unexpected group error");
             }
             self.current_expr = self.empty(); // Clear the current expression
         }
+        Ok(())
     }
 
-    fn finalize_group(&mut self) {
-        self.add_current_expr_to_group();
+    fn finalize_group(&mut self) -> Result<(), String> {
+        self.add_current_expr_to_group()
     }
 
     fn is_arg_expected(&self) -> bool {
@@ -312,7 +321,7 @@ where
     }
 
     fn pop(&mut self) -> Result<(), String> {
-        self.finalize_group();
+        self.finalize_group()?;
         assert!(self.current_expr.is_empty());
 
         self.current_expr = self.expr_stack.pop().unwrap();
@@ -401,11 +410,19 @@ enum Expression {
 }
 
 impl Expression {
-    fn is_group(&self) -> bool {
-        matches!(self, Expression::Group(_))
+    fn is_assignment(&self) -> bool {
+        if let Expression::Bin(b) = self {
+            return b.borrow().op == Op::Assign;
+        }
+        false
     }
+
     fn is_empty(&self) -> bool {
         matches!(self, Expression::Empty)
+    }
+
+    fn is_group(&self) -> bool {
+        matches!(self, Expression::Group(_))
     }
 }
 
@@ -468,7 +485,6 @@ macro_rules! eval_cmp_fn {
         }
     }
 }
-
 
 impl BinExpr {
     fn eval_and(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
@@ -541,7 +557,6 @@ impl BinExpr {
     fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
         Err("NOT IMPLEMENTED".to_string())
     }
-
 
     fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
@@ -947,7 +962,7 @@ impl Interp {
                     parser.pop()?;
                 }
                 Token::Semicolon => {
-                    parser.add_current_expr_to_group();
+                    parser.add_current_expr_to_group()?;
                 }
                 Token::Literal(ref s) => {
                     // keywords
@@ -1006,10 +1021,18 @@ impl Interp {
                         scope: Rc::clone(&parser.scope),
                     })));
 
-                    parser.current_expr = expr;
+                    if matches!(op, Op::Assign) {
+                        parser.expr_stack.push(Rc::clone(&expr));
+                        parser.current_expr = parser.empty();
+                    } else {
+                        parser.current_expr = expr;
+                    }
                 }
             }
         }
+
+        parser.finalize_group()?;
+
         if !parser.expr_stack.is_empty() {
             let msg = if parser.expect_else_expr {
                 "Dangling else"
@@ -1019,8 +1042,6 @@ impl Interp {
             error(&parser, msg)?;
         }
         assert!(parser.group_stack.is_empty()); // because the expr_stack is empty
-
-        parser.finalize_group();
 
         Ok(parser.group)
     }
