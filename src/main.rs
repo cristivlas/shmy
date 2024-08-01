@@ -2,6 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 mod cmds;
+#[macro_use]
 mod eval;
 use eval::Interp;
 
@@ -64,8 +65,8 @@ impl Shell {
 
     fn eval(&mut self, input: &String) {
         match self.interp.eval(input) {
-            Ok(v) => {
-                println!("{}", &v);
+            Ok(result) => {
+                debug_print!(&result);
             }
             Err(s) => {
                 eprintln!("{}.", s);

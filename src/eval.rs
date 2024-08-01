@@ -6,7 +6,8 @@ use std::iter::Peekable;
 use std::rc::Rc;
 use std::{fmt, process};
 
-macro_rules! debug_dbg {
+#[macro_export]
+macro_rules! debug_print {
     ($($arg:tt)*) => {
         if cfg!(debug_assertions) {
             dbg!($($arg)*)
@@ -548,9 +549,9 @@ impl BinExpr {
         match lhs {
             Value::Int(i) => div_match!(self, i, rhs),
             Value::Real(i) => div_match!(self, i, rhs),
-            Value::Str(_) => match rhs {
+            Value::Str(s1) => match rhs {
                 Value::Int(_) | Value::Real(_) => error(self, "Cannot divide string by number"),
-                Value::Str(_) => error(self, "Cannot divide strings"),
+                Value::Str(s2) => Ok(Value::Str(format!("{}/{}", s1, s2))),
             },
         }
     }
@@ -937,7 +938,7 @@ fn new_group(loc: Location) -> Rc<Expression> {
 impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
         let ast = self.parse(input)?;
-        debug_dbg!(&ast);
+        debug_print!(&ast);
 
         ast.eval()
     }
