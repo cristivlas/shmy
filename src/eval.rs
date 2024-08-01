@@ -200,7 +200,7 @@ where
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
                 '*' => token!(self, tok, Token::Operator(Op::Mul)),
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
-                '|' => token!(self, tok, '|', Token::Operator(Op::Or), Token::Operator(Op::Pipe)),
+                '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
@@ -625,10 +625,6 @@ impl BinExpr {
         Err("NOT IMPLEMENTED".to_string())
     }
 
-    fn eval_pipe(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
-        Err("NOT IMPLEMENTED".to_string())
-    }
-
     fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
         match lhs {
             Value::Int(i) => match rhs {
@@ -660,6 +656,13 @@ impl Eval for BinExpr {
             error(self, "Expecting right hand-side expression")?;
         }
 
+        if self.op == Op::Pipe {
+            if self.lhs.is_empty() {
+                return error(self, "Expecting pipe input");
+            }
+            error(self, "Pipes are not implemented")?;
+        }
+
         let rhs = self.rhs.eval()?;
 
         if self.lhs.is_empty() {
@@ -680,8 +683,11 @@ impl Eval for BinExpr {
                 Op::Mul => self.eval_mul(self.lhs.eval()?, rhs),
                 Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
                 Op::Or => self.eval_or(self.lhs.eval()?, rhs),
-                Op::Pipe => self.eval_pipe(self.lhs.eval()?, rhs),
                 Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
+                _ => {
+                    dbg!(&self.op);
+                    return error(self, "Unexpected operator");
+                }
             }
         }
     }
@@ -724,8 +730,8 @@ struct Command {
 
 derive_has_location!(Command);
 
-impl Eval for Command {
-    fn eval(&self) -> Result<Value, String> {
+impl Command {
+    fn exec(&self) -> Result<Value, String> {
         if let Some(cmd) = get_command(&self.cmd) {
             let mut args: Vec<String> = Vec::new();
             for a in &self.args {
@@ -740,6 +746,12 @@ impl Eval for Command {
         } else {
             panic!("Command not found");
         }
+    }
+}
+
+impl Eval for Command {
+    fn eval(&self) -> Result<Value, String> {
+        self.exec()
     }
 }
 
@@ -1084,6 +1096,7 @@ impl Interp {
                         | Op::Lte
                         | Op::NotEquals
                         | Op::Minus
+                        | Op::Pipe
                         | Op::Plus => {
                             parser.expr_stack.push(Rc::clone(&expr));
                             parser.current_expr = parser.empty();
