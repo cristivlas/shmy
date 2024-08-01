@@ -5,6 +5,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
 use which::which;
+mod cat;
 mod echo;
 mod ls;
 

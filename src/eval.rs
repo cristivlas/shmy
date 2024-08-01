@@ -174,8 +174,6 @@ where
     #[rustfmt::skip]
     pub fn next_token(&mut self) -> Result<Token, String> {
         let mut tok = Token::End;
-        let mut dashes = String::new();
-
         let mut literal = String::new();
 
         while let Some(c) = self.chars.peek() {
@@ -207,13 +205,11 @@ where
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '-' => {
-                    self.next();
-                    if self.is_arg_expected() {
-                        dashes.push('-');
+                '-' => if self.current_expr.is_cmd() {
+                        literal.push(*c);
+                        self.next();
                     } else {
                         tok = Token::Operator(Op::Minus);
-                    }
                 }
                 '/' => if self.current_expr.is_cmd() {
                     // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
@@ -221,22 +217,17 @@ where
                         self.next();
                     } else {
                         token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
-                    }
+                }
                 _ => {
                     if c.is_whitespace() {
                         self.next();
-                        if !dashes.is_empty() {
-                            tok = Token::Literal(dashes);
-                            dashes = String::new();
+                        if !literal.is_empty() {
+                            break;
                         }
                         continue;
                     }
-
                     let mut has_chars = false;
 
-                    if !dashes.is_empty() {
-                        (literal, dashes) = (dashes, literal);
-                    }
                     while let Some(&next_c) = self.chars.peek() {
                         if next_c == '\\' {
                             if self.escaped {
@@ -274,6 +265,12 @@ where
         if self.quoted {
             error(self, "Unbalanced quotes")?;
         }
+
+        // Check for partial token, to handle special cases such as single fwd slash
+        if tok == Token::End && !literal.is_empty() {
+            tok = Token::Literal(literal);
+        }
+
         Ok(tok)
     }
 
@@ -326,11 +323,6 @@ where
 
     fn finalize_group(&mut self) -> Result<(), String> {
         self.add_current_expr_to_group()
-    }
-
-    fn is_arg_expected(&self) -> bool {
-        let ref current = *self.current_expr;
-        matches!(current, Expression::Cmd(_))
     }
 
     fn push(&mut self, make_group: bool) {
