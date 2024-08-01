@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::{fmt, process};
 
 #[macro_export]
@@ -421,6 +422,17 @@ impl Scope {
     }
 }
 
+fn parse_value(s: &str, scope: Option<&Scope>) -> Result<Value, String> {
+    if s.starts_with('$') {
+        match scope.and_then(|sc| sc.lookup(&s[1..])) {
+            None => Ok(Value::Str(s.to_string())),
+            Some(v) => Ok(v.value()),
+        }
+    } else {
+        s.parse::<Value>()
+    }
+}
+
 #[derive(Debug)]
 enum Expression {
     Empty,
@@ -685,7 +697,10 @@ impl Eval for BinExpr {
                 Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
                 Op::Or => self.eval_or(self.lhs.eval()?, rhs),
                 Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
-                _ => { dbg!(&self.op); return error(self, "Unexpected operator"); },
+                _ => {
+                    dbg!(&self.op);
+                    return error(self, "Unexpected operator");
+                }
             }
         }
     }
@@ -841,20 +856,7 @@ derive_has_location!(Literal);
 impl Eval for Literal {
     fn eval(&self) -> Result<Value, String> {
         match &self.tok {
-            Token::Literal(s) => {
-                if let Ok(i) = s.parse::<i64>() {
-                    Ok(Value::Int(i))
-                } else if let Ok(f) = s.parse::<f64>() {
-                    Ok(Value::Real(f))
-                } else if s.starts_with('$') {
-                    match self.scope.lookup(&s[1..]) {
-                        None => error(self, &format!("Variable not found: {}", s)),
-                        Some(v) => Ok(v.value()),
-                    }
-                } else {
-                    Ok(Value::Str(s.clone()))
-                }
-            }
+            Token::Literal(s) => parse_value(&s, Some(&self.scope)),
             _ => {
                 panic!("Invalid token type in literal expression");
             }
@@ -941,6 +943,20 @@ impl fmt::Display for Value {
             Value::Str(s) => {
                 write!(f, "{}", s)
             }
+        }
+    }
+}
+
+impl FromStr for Value {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(i) = s.parse::<i64>() {
+            Ok(Value::Int(i))
+        } else if let Ok(f) = s.parse::<f64>() {
+            Ok(Value::Real(f))
+        } else {
+            Ok(Value::Str(s.to_string()))
         }
     }
 }
