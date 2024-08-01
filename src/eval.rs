@@ -2,6 +2,7 @@ use crate::cmds::{get_command, Exec};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::env;
 use std::iter::Peekable;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -393,6 +394,14 @@ impl Variable {
     }
 }
 
+impl From<&str> for Variable {
+    fn from(value: &str) -> Self {
+        Variable {
+            val: Rc::new(RefCell::new(value.parse::<Value>().unwrap())),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Scope {
     parent: Option<Rc<Scope>>,
@@ -420,12 +429,23 @@ impl Scope {
             vars: RefCell::new(HashMap::new()),
         })
     }
+
+    fn new_from_env() -> Rc<Scope> {
+        let vars = env::vars()
+            .map(|(key, value)| (key, Variable::from(value.as_str())))
+            .collect::<HashMap<_, _>>();
+
+        Rc::new(Scope {
+            parent: None,
+            vars: RefCell::new(vars),
+        })
+    }
 }
 
-fn parse_value(s: &str, scope: Option<&Scope>) -> Result<Value, String> {
+fn parse_value(s: &str, scope: &Rc<Scope>, loc: &Location) -> Result<Value, String> {
     if s.starts_with('$') {
-        match scope.and_then(|sc| sc.lookup(&s[1..])) {
-            None => Ok(Value::Str(s.to_string())),
+        match scope.lookup(&s[1..]) {
+            None => error(loc, &format!("Variable not found: {}", s)),
             Some(v) => Ok(v.value()),
         }
     } else {
@@ -856,7 +876,7 @@ derive_has_location!(Literal);
 impl Eval for Literal {
     fn eval(&self) -> Result<Value, String> {
         match &self.tok {
-            Token::Literal(s) => parse_value(&s, Some(&self.scope)),
+            Token::Literal(s) => parse_value(&s, &self.scope, &self.loc),
             _ => {
                 panic!("Invalid token type in literal expression");
             }
@@ -1018,7 +1038,7 @@ impl Interp {
             expect_else_expr: false,
             empty: Rc::clone(&empty),
             current_expr: Rc::clone(&empty),
-            scope: Scope::new(None),
+            scope: Scope::new_from_env(),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
             group: new_group(loc),
