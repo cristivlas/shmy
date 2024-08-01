@@ -90,14 +90,11 @@ fn parse_cmd_line() -> Result<Shell, String> {
     let args: Vec<String> = env::args().collect();
     for arg in &args[1..] {
         if arg.starts_with("-") {
-            if arg == "-c" {
-                shell.interactive = false;
-            }
+            // Placeholder for command line args.
         } else {
-            if !shell.interactive {
-                let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
-                shell.source = Some(Box::new(BufReader::new(file)));
-            }
+            let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
+            shell.source = Some(Box::new(BufReader::new(file)));
+            shell.interactive = false;
         }
     }
 

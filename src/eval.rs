@@ -17,11 +17,6 @@ macro_rules! debug_print {
     };
 }
 
-fn is_reserved(c: char) -> bool {
-    const RESERVED_CHARS: &str = " \t\n\r()+-=;/*|&<>!";
-    RESERVED_CHARS.contains(c)
-}
-
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
@@ -160,6 +155,16 @@ where
         Rc::clone(&self.empty)
     }
 
+    fn is_reserved(&self, c: char) -> bool {
+        if c == '/' {
+            // Treat forward slashes as regular chars in argument to commands.
+            !self.current_expr.is_cmd()
+        } else {
+            const RESERVED_CHARS: &str = " \t\n\r()+-=;*|&<>!";
+            RESERVED_CHARS.contains(c)
+        }
+    }
+
     fn next(&mut self) {
         self.loc.col += 1;
         self.chars.next();
@@ -169,6 +174,8 @@ where
     pub fn next_token(&mut self) -> Result<Token, String> {
         let mut tok = Token::End;
         let mut dashes = String::new();
+
+        let mut literal = String::new();
 
         while let Some(c) = self.chars.peek() {
             if tok != Token::End {
@@ -180,6 +187,13 @@ where
                 ')' => token!(self, tok, Token::RightParen),
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
+                '*' => token!(self, tok, Token::Operator(Op::Mul)),
+                '&' => token!(self, tok, '&', Token::Operator(Op::And)),
+                '|' => token!(self, tok, '|', Token::Operator(Op::Or), Token::Operator(Op::Pipe)),
+                '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
+                '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
+                '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
+                '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
                 '-' => {
                     self.next();
                     if self.is_arg_expected() {
@@ -188,14 +202,13 @@ where
                         tok = Token::Operator(Op::Minus);
                     }
                 }
-                '*' => token!(self, tok, Token::Operator(Op::Mul)),
-                '&' => token!(self, tok, '&', Token::Operator(Op::And)),
-                '|' => token!(self, tok, '|', Token::Operator(Op::Or), Token::Operator(Op::Pipe)),
-                '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
-                '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
-                '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
-                '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '/' => token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv)),
+                '/' => if self.current_expr.is_cmd() {
+                    // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
+                        literal.push(*c);
+                        self.next();
+                    } else {
+                        token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
+                    }
                 '\n' => {
                     self.loc.line += 1;
                     self.loc.col = 1;
@@ -212,7 +225,6 @@ where
                     }
 
                     let mut has_chars = false;
-                    let mut literal = String::new();
 
                     if !dashes.is_empty() {
                         (literal, dashes) = (dashes, literal);
@@ -234,7 +246,7 @@ where
                             }
                         }
                         has_chars = true;
-                        if self.quoted || self.escaped || !is_reserved(next_c) {
+                        if self.quoted || self.escaped || !self.is_reserved(next_c) {
                             literal.push(next_c);
                             self.next();
                         } else {
@@ -245,7 +257,8 @@ where
                     if has_chars && literal.is_empty() {
                         error(self, "Empty token")?;
                     } else {
-                        tok = Token::Literal(literal);
+                        tok = Token::Literal(literal.clone());
+                        literal.clear();
                     }
                 }
             }
@@ -285,11 +298,13 @@ where
     fn add_current_expr_to_group(&mut self) -> Result<(), String> {
         if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*Rc::clone(&self.group) {
-                if let Some(stack_top) = self.expr_stack.last() {
+                while let Some(stack_top) = self.expr_stack.last() {
                     if stack_top.is_bin_op() {
                         let expr = Rc::clone(&self.current_expr);
                         self.current_expr = self.expr_stack.pop().unwrap();
                         self.add_expr(&expr)?;
+                    } else {
+                        break;
                     }
                 }
                 g.borrow_mut().group.push(Rc::clone(&self.current_expr));
@@ -419,6 +434,10 @@ enum Expression {
 impl Expression {
     fn is_bin_op(&self) -> bool {
         matches!(self, Expression::Bin(_))
+    }
+
+    fn is_cmd(&self) -> bool {
+        matches!(self, Expression::Cmd(_))
     }
 
     fn is_empty(&self) -> bool {
@@ -971,7 +990,7 @@ impl Interp {
                     parser.push(true);
                 }
                 Token::RightParen => {
-                    if parser.expr_stack.is_empty() {
+                    if parser.group_stack.is_empty() {
                         error(&parser, "Unmatched right parenthesis")?;
                     }
                     parser.pop()?;
@@ -1053,6 +1072,7 @@ impl Interp {
             let msg = if parser.expect_else_expr {
                 "Dangling else"
             } else {
+                dbg!(&parser.expr_stack);
                 "Unbalanced parenthesis"
             };
             error(&parser, msg)?;
