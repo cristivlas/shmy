@@ -68,6 +68,12 @@ trait HasLocation {
     fn loc(&self) -> &Location;
 }
 
+impl HasLocation for Location {
+    fn loc(&self) -> &Location {
+        self
+    }
+}
+
 macro_rules! derive_has_location {
     ($type:ty) => {
         impl HasLocation for $type {
@@ -279,7 +285,7 @@ where
         if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*Rc::clone(&self.group) {
                 if let Some(stack_top) = self.expr_stack.last() {
-                    if stack_top.is_assignment() {
+                    if stack_top.is_bin_op() {
                         let expr = Rc::clone(&self.current_expr);
                         self.current_expr = self.expr_stack.pop().unwrap();
                         self.add_expr(&expr)?;
@@ -410,11 +416,8 @@ enum Expression {
 }
 
 impl Expression {
-    fn is_assignment(&self) -> bool {
-        if let Expression::Bin(b) = self {
-            return b.borrow().op == Op::Assign;
-        }
-        false
+    fn is_bin_op(&self) -> bool {
+        matches!(self, Expression::Bin(_))
     }
 
     fn is_empty(&self) -> bool {
@@ -440,8 +443,6 @@ derive_has_location!(BinExpr);
 impl ExprNode for BinExpr {
     /// Add right hand-side child expression.
     fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
-        assert!(!self.lhs.is_empty());
-
         if self.rhs.is_empty() {
             self.rhs = Rc::clone(child);
             Ok(())
@@ -523,7 +524,7 @@ impl BinExpr {
                 Value::Str(_) => error(self, "Cannot compare number to string"),
             },
             Value::Str(s1) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot comapre string to number"),
+                Value::Int(_) | Value::Real(_) => error(self, "Cannot compare string to number"),
                 Value::Str(s2) => {
                     let ord = match s1.cmp(&s2) {
                         Ordering::Equal => 0,
@@ -635,31 +636,33 @@ impl BinExpr {
 
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
-        assert!(!self.lhs.is_empty());
-
         if self.rhs.is_empty() {
             error(self, "Expecting right hand-side expression")?;
         }
 
         let rhs = self.rhs.eval()?;
 
-        match self.op {
-            Op::And => self.eval_and(self.lhs.eval()?, rhs),
-            Op::Assign => self.eval_assign(rhs.clone()),
-            Op::Div => self.eval_div(self.lhs.eval()?, rhs),
-            Op::Gt => self.eval_gt(self.lhs.eval()?, rhs),
-            Op::Gte => self.eval_gte(self.lhs.eval()?, rhs),
-            Op::IntDiv => self.eval_int_div(self.lhs.eval()?, rhs),
-            Op::Equals => self.eval_equals(self.lhs.eval()?, rhs),
-            Op::Lt => self.eval_lt(self.lhs.eval()?, rhs),
-            Op::Lte => self.eval_lte(self.lhs.eval()?, rhs),
-            Op::Minus => self.eval_minus(self.lhs.eval()?, rhs),
-            Op::Mod => self.eval_mod(self.lhs.eval()?, rhs),
-            Op::Mul => self.eval_mul(self.lhs.eval()?, rhs),
-            Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
-            Op::Or => self.eval_or(self.lhs.eval()?, rhs),
-            Op::Pipe => self.eval_pipe(self.lhs.eval()?, rhs),
-            Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
+        if self.lhs.is_empty() {
+            eval_unary(&self.loc, &self.op, rhs)
+        } else {
+            match self.op {
+                Op::And => self.eval_and(self.lhs.eval()?, rhs),
+                Op::Assign => self.eval_assign(rhs.clone()),
+                Op::Div => self.eval_div(self.lhs.eval()?, rhs),
+                Op::Gt => self.eval_gt(self.lhs.eval()?, rhs),
+                Op::Gte => self.eval_gte(self.lhs.eval()?, rhs),
+                Op::IntDiv => self.eval_int_div(self.lhs.eval()?, rhs),
+                Op::Equals => self.eval_equals(self.lhs.eval()?, rhs),
+                Op::Lt => self.eval_lt(self.lhs.eval()?, rhs),
+                Op::Lte => self.eval_lte(self.lhs.eval()?, rhs),
+                Op::Minus => self.eval_minus(self.lhs.eval()?, rhs),
+                Op::Mod => self.eval_mod(self.lhs.eval()?, rhs),
+                Op::Mul => self.eval_mul(self.lhs.eval()?, rhs),
+                Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
+                Op::Or => self.eval_or(self.lhs.eval()?, rhs),
+                Op::Pipe => self.eval_pipe(self.lhs.eval()?, rhs),
+                Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
+            }
         }
     }
 }
@@ -842,6 +845,17 @@ impl ExprNode for LoopExpr {
     }
 }
 
+fn eval_unary(loc: &Location, op: &Op, val: Value) -> Result<Value, String> {
+    match op {
+        Op::Minus => match val {
+            Value::Int(i) => Ok(Value::Int(-i)),
+            Value::Real(r) => Ok(Value::Real(-r)),
+            Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
+        },
+        _ => error(loc, "Expecting left-hand term in binary operation"),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Int(i64),
@@ -1010,9 +1024,6 @@ impl Interp {
                     }
                 }
                 Token::Operator(op) => {
-                    if parser.current_expr.is_empty() {
-                        error(&parser, "Expecting left-hand term in binary operation")?;
-                    }
                     let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
                         lhs: Rc::clone(&parser.current_expr),
@@ -1021,11 +1032,15 @@ impl Interp {
                         scope: Rc::clone(&parser.scope),
                     })));
 
-                    if matches!(op, Op::Assign) {
-                        parser.expr_stack.push(Rc::clone(&expr));
-                        parser.current_expr = parser.empty();
-                    } else {
-                        parser.current_expr = expr;
+                    match op {
+                        // Right hand-side associative operations.
+                        Op::Assign | Op::Gt | Op::Gte | Op::Lt | Op::Lte | Op::NotEquals | Op::Minus | Op::Plus => {
+                            parser.expr_stack.push(Rc::clone(&expr));
+                            parser.current_expr = parser.empty();
+                        }
+                        _ => {
+                            parser.current_expr = expr;
+                        }
                     }
                 }
             }
