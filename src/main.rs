@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Cursor, BufRead, BufReader, Write};
 mod cmds;
 #[macro_use]
 mod eval;
@@ -80,9 +80,17 @@ impl Shell {
     }
 }
 
-fn main() -> Result<(), String> {
-    let mut shell = parse_cmd_line()?;
-    shell.read_input()
+fn main() -> Result<(), ()> {
+    match &mut parse_cmd_line() {
+        Err(e) => {
+            eprint!("Command line error: {}.", e);
+        }
+        Ok(shell) => match shell.read_input() {
+            Err(e) => eprintln!("{}.", e),
+            _ => {}
+        },
+    }
+    Ok(())
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
@@ -93,9 +101,16 @@ fn parse_cmd_line() -> Result<Shell, String> {
     };
 
     let args: Vec<String> = env::args().collect();
-    for arg in &args[1..] {
+    for (i, arg) in args.iter().enumerate().skip(1) {
         if arg.starts_with("-") {
-            // Placeholder for command line args.
+            if arg == "-c" {
+                if !shell.interactive {
+                    Err("cannot specify -c command and scripts at the same time")?;
+                }
+                shell.source = Some(Box::new(Cursor::new(format!("{}", args[i + 1..].join(" ")))));
+                shell.interactive = false;
+                break;
+            }
         } else {
             let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
             shell.source = Some(Box::new(BufReader::new(file)));

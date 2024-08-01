@@ -205,11 +205,12 @@ where
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '-' => if self.current_expr.is_cmd() {
+                '-' => { if self.current_expr.is_cmd() {
                         literal.push(*c);
-                        self.next();
                     } else {
                         tok = Token::Operator(Op::Minus);
+                    }
+                    self.next();
                 }
                 '/' => if self.current_expr.is_cmd() {
                     // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
@@ -684,10 +685,7 @@ impl Eval for BinExpr {
                 Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
                 Op::Or => self.eval_or(self.lhs.eval()?, rhs),
                 Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
-                _ => {
-                    dbg!(&self.op);
-                    return error(self, "Unexpected operator");
-                }
+                _ => { dbg!(&self.op); return error(self, "Unexpected operator"); },
             }
         }
     }
