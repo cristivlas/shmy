@@ -92,6 +92,7 @@ trait ExprNode {
 struct Parser<I: Iterator<Item = char>> {
     chars: Peekable<I>,
     loc: Location,
+    comment: bool,
     escaped: bool,
     quoted: bool,
     expect_else_expr: bool,
@@ -181,7 +182,19 @@ where
             if tok != Token::End {
                 break;
             }
+            if *c == '\n' {
+                self.loc.line += 1;
+                self.loc.col = 0;
+                self.comment = false;
+                self.next();
+                continue;
+            }
+            if self.comment {
+                self.next();
+                continue;
+            }
             match c {
+                '#' => { self.comment = true; self.next(); }
                 '%' => token!(self, tok, Token::Operator(Op::Mod)),
                 '(' => token!(self, tok, Token::LeftParen),
                 ')' => token!(self, tok, Token::RightParen),
@@ -209,11 +222,6 @@ where
                     } else {
                         token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
                     }
-                '\n' => {
-                    self.loc.line += 1;
-                    self.loc.col = 1;
-                    self.next();
-                }
                 _ => {
                     if c.is_whitespace() {
                         self.next();
@@ -290,7 +298,7 @@ where
                 Ok(())
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
-            Expression::Lit(_, _) => error(self, "Dangling expression after literal"),
+            Expression::Lit(_) => error(self, "Dangling expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
     }
@@ -427,7 +435,7 @@ enum Expression {
     Cmd(RefCell<Command>),
     Branch(RefCell<BranchExpr>),
     Group(RefCell<GroupExpr>),
-    Lit(Token, Rc<Scope>),
+    Lit(Rc<Literal>),
     Loop(RefCell<LoopExpr>),
 }
 
@@ -513,14 +521,14 @@ impl BinExpr {
     }
 
     fn eval_assign(&self, rhs: Value) -> Result<Value, String> {
-        if let Expression::Lit(tok, scope) = &*self.lhs {
-            if let Token::Literal(name) = tok {
+        if let Expression::Lit(lit) = &*self.lhs {
+            if let Token::Literal(name) = &lit.tok {
                 if name.starts_with('$') {
-                    if let Some(var) = scope.lookup(&name[1..]) {
+                    if let Some(var) = lit.scope.lookup(&name[1..]) {
                         var.assign(rhs);
                         return Ok(var.value());
                     } else {
-                        error(self, "Variable not found")?;
+                        error(self, &format!("Variable not found: {}", name))?;
                     }
                 } else {
                     self.scope.insert(name.to_owned(), rhs.clone());
@@ -700,6 +708,9 @@ impl Eval for GroupExpr {
         let mut result = error(self, "Empty group");
         for e in &self.group {
             result = e.eval();
+            if result.is_err() {
+                break;
+            }
         }
         result // return the last evaluation
     }
@@ -817,6 +828,39 @@ impl ExprNode for BranchExpr {
 }
 
 #[derive(Debug)]
+struct Literal {
+    tok: Token,
+    loc: Location,
+    scope: Rc<Scope>,
+}
+
+derive_has_location!(Literal);
+
+impl Eval for Literal {
+    fn eval(&self) -> Result<Value, String> {
+        match &self.tok {
+            Token::Literal(s) => {
+                if let Ok(i) = s.parse::<i64>() {
+                    Ok(Value::Int(i))
+                } else if let Ok(f) = s.parse::<f64>() {
+                    Ok(Value::Real(f))
+                } else if s.starts_with('$') {
+                    match self.scope.lookup(&s[1..]) {
+                        None => error(self, &format!("Variable not found: {}", s)),
+                        Some(v) => Ok(v.value()),
+                    }
+                } else {
+                    Ok(Value::Str(s.clone()))
+                }
+            }
+            _ => {
+                panic!("Invalid token type in literal expression");
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 struct LoopExpr {
     cond: Rc<Expression>,
     body: Rc<Expression>,
@@ -913,25 +957,7 @@ impl Eval for Expression {
             Expression::Empty => {
                 panic!("Empty expression");
             }
-            Expression::Lit(tok, scope) => match tok {
-                Token::Literal(s) => {
-                    if let Ok(i) = s.parse::<i64>() {
-                        Ok(Value::Int(i))
-                    } else if let Ok(f) = s.parse::<f64>() {
-                        Ok(Value::Real(f))
-                    } else if s.starts_with('$') {
-                        match scope.lookup(&s[1..]) {
-                            None => Err(format!("Variable not found: {}", s)),
-                            Some(v) => Ok(v.value()),
-                        }
-                    } else {
-                        Ok(Value::Str(s.to_owned()))
-                    }
-                }
-                _ => {
-                    panic!("Invalid token type in literal expression");
-                }
-            },
+            Expression::Lit(lit) => lit.eval(),
             Expression::Loop(l) => l.borrow().eval(),
         }
     }
@@ -964,10 +990,11 @@ impl Interp {
 
     fn parse(&mut self, input: &str) -> Result<Rc<Expression>, String> {
         let empty = Rc::new(Expression::Empty);
-        let loc = Location { line: 1, col: 1 };
+        let loc = Location { line: 1, col: 0 };
         let mut parser = Parser {
             chars: input.chars().peekable(),
             loc: loc,
+            comment: false,
             escaped: false,
             quoted: false,
             expect_else_expr: false,
@@ -1039,7 +1066,11 @@ impl Interp {
                         parser.add_expr(&expr)?;
                     // identifiers and literals
                     } else {
-                        let expr = Rc::new(Expression::Lit(tok, Rc::clone(&parser.scope)));
+                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                            tok,
+                            loc: parser.loc,
+                            scope: Rc::clone(&parser.scope),
+                        })));
                         parser.add_expr(&expr)?;
                     }
                 }
@@ -1054,7 +1085,14 @@ impl Interp {
 
                     match op {
                         // Right hand-side associative operations.
-                        Op::Assign | Op::Gt | Op::Gte | Op::Lt | Op::Lte | Op::NotEquals | Op::Minus | Op::Plus => {
+                        Op::Assign
+                        | Op::Gt
+                        | Op::Gte
+                        | Op::Lt
+                        | Op::Lte
+                        | Op::NotEquals
+                        | Op::Minus
+                        | Op::Plus => {
                             parser.expr_stack.push(Rc::clone(&expr));
                             parser.current_expr = parser.empty();
                         }

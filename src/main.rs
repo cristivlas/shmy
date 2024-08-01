@@ -24,9 +24,10 @@ impl Shell {
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         let mut buffer = String::new();
         let mut input: String = String::new();
+        let mut escape = false;
 
         loop {
-            if self.interactive {
+            if !escape && self.interactive {
                 print!("mysh> ");
                 io::stdout().flush().unwrap();
             }
@@ -40,20 +41,24 @@ impl Shell {
                     break;
                 }
                 Ok(_) => {
-                    let trimmed = buffer.split('#').next().unwrap_or(&buffer).trim_end();
-                    if !trimmed.is_empty() {
-                        if trimmed.ends_with('\\') {
-                            input.push_str(&trimmed[..trimmed.len() - 1]); // Remove backslash
+                    let trimmed = buffer.trim_end();
+
+                    if trimmed.is_empty() {
+                        input.push('\n'); // Keep newlines for correct Location info.
+                    } else if trimmed.ends_with('\\') {
+                        escape = true;
+                        input.push_str(&trimmed[..trimmed.len() - 1]); // Remove backslash
+                    } else {
+                        escape = false;
+                        input.push_str(&trimmed);
+                        if self.interactive {
+                            self.eval(&input);
+                            input.clear();
                         } else {
-                            input.push_str(&trimmed);
-                            if self.interactive {
-                                self.eval(&input);
-                                input.clear();
-                            } else {
-                                input.push('\n');
-                            }
+                            input.push('\n');
                         }
                     }
+
                     buffer.clear();
                 }
                 Err(e) => return Err(format!("Failed to read input: {}", e)),
