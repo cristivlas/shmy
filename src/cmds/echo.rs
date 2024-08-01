@@ -12,5 +12,5 @@ impl Exec for Echo {
 
 #[ctor::ctor]
 fn register() {
-    register_command(BuiltinCommand { name: "echo", exec: Rc::new(Echo) });
+    register_command(BuiltinCommand { name: "echo".to_string(), exec: Rc::new(Echo) });
 }

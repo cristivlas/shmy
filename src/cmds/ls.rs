@@ -356,12 +356,12 @@ fn register() {
     let exec = Rc::new(Dir);
 
     register_command(BuiltinCommand {
-        name: "ls",
+        name: "ls".to_string(),
         exec: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 
     register_command(BuiltinCommand {
-        name: "dir",
+        name: "dir".to_string(),
         exec: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 }
