@@ -6,6 +6,8 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use which::which;
 mod cat;
+mod cd;
+mod clear;
 mod echo;
 mod env;
 mod ls;

@@ -705,8 +705,65 @@ impl BinExpr {
         }
     }
 
-    fn eval_or(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
-        Err("NOT IMPLEMENTED".to_string())
+    fn eval_or(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        Ok(Value::Int((value_as_bool(lhs) || value_as_bool(rhs)) as _))
+    }
+
+    fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> Result<Value, String> {
+        if lhs.is_empty() {
+            error(&self.loc, "Expecting pipe input")?;
+        }
+        // Create a pipe
+        let (reader, writer) = match os_pipe::pipe() {
+            Ok((r, w)) => (r, w),
+            Err(e) => return error(&self.loc, &format!("Failed to create pipe: {}", e)),
+        };
+
+        // Redirect stdout to the pipe
+        let redirect = match Redirect::stdout(writer) {
+            Ok(r) => r,
+            Err(e) => return error(self, &format!("Failed to redirect stdout: {}", e)),
+        };
+
+        // Get our own program name (argv[0])
+        let program = match env::args().next() {
+            Some(p) => p,
+            None => {
+                return error(self, "Failed to get executable name");
+            }
+        };
+
+        // Get the right-hand side expression as a string
+        let rhs_str = rhs.to_string();
+
+        debug_print!(&program, &rhs_str);
+
+        // Start a copy of the running program with the arguments "-c" rhs_str
+        let child = match StdCommand::new(&program)
+            .arg("-c")
+            .arg(&rhs_str)
+            .stdin(Stdio::from(reader))
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return error(self, &format!("Failed to spawn child process: {}", e)),
+        };
+
+        // Left-side evaluation's stdout goes into the pipe.
+        lhs.eval()?;
+
+        // Drop the redirect to close the write end of the pipe
+        drop(redirect);
+
+        // Wait for the child process to complete and get its output
+        let output = match child.wait_with_output() {
+            Ok(o) => o,
+            Err(e) => return error(self, &format!("Failed to get child process output: {}", e)),
+        };
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+
+        Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
     }
 
     fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
@@ -721,64 +778,17 @@ impl BinExpr {
                 Value::Real(j) => Ok(Value::Real(i + j)),
                 Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
             },
-            Value::Str(i) => {
-                let format_string = |j: &dyn fmt::Display| Ok(Value::Str(format!("{}{}", i, j)));
-
-                match rhs {
-                    Value::Int(j) => format_string(&j),
-                    Value::Real(j) => format_string(&j),
-                    Value::Str(ref j) => format_string(j),
-                }
+            Value::Str(s) => {
+                Ok(Value::Str(format!("{}{}", s, rhs)))
             }
         }
     }
 }
 
-fn eval_pipe(loc: &Location, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> Result<Value, String> {
-    // Create a pipe
-    let (reader, writer) = match os_pipe::pipe() {
-        Ok((r, w)) => (r, w),
-        Err(e) => return error(loc, &format!("Failed to create pipe: {}", e)),
+macro_rules! eval_bin {
+    ($self:expr, $f:ident) => {
+        $self.$f($self.lhs.eval()?, $self.rhs.eval()?)
     };
-
-    // Redirect stdout to the pipe
-    let redirect = match Redirect::stdout(writer) {
-        Ok(r) => r,
-        Err(e) => return error(loc, &format!("Failed to redirect stdout: {}", e)),
-    };
-
-    // Get the program name (argv[0])
-    let program = env::args().next().unwrap();
-
-    // Get the right-hand side expression as a string
-    let rhs_str = rhs.to_string();
-
-    debug_print!(&program, &rhs_str);
-
-    // Start a copy of the running program with the arguments "-c" rhs_str
-    let child = match StdCommand::new(&program)
-        .arg("-c")
-        .arg(&rhs_str)
-        .stdin(Stdio::from(reader))
-        .stdout(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => return error(loc, &format!("Failed to spawn child process: {}", e)),
-    };
-
-    lhs.eval()?;
-
-    // Drop the redirect to close the write end of the pipe
-    drop(redirect);
-
-    // Wait for the child process to complete and get its output
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(e) => return error(loc, &format!("Failed to get child process output: {}", e)),
-    };
-    print!("{}", String::from_utf8_lossy(&output.stdout));
-    Ok(Value::Int(output.status.code().unwrap() as _))
 }
 
 impl Eval for BinExpr {
@@ -787,38 +797,26 @@ impl Eval for BinExpr {
             error(self, "Expecting right hand-side expression")?;
         }
 
-        if self.op == Op::Pipe {
-            if self.lhs.is_empty() {
-                return error(self, "Expecting pipe input");
-            }
-            return eval_pipe(&self.loc, &self.lhs, &self.rhs);
-        }
-
-        let rhs = self.rhs.eval()?;
-
         if self.lhs.is_empty() {
-            eval_unary(&self.loc, &self.op, rhs)
+            eval_unary(&self.loc, &self.op, self.rhs.eval()?)
         } else {
             match self.op {
-                Op::And => self.eval_and(self.lhs.eval()?, rhs),
-                Op::Assign => self.eval_assign(rhs.clone()),
-                Op::Div => self.eval_div(self.lhs.eval()?, rhs),
-                Op::Gt => self.eval_gt(self.lhs.eval()?, rhs),
-                Op::Gte => self.eval_gte(self.lhs.eval()?, rhs),
-                Op::IntDiv => self.eval_int_div(self.lhs.eval()?, rhs),
-                Op::Equals => self.eval_equals(self.lhs.eval()?, rhs),
-                Op::Lt => self.eval_lt(self.lhs.eval()?, rhs),
-                Op::Lte => self.eval_lte(self.lhs.eval()?, rhs),
-                Op::Minus => self.eval_minus(self.lhs.eval()?, rhs),
-                Op::Mod => self.eval_mod(self.lhs.eval()?, rhs),
-                Op::Mul => self.eval_mul(self.lhs.eval()?, rhs),
-                Op::NotEquals => self.eval_not_equals(self.lhs.eval()?, rhs),
-                Op::Or => self.eval_or(self.lhs.eval()?, rhs),
-                Op::Plus => self.eval_plus(self.lhs.eval()?, rhs),
-                _ => {
-                    dbg!(&self.op);
-                    return error(self, "Unexpected operator");
-                }
+                Op::And => eval_bin!(self, eval_and),
+                Op::Assign => self.eval_assign(self.rhs.eval().unwrap().clone()),
+                Op::Div => eval_bin!(self, eval_div),
+                Op::Gt => eval_bin!(self, eval_gt),
+                Op::Gte => eval_bin!(self, eval_gte),
+                Op::IntDiv => eval_bin!(self, eval_int_div),
+                Op::Equals => eval_bin!(self, eval_equals),
+                Op::Lt => eval_bin!(self, eval_lt),
+                Op::Lte => eval_bin!(self, eval_lte),
+                Op::Minus => eval_bin!(self, eval_minus),
+                Op::Mod => eval_bin!(self, eval_mod),
+                Op::Mul => eval_bin!(self, eval_mul),
+                Op::NotEquals => eval_bin!(self, eval_not_equals),
+                Op::Or => eval_bin!(self, eval_or),
+                Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
+                Op::Plus => eval_bin!(self, eval_plus),
             }
         }
     }
