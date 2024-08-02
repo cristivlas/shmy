@@ -1,9 +1,11 @@
 use crate::cmds::{get_command, Exec};
+use gag::Redirect;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
 use std::iter::Peekable;
+use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::{fmt, process};
@@ -732,6 +734,53 @@ impl BinExpr {
     }
 }
 
+fn eval_pipe(loc: &Location, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> Result<Value, String> {
+    // Create a pipe
+    let (reader, writer) = match os_pipe::pipe() {
+        Ok((r, w)) => (r, w),
+        Err(e) => return error(loc, &format!("Failed to create pipe: {}", e)),
+    };
+
+    // Redirect stdout to the pipe
+    let redirect = match Redirect::stdout(writer) {
+        Ok(r) => r,
+        Err(e) => return error(loc, &format!("Failed to redirect stdout: {}", e)),
+    };
+
+    // Get the program name (argv[0])
+    let program = env::args().next().unwrap();
+
+    // Get the right-hand side expression as a string
+    let rhs_str = rhs.to_string();
+
+    debug_print!(&program, &rhs_str);
+
+    // Start a copy of the running program with the arguments "-c" rhs_str
+    let child = match StdCommand::new(&program)
+        .arg("-c")
+        .arg(&rhs_str)
+        .stdin(Stdio::from(reader))
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return error(loc, &format!("Failed to spawn child process: {}", e)),
+    };
+
+    lhs.eval()?;
+
+    // Drop the redirect to close the write end of the pipe
+    drop(redirect);
+
+    // Wait for the child process to complete and get its output
+    let output = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(e) => return error(loc, &format!("Failed to get child process output: {}", e)),
+    };
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    Ok(Value::Int(output.status.code().unwrap() as _))
+}
+
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.rhs.is_empty() {
@@ -742,7 +791,7 @@ impl Eval for BinExpr {
             if self.lhs.is_empty() {
                 return error(self, "Expecting pipe input");
             }
-            error(self, "Pipes are not implemented")?;
+            return eval_pipe(&self.loc, &self.lhs, &self.rhs);
         }
 
         let rhs = self.rhs.eval()?;
@@ -971,7 +1020,7 @@ impl fmt::Display for Literal {
             Token::LeftParen => write!(f, "("),
             Token::RightParen => write!(f, ")"),
             Token::Semicolon => write!(f, ";"),
-            Token::Literal(s) => write!(f, "{}", &s),
+            Token::Literal(s) => write!(f, "\"{}\"", &s),
             Token::Operator(op) => write!(f, "{}", op),
             Token::End => write!(f, ""),
         }
@@ -1120,10 +1169,8 @@ fn new_group(loc: Location) -> Rc<Expression> {
 
 impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
-        let ast = self.parse(input)?;
-        debug_print!(&ast);
-
-        ast.eval()
+        debug_print!(input);
+        self.parse(input).unwrap().eval()
     }
 
     fn parse(&mut self, input: &str) -> Result<Rc<Expression>, String> {

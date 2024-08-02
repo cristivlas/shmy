@@ -15,7 +15,7 @@ impl Exec for Cat {
             stdin
                 .read_to_string(&mut buffer)
                 .map_err(|e| e.to_string())?;
-            println!("{}", buffer);
+            print!("{}", buffer);
         } else {
             // Read from files specified in args
             for filename in args {
