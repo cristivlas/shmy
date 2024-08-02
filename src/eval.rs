@@ -1168,7 +1168,8 @@ fn new_group(loc: Location) -> Rc<Expression> {
 impl Interp {
     pub fn eval(&mut self, input: &str) -> Result<Value, String> {
         debug_print!(input);
-        self.parse(input).unwrap().eval()
+        let ast = self.parse(input)?;
+        ast.eval()
     }
 
     fn parse(&mut self, input: &str) -> Result<Rc<Expression>, String> {
