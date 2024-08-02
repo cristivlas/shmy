@@ -374,7 +374,7 @@ where
 }
 
 #[derive(Clone, Debug)]
-struct Variable {
+pub struct Variable {
     val: Rc<RefCell<Value>>,
 }
 
@@ -389,7 +389,7 @@ impl Variable {
         }
     }
 
-    fn value(&self) -> Value {
+    pub fn value(&self) -> Value {
         self.val.borrow().clone()
     }
 }
@@ -402,10 +402,16 @@ impl From<&str> for Variable {
     }
 }
 
+impl fmt::Display for Variable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.val.borrow())
+    }
+}
+
 #[derive(Debug)]
-struct Scope {
+pub struct Scope {
     parent: Option<Rc<Scope>>,
-    vars: RefCell<HashMap<String, Variable>>,
+    pub vars: RefCell<HashMap<String, Variable>>,
 }
 
 impl Scope {
@@ -759,6 +765,7 @@ struct Command {
     cmd: String,
     args: Vec<Rc<Expression>>,
     loc: Location,
+    scope: Rc<Scope>,
 }
 
 derive_has_location!(Command);
@@ -772,7 +779,7 @@ impl Command {
                 args.push(format!("{}", v));
             }
 
-            match cmd.exec(args) {
+            match cmd.exec(&args, &self.scope) {
                 Ok(v) => Ok(v),
                 Err(e) => error(self, e.as_str()),
             }
@@ -1100,6 +1107,7 @@ impl Interp {
                             cmd: s.to_owned(),
                             args: Default::default(),
                             loc: parser.loc,
+                            scope: Rc::clone(&parser.scope),
                         })));
                         parser.add_expr(&expr)?;
                     // identifiers and literals

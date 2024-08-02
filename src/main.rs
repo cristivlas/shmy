@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::File;
-use std::io::{self, Cursor, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Cursor, Write};
 mod cmds;
 #[macro_use]
 mod eval;
@@ -107,7 +107,10 @@ fn parse_cmd_line() -> Result<Shell, String> {
                 if !shell.interactive {
                     Err("cannot specify -c command and scripts at the same time")?;
                 }
-                shell.source = Some(Box::new(Cursor::new(format!("{}", args[i + 1..].join(" ")))));
+                shell.source = Some(Box::new(Cursor::new(format!(
+                    "{}",
+                    args[i + 1..].join(" ")
+                ))));
                 shell.interactive = false;
                 break;
             }

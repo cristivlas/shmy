@@ -1,4 +1,4 @@
-use crate::eval::Value;
+use crate::eval::{Scope, Value};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::process::Command;
@@ -7,21 +7,22 @@ use std::sync::Mutex;
 use which::which;
 mod cat;
 mod echo;
+mod env;
 mod ls;
 
 pub trait Exec {
-    fn exec(&self, args: Vec<String>) -> Result<Value, String>;
+    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
 }
 
 #[derive(Clone)]
 pub struct BuiltinCommand {
     name: String,
-    exec: Rc<dyn Exec>,
+    inner: Rc<dyn Exec>,
 }
 
 impl Exec for BuiltinCommand {
-    fn exec(&self, args: Vec<String>) -> Result<Value, String> {
-        self.exec.exec(args)
+    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+        self.inner.exec(args, scope)
     }
 }
 
@@ -45,7 +46,7 @@ pub fn get_command(name: &str) -> Option<BuiltinCommand> {
         if let Some(path) = locate_executable(name) {
             register_command(BuiltinCommand {
                 name: name.to_string(),
-                exec: Rc::new(External { path }),
+                inner: Rc::new(External { path }),
             });
             cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
         }
@@ -65,14 +66,18 @@ struct External {
 }
 
 impl Exec for External {
-    fn exec(&self, args: Vec<String>) -> Result<crate::eval::Value, String> {
-        // Print the command being executed (for debugging purposes)
-        // println!("{} {}", self.path, args.join(" "));
-
-        // Execute the external program.
-        // TODO: customize environment vars.
+    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut command = Command::new(&self.path);
-        command.args(&args);
+        command.args(args);
+
+        // Clear existing environment variables
+        command.env_clear();
+
+        // Set environment variables from the scope
+        for (key, variable) in scope.vars.borrow().iter() {
+            command.env(key, variable.value().to_string());
+        }
+
         match command.spawn() {
             Ok(mut child) => match child.wait() {
                 Ok(status) => {

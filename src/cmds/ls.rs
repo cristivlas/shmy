@@ -1,5 +1,5 @@
 use super::{register_command, BuiltinCommand, Exec};
-use crate::eval::Value;
+use crate::eval::{Scope, Value};
 use chrono::DateTime;
 use std::fs;
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ struct CmdArgs {
 }
 
 impl Exec for Dir {
-    fn exec(&self, args: Vec<String>) -> Result<Value, String> {
+    fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         list_directories(&parse_args(&args))
     }
 }
@@ -357,11 +357,11 @@ fn register() {
 
     register_command(BuiltinCommand {
         name: "ls".to_string(),
-        exec: Rc::clone(&exec) as Rc<dyn Exec>,
+        inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 
     register_command(BuiltinCommand {
         name: "dir".to_string(),
-        exec: Rc::clone(&exec) as Rc<dyn Exec>,
+        inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 }
