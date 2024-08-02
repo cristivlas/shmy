@@ -39,6 +39,29 @@ enum Op {
     Plus,
 }
 
+impl fmt::Display for Op {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Op::And => write!(f, "&&"),
+            Op::Assign => write!(f, "="),
+            Op::Div => write!(f, "/"),
+            Op::Equals => write!(f, "=="),
+            Op::Gt => write!(f, ">"),
+            Op::Gte => write!(f, ">="),
+            Op::IntDiv => write!(f, "//"),
+            Op::Minus => write!(f, "-"),
+            Op::Mod => write!(f, "%"),
+            Op::Mul => write!(f, "*"),
+            Op::Lt => write!(f, "<"),
+            Op::Lte => write!(f, "<="),
+            Op::NotEquals => write!(f, "!="),
+            Op::Or => write!(f, "||"),
+            Op::Pipe => write!(f, "|"),
+            Op::Plus => write!(f, "+"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Token {
     End,
@@ -488,6 +511,20 @@ impl Expression {
     }
 }
 
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::Empty => write!(f, ""),
+            Expression::Bin(bin_expr) => write!(f, "{}", bin_expr.borrow()),
+            Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
+            Expression::Branch(branch) => write!(f, "Branch({})", branch.borrow()),
+            Expression::Group(group) => write!(f, "{}", group.borrow()),
+            Expression::Lit(literal) => write!(f, "{}", literal),
+            Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct BinExpr {
     op: Op,
@@ -508,6 +545,12 @@ impl ExprNode for BinExpr {
         } else {
             error(self, "Dangling expression")
         }
+    }
+}
+
+impl fmt::Display for BinExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} {}", self.lhs, self.op, self.rhs)
     }
 }
 
@@ -760,6 +803,20 @@ impl ExprNode for GroupExpr {
     }
 }
 
+fn join_expr(expressions: &[Rc<Expression>], separator: &str) -> String {
+    expressions
+        .iter()
+        .map(|expr| expr.to_string())
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+impl fmt::Display for GroupExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "( {} )", join_expr(&self.group, "; "))
+    }
+}
+
 #[derive(Debug)]
 struct Command {
     cmd: String,
@@ -800,6 +857,12 @@ impl ExprNode for Command {
         assert!(!self.cmd.is_empty());
         self.args.push(Rc::clone(child));
         Ok(())
+    }
+}
+
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.cmd, join_expr(&self.args, " "))
     }
 }
 
@@ -853,6 +916,17 @@ impl Eval for BranchExpr {
     }
 }
 
+impl fmt::Display for BranchExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "if {} {}", self.cond, self.if_branch)?;
+
+        if !self.else_branch.is_empty() {
+            write!(f, " else {}", self.else_branch)?;
+        }
+        Ok(())
+    }
+}
+
 impl ExprNode for BranchExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         if self.cond.is_empty() {
@@ -887,6 +961,19 @@ impl Eval for Literal {
             _ => {
                 panic!("Invalid token type in literal expression");
             }
+        }
+    }
+}
+
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.tok {
+            Token::LeftParen => write!(f, "("),
+            Token::RightParen => write!(f, ")"),
+            Token::Semicolon => write!(f, ";"),
+            Token::Literal(s) => write!(f, "{}", &s),
+            Token::Operator(op) => write!(f, "{}", op),
+            Token::End => write!(f, ""),
         }
     }
 }
@@ -937,6 +1024,12 @@ impl ExprNode for LoopExpr {
             self.body = Rc::clone(expr);
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for LoopExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "while ({}) {}", self.cond, self.body)
     }
 }
 
