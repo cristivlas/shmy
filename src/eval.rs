@@ -257,14 +257,15 @@ where
                     let mut has_chars = false;
 
                     while let Some(&next_c) = self.chars.peek() {
-                        if next_c == '\\' {
-                            if self.escaped {
-                                literal.push(next_c);
-                            }
-                            self.next();
-                            self.escaped ^= true;
-                            continue;
-                        }
+                        // TODO: implement escape sequences correctly.
+                        // if next_c == '\\' {
+                        //     if self.escaped {
+                        //         literal.push(next_c);
+                        //     }
+                        //     self.next();
+                        //     self.escaped ^= true;
+                        //     continue;
+                        // }
                         if next_c == '"' {
                             if !self.escaped {
                                 self.quoted ^= true;
