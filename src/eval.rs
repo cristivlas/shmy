@@ -832,7 +832,7 @@ derive_has_location!(GroupExpr);
 
 impl Eval for GroupExpr {
     fn eval(&self) -> Result<Value, String> {
-        let mut result = error(self, "Empty group");
+        let mut result = Ok(Value::Int(0));
         for e in &self.group {
             result = e.eval();
             if result.is_err() {
