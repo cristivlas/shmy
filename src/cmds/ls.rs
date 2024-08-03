@@ -21,7 +21,7 @@ struct CmdArgs {
 }
 
 impl Exec for Dir {
-    fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         list_entries(&parse_args(&args))
     }
 }

@@ -13,7 +13,7 @@ mod env;
 mod ls;
 
 pub trait Exec {
-    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
 }
 
 #[derive(Clone)]
@@ -23,8 +23,8 @@ pub struct BuiltinCommand {
 }
 
 impl Exec for BuiltinCommand {
-    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
-        self.inner.exec(args, scope)
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+        self.inner.exec(name, args, scope)
     }
 }
 
@@ -73,7 +73,7 @@ struct External {
 }
 
 impl Exec for External {
-    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut command = Command::new(&self.path);
         command.args(args);
 

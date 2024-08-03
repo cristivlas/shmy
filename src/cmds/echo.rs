@@ -4,7 +4,7 @@ use std::rc::Rc;
 struct Echo;
 
 impl Exec for Echo {
-    fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         println!("{}", args.join(" "));
         Ok(Value::Int(0))
     }

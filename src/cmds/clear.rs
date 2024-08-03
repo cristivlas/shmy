@@ -6,7 +6,7 @@ use std::rc::Rc;
 struct Clear;
 
 impl Exec for Clear {
-    fn exec(&self, _: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, _args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         match clearscreen::clear() {
             Ok(_) => Ok(Value::Int(0)),
             Err(e) => Err(format!("Could not clear screen: {}", e)),

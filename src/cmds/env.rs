@@ -5,7 +5,7 @@ use std::rc::Rc;
 struct Environ;
 
 impl Exec for Environ {
-    fn exec(&self, _: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, _args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         // Borrow the vars from scope
         let vars = scope.vars.borrow();
 

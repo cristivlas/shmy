@@ -7,7 +7,7 @@ use std::rc::Rc;
 struct Cat;
 
 impl Exec for Cat {
-    fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         if args.is_empty() {
             // Read from stdin
             let mut stdin = io::stdin();

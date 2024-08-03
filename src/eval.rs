@@ -487,7 +487,7 @@ impl Scope {
     pub fn lookup_value(&self, s: &str) -> Option<Value> {
         match self.lookup(s) {
             Some(v) => Some(v.value()),
-            None => None
+            None => None,
         }
     }
 }
@@ -914,7 +914,7 @@ impl Command {
                 args.push(s);
             }
 
-            match cmd.exec(&args, &self.scope) {
+            match cmd.exec(&self.cmd, &args, &self.scope) {
                 Ok(v) => Ok(v),
                 Err(e) => error(self, e.as_str()),
             }
