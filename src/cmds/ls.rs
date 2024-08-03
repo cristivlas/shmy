@@ -3,6 +3,8 @@ use crate::eval::{Scope, Value};
 use chrono::DateTime;
 use std::fs::{self, DirEntry, Metadata};
 use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
@@ -193,8 +195,6 @@ mod win {
                 let mut name = vec![0u16; name_size as usize];
                 let mut domain = vec![0u16; domain_size as usize];
 
-                name_size += 1;
-
                 // Second call to get actual data
                 if LookupAccountSidW(
                     std::ptr::null(),
@@ -301,7 +301,8 @@ use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(args: &CmdArgs) -> Result<Value, String> {
     for path in &args.paths {
-        let metadata = fs::metadata(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
+        let metadata =
+            fs::metadata(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
 
         if metadata.is_dir() {
             process_directory(path, &args)?;
@@ -315,7 +316,9 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
 
 fn process_directory(path: &str, args: &CmdArgs) -> Result<(), String> {
     let entries = fs::read_dir(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
-    let mut entries: Vec<_> = entries.collect::<Result<_, _>>().map_err(|e| format!("Error reading entries: {}", e))?;
+    let mut entries: Vec<_> = entries
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("Error reading entries: {}", e))?;
     entries.sort_by_key(|e| e.file_name());
 
     if args.paths.len() > 1 {
@@ -344,7 +347,9 @@ fn process_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), S
 fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
     println!("total {}", entries.len());
     for entry in entries {
-        let metadata = entry.metadata().map_err(|e| format!("Failed to get metadata: {}", e))?;
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata: {}", e))?;
         let file_name = format_file_name(entry, &metadata, args)?;
         let size = format_file_size(&metadata, args);
         let file_type = format_file_type(&metadata);
@@ -386,7 +391,11 @@ fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), S
         if current_column == 0 {
             print!("{:<width$}", file_name, width = column_width);
         } else {
-            print!(" {:<width$}", file_name, width = column_width.saturating_sub(1));
+            print!(
+                " {:<width$}",
+                file_name,
+                width = column_width.saturating_sub(1)
+            );
         }
 
         current_column += 1;
@@ -419,7 +428,11 @@ fn print_detailed_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Resul
     Ok(())
 }
 
-fn format_file_name(entry: &DirEntry, metadata: &Metadata, args: &CmdArgs) -> Result<String, String> {
+fn format_file_name(
+    entry: &DirEntry,
+    metadata: &Metadata,
+    args: &CmdArgs,
+) -> Result<String, String> {
     let mut file_name = entry.file_name().to_string_lossy().to_string();
     if file_name.starts_with(".") && !args.all_files {
         return Err(String::new());

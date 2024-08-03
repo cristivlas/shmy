@@ -62,13 +62,24 @@ struct Shell {
     interactive: bool,
     interp: Interp,
     home_dir: Option<PathBuf>,
-    history_path: Option<PathBuf>
+    history_path: Option<PathBuf>,
+    edit_config: rustyline::config::Config,
 }
 
 impl Shell {
     fn new(source: Option<Box<dyn BufRead>>, interactive: bool, interp: Interp) -> Self {
         Self {
-            source, interactive, interp, home_dir: None, history_path: None
+            source,
+            interactive,
+            interp,
+            home_dir: None,
+            history_path: None,
+            edit_config: rustyline::Config::builder()
+                .edit_mode(rustyline::EditMode::Vi)
+                .behavior(rustyline::Behavior::PreferTerm)
+                .max_history_size(1024)
+                .unwrap()
+                .build(),
         }
     }
 
@@ -130,9 +141,8 @@ impl Shell {
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         let mut quit = false;
         if self.interactive {
-            // TODO: with_config
-            let mut rl =
-                CmdLineEditor::new().map_err(|e| format!("Failed to create editor: {}", e))?;
+            let mut rl = CmdLineEditor::with_config(self.edit_config)
+                .map_err(|e| format!("Failed to create editor: {}", e))?;
             let h = CmdLineHelper {
                 completer: CmdLineCompleter::new(),
                 highlighter: MatchingBracketHighlighter::new(),
