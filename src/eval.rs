@@ -1356,4 +1356,8 @@ impl Interp {
         self.scope
             .insert("HOME".to_string(), Value::Str(path.clone()));
     }
+
+    pub fn get_scope(&self) -> Rc<Scope> {
+        Rc::clone(&self.scope)
+    }
 }
