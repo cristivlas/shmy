@@ -2,9 +2,11 @@ use super::{register_command, BuiltinCommand, Exec};
 use crate::eval::{Scope, Value};
 use chrono::DateTime;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use terminal_size::{terminal_size, Width};
+
 struct Dir;
 
 const OWNER_MAX_LEN: usize = 14;
@@ -19,6 +21,14 @@ struct CmdArgs {
 impl Exec for Dir {
     fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         list_directories(&parse_args(&args))
+    }
+}
+
+fn make_abspath(path: &str) -> Result<String, String> {
+    let path = Path::new(path);
+    match fs::canonicalize(path) {
+        Ok(abs_path) => Ok(abs_path.to_string_lossy().to_string()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -295,6 +305,10 @@ fn list_directories(args: &CmdArgs) -> Result<Value, String> {
 
         entries.sort_by_key(|e| e.file_name());
 
+        if args.paths.len() > 1 {
+            println!("\n{}:", make_abspath(path)?);
+        }
+
         if args.show_details {
             println!("total {}", entries.len());
             for entry in &entries {
@@ -327,24 +341,47 @@ fn list_directories(args: &CmdArgs) -> Result<Value, String> {
         } else {
             let max_width = entries
                 .iter()
+                .filter(|e| args.all_files || !e.file_name().to_string_lossy().starts_with('.'))
                 .map(|e| e.file_name().to_string_lossy().len())
                 .max()
                 .unwrap_or(0);
-            let column_width = max_width + 2;
-            let terminal_width = 80; // Assume 80 columns if we can't detect
-            let columns = terminal_width / column_width;
 
-            for (index, entry) in entries.iter().enumerate() {
+            let column_width = max_width + 2;
+
+            // Get actual terminal width, fallback to 80 if unable to detect
+            let terminal_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
+
+            // Ensure at least one column
+            let columns = std::cmp::max(1, terminal_width / column_width);
+
+            let mut current_column = 0;
+
+            for entry in entries.iter() {
                 let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.starts_with(".") && !args.all_files {
+                if !args.all_files && file_name.starts_with('.') {
                     continue;
                 }
-                print!("{:<width$}", file_name, width = column_width);
-                if (index + 1) % columns == 0 {
+
+                if current_column >= columns {
                     println!();
+                    current_column = 0;
                 }
+
+                if current_column == 0 {
+                    print!("{:<width$}", file_name, width = column_width);
+                } else {
+                    // For all but the first column, ensure there's a space before the filename
+                    print!(
+                        " {:<width$}",
+                        file_name,
+                        width = column_width.saturating_sub(1)
+                    );
+                }
+
+                current_column += 1;
             }
-            if entries.len() % columns != 0 {
+
+            if current_column != 0 {
                 println!();
             }
         }

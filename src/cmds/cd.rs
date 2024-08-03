@@ -24,7 +24,7 @@ impl Exec for ChangeDir {
 
         match env::set_current_dir(&new_dir) {
             Ok(_) => Ok(Value::Int(0)),
-            Err(e) => Err(format!("{}: {}", &new_dir, e)),
+            Err(e) => Err(format!("Change dir to \"{}\": {}", &new_dir, e)),
         }
     }
 }

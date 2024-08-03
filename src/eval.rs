@@ -889,7 +889,7 @@ impl Command {
             let mut args: Vec<String> = Vec::new();
             for a in &self.args {
                 let v = a.eval()?;
-                args.push(format!("{}", v));
+                args.push(v.to_string());
             }
 
             match cmd.exec(&args, &self.scope) {
@@ -1157,7 +1157,9 @@ impl Eval for Expression {
     }
 }
 
-pub struct Interp;
+pub struct Interp {
+    scope: Rc<Scope>,
+}
 
 fn is_command(literal: &String) -> bool {
     get_command(&literal).is_some()
@@ -1176,7 +1178,7 @@ fn new_group(loc: Location) -> Rc<Expression> {
 
 impl Interp {
     pub fn new() -> Self {
-        Self {}
+        Self { scope: Scope::new_from_env() }
     }
 
     pub fn eval(&mut self, quit: &mut bool, input: &str) -> Result<Value, String> {
@@ -1197,7 +1199,7 @@ impl Interp {
             expect_else_expr: false,
             empty: Rc::clone(&empty),
             current_expr: Rc::clone(&empty),
-            scope: Scope::new_from_env(),
+            scope: Rc::clone(&self.scope),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
             group: new_group(loc),
@@ -1308,7 +1310,7 @@ impl Interp {
 
         if !parser.expr_stack.is_empty() {
             let msg = if parser.expect_else_expr {
-                "Dangling else"
+                "Dangling ELSE"
             } else {
                 dbg!(&parser.expr_stack);
                 "Unbalanced parenthesis"
@@ -1319,4 +1321,9 @@ impl Interp {
 
         Ok(parser.group)
     }
+
+    pub fn set_home_dir(&mut self, path: &String) {
+        self.scope.insert("HOME".to_string(), Value::Str(path.clone()));
+    }
+
 }

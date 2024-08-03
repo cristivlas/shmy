@@ -101,7 +101,10 @@ impl Shell {
 
     fn set_home_dir(&mut self, path: &PathBuf) {
         self.home_dir = Some(path.clone());
-        env::set_var("HOME", path.to_string_lossy().to_string());
+        debug_print!(&self.home_dir);
+        let home_dir = path.to_string_lossy().to_string();
+        self.interp.set_home_dir(&home_dir);
+        env::set_var("HOME", home_dir);
     }
 
     fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
