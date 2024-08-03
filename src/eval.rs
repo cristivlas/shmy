@@ -4,11 +4,11 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
-use std::{fmt, process};
 
 #[macro_export]
 macro_rules! debug_print {
@@ -89,6 +89,17 @@ impl fmt::Display for Location {
 /// Trait for objects with location info.
 trait HasLocation {
     fn loc(&self) -> &Location;
+}
+
+impl Location {
+    fn new() -> Self {
+        Self { line: 1, col: 0 }
+    }
+
+    fn next_line(&mut self) {
+        self.line += 1;
+        self.col = 0;
+    }
 }
 
 impl HasLocation for Location {
@@ -208,8 +219,7 @@ where
                 break;
             }
             if *c == '\n' {
-                self.loc.line += 1;
-                self.loc.col = 0;
+                self.loc.next_line();
                 self.comment = false;
                 self.next();
                 continue;
@@ -779,9 +789,7 @@ impl BinExpr {
                 Value::Real(j) => Ok(Value::Real(i + j)),
                 Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
             },
-            Value::Str(s) => {
-                Ok(Value::Str(format!("{}{}", s, rhs)))
-            }
+            Value::Str(s) => Ok(Value::Str(format!("{}{}", s, rhs))),
         }
     }
 }
@@ -1167,15 +1175,19 @@ fn new_group(loc: Location) -> Rc<Expression> {
 }
 
 impl Interp {
-    pub fn eval(&mut self, input: &str) -> Result<Value, String> {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn eval(&mut self, quit: &mut bool, input: &str) -> Result<Value, String> {
         debug_print!(input);
-        let ast = self.parse(input)?;
+        let ast = self.parse(quit, input)?;
         ast.eval()
     }
 
-    fn parse(&mut self, input: &str) -> Result<Rc<Expression>, String> {
+    fn parse(&mut self, quit: &mut bool, input: &str) -> Result<Rc<Expression>, String> {
         let empty = Rc::new(Expression::Empty);
-        let loc = Location { line: 1, col: 0 };
+        let loc = Location::new();
         let mut parser = Parser {
             chars: input.chars().peekable(),
             loc: loc,
@@ -1213,7 +1225,8 @@ impl Interp {
                 Token::Literal(ref s) => {
                     // keywords
                     if s == "exit" || s == "quit" {
-                        process::exit(0);
+                        *quit = true;
+                        break;
                     }
                     if s == "if" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
