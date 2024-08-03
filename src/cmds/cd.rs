@@ -13,10 +13,7 @@ struct PrintWorkingDir;
 impl Exec for ChangeDir {
     fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let new_dir = if args.is_empty() {
-            match scope.lookup("HOME") {
-                Some(v) => v.value().to_string(),
-                _ => "".to_string(),
-            }
+            scope.lookup_value("HOME").unwrap_or(Value::default()).to_string()
         } else {
             args.join(" ")
         };

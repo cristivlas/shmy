@@ -1,5 +1,6 @@
 use crate::cmds::{get_command, Exec};
 use gag::Redirect;
+use regex;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -482,17 +483,28 @@ impl Scope {
             },
         }
     }
+
+    pub fn lookup_value(&self, s: &str) -> Option<Value> {
+        match self.lookup(s) {
+            Some(v) => Some(v.value()),
+            None => None
+        }
+    }
 }
 
-fn parse_value(s: &str, scope: &Rc<Scope>, loc: &Location) -> Result<Value, String> {
-    if s.starts_with('$') {
-        match scope.lookup(&s[1..]) {
-            None => error(loc, &format!("Variable not found: {}", s)),
-            Some(v) => Ok(v.value()),
+fn parse_value(s: &str, scope: &Rc<Scope>) -> Result<Value, String> {
+    let regex = regex::Regex::new(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?").unwrap();
+    let result = regex.replace_all(s, |caps: &regex::Captures| {
+        let var_name = &caps[1];
+        match scope.lookup(var_name) {
+            Some(var) => var.value().to_string(),
+            None => caps
+                .get(0)
+                .map_or(String::new(), |m| m.as_str().to_string()), // Leave unchanged
         }
-    } else {
-        s.parse::<Value>()
-    }
+    });
+
+    result.parse::<Value>()
 }
 
 #[derive(Debug)]
@@ -889,7 +901,17 @@ impl Command {
             let mut args: Vec<String> = Vec::new();
             for a in &self.args {
                 let v = a.eval()?;
-                args.push(v.to_string());
+                let mut s = v.to_string();
+                // Expand leading tilde
+                if s.starts_with('~') {
+                    match self.scope.lookup("HOME") {
+                        Some(v) => {
+                            s = format!("{}{}", v.value().to_string(), &s[1..]);
+                        }
+                        _ => {}
+                    }
+                }
+                args.push(s);
             }
 
             match cmd.exec(&args, &self.scope) {
@@ -1013,7 +1035,7 @@ derive_has_location!(Literal);
 impl Eval for Literal {
     fn eval(&self) -> Result<Value, String> {
         match &self.tok {
-            Token::Literal(s) => parse_value(&s, &self.scope, &self.loc),
+            Token::Literal(s) => parse_value(&s, &self.scope),
             _ => {
                 panic!("Invalid token type in literal expression");
             }
@@ -1107,6 +1129,12 @@ pub enum Value {
     Str(String),
 }
 
+impl Default for Value {
+    fn default() -> Self {
+        Value::Str(String::default())
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self {
@@ -1178,7 +1206,9 @@ fn new_group(loc: Location) -> Rc<Expression> {
 
 impl Interp {
     pub fn new() -> Self {
-        Self { scope: Scope::new_from_env() }
+        Self {
+            scope: Scope::new_from_env(),
+        }
     }
 
     pub fn eval(&mut self, quit: &mut bool, input: &str) -> Result<Value, String> {
@@ -1323,7 +1353,7 @@ impl Interp {
     }
 
     pub fn set_home_dir(&mut self, path: &String) {
-        self.scope.insert("HOME".to_string(), Value::Str(path.clone()));
+        self.scope
+            .insert("HOME".to_string(), Value::Str(path.clone()));
     }
-
 }

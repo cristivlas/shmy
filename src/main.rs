@@ -1,10 +1,11 @@
+use cmds::list_registered_commands;
 use directories::UserDirs;
 use eval::Interp;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
-use rustyline::hint::HistoryHinter;
-use rustyline::validate::MatchingBracketValidator;
+//use rustyline::hint::HistoryHinter;
+//use rustyline::validate::MatchingBracketValidator;
 use rustyline::{history::DefaultHistory, Editor};
 use rustyline::{Completer, Context, Helper, Highlighter, Hinter, Validator};
 use std::env;
@@ -19,12 +20,23 @@ mod eval;
 // Wrap FilenameCompleter for future customizations
 struct CmdLineCompleter {
     file_completer: FilenameCompleter,
+    commands: Vec<String>,
 }
 
 impl CmdLineCompleter {
     pub fn new() -> Self {
+        let mut commands = list_registered_commands();
+
+        // TODO: cleaner way to populate keywords
+        commands.extend(
+            ["else", "exit", "if", "quit", "while"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+
         Self {
             file_completer: FilenameCompleter::new(),
+            commands,
         }
     }
 }
@@ -38,8 +50,26 @@ impl completion::Completer for CmdLineCompleter {
         pos: usize,
         _ctx: &Context<'_>,
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
-        let completions = self.file_completer.complete(line, pos, _ctx)?;
-        Ok(completions)
+
+        let completions = self.file_completer.complete(line, pos, _ctx);
+
+        if let Ok((_, v)) = &completions {
+            if !v.is_empty() {
+                return completions;
+            }
+        }
+
+        let mut commands = vec![];
+        for cmd in &self.commands {
+            // Only add to completions if the command starts with the input but is not exactly the same
+            if cmd.starts_with(&line[..pos]) && cmd != &line[..pos] {
+                commands.push(completion::Pair {
+                    display: cmd.to_string(),
+                    replacement: format!("{} ", cmd),
+                });
+            }
+        }
+        Ok((0, commands))
     }
 }
 
@@ -49,10 +79,19 @@ struct CmdLineHelper {
     completer: CmdLineCompleter,
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
-    #[rustyline(Validator)]
-    validator: MatchingBracketValidator,
-    #[rustyline(Hinter)]
-    hinter: HistoryHinter,
+    //#[rustyline(Validator)]
+    //validator: MatchingBracketValidator,
+    //#[rustyline(Hinter)]
+    //hinter: HistoryHinter,
+}
+
+impl CmdLineHelper {
+    fn new() -> Self {
+        Self {
+            completer: CmdLineCompleter::new(),
+            highlighter: MatchingBracketHighlighter::new(),
+        }
+    }
 }
 
 type CmdLineEditor = Editor<CmdLineHelper, DefaultHistory>;
@@ -143,12 +182,7 @@ impl Shell {
         if self.interactive {
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
-            let h = CmdLineHelper {
-                completer: CmdLineCompleter::new(),
-                highlighter: MatchingBracketHighlighter::new(),
-                hinter: HistoryHinter::new(),
-                validator: MatchingBracketValidator::new(),
-            };
+            let h = CmdLineHelper::new();
             rl.set_helper(Some(h));
             rl.load_history(&self.get_history_path()?).unwrap();
 

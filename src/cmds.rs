@@ -56,6 +56,11 @@ pub fn get_command(name: &str) -> Option<BuiltinCommand> {
     cmd
 }
 
+pub fn list_registered_commands() -> Vec<String> {
+    let registry = COMMAND_REGISTRY.lock().unwrap();
+    registry.keys().cloned().collect()
+}
+
 fn locate_executable(name: &str) -> Option<String> {
     match which(name) {
         Ok(path) => Some(path.to_string_lossy().to_string()),
