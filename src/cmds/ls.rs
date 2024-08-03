@@ -205,6 +205,8 @@ fn name_from_sid(opt_sid: Option<String>) -> String {
             let mut name = vec![0u16; name_size as usize];
             let mut domain = vec![0u16; domain_size as usize];
 
+            name_size += 1;
+
             // Second call to get actual data
             if LookupAccountSidW(
                 std::ptr::null(),

@@ -415,14 +415,14 @@ pub struct Variable {
 }
 
 impl Variable {
-    fn assign(&self, val: Value) {
-        *self.val.borrow_mut() = val;
-    }
-
-    fn new(val: Value) -> Variable {
-        Variable {
+    fn new(val: Value) -> Self {
+        Self {
             val: Rc::new(RefCell::new(val)),
         }
+    }
+
+    fn assign(&self, val: Value) {
+        *self.val.borrow_mut() = val;
     }
 
     pub fn value(&self) -> Value {
@@ -451,22 +451,8 @@ pub struct Scope {
 }
 
 impl Scope {
-    fn insert(&self, name: String, val: Value) {
-        self.vars.borrow_mut().insert(name, Variable::new(val));
-    }
-
-    fn lookup(&self, s: &str) -> Option<Variable> {
-        match self.vars.borrow().get(s) {
-            Some(v) => Some(v.clone()),
-            None => match &self.parent {
-                Some(scope) => scope.lookup(s),
-                _ => None,
-            },
-        }
-    }
-
     fn new(parent: Option<Rc<Scope>>) -> Rc<Scope> {
-        Rc::new(Scope {
+        Rc::new(Self {
             parent: parent,
             vars: RefCell::new(HashMap::new()),
         })
@@ -481,6 +467,20 @@ impl Scope {
             parent: None,
             vars: RefCell::new(vars),
         })
+    }
+
+    fn insert(&self, name: String, val: Value) {
+        self.vars.borrow_mut().insert(name, Variable::new(val));
+    }
+
+    pub fn lookup(&self, s: &str) -> Option<Variable> {
+        match self.vars.borrow().get(s) {
+            Some(v) => Some(v.clone()),
+            None => match &self.parent {
+                Some(scope) => scope.lookup(s),
+                _ => None,
+            },
+        }
     }
 }
 
@@ -1190,7 +1190,7 @@ impl Interp {
         let loc = Location::new();
         let mut parser = Parser {
             chars: input.chars().peekable(),
-            loc: loc,
+            loc,
             comment: false,
             escaped: false,
             quoted: false,

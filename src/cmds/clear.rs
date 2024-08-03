@@ -20,4 +20,9 @@ fn register() {
         name: "clear".to_string(),
         inner: Rc::new(Clear),
     });
+
+    register_command(BuiltinCommand {
+        name: "cls".to_string(),
+        inner: Rc::new(Clear),
+    });
 }

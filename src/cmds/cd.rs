@@ -1,5 +1,9 @@
 use super::{register_command, BuiltinCommand, Exec};
-use crate::eval::{Scope, Value};
+use crate::{
+    debug_print,
+    eval::{Scope, Value},
+};
+
 use std::env;
 use std::rc::Rc;
 
@@ -7,14 +11,20 @@ struct ChangeDir;
 struct PrintWorkingDir;
 
 impl Exec for ChangeDir {
-    fn exec(&self, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
-        if args.len() != 1 {
-            Err("Exactly one argument expected")?;
-        }
-        let new_dir = &args[0];
+    fn exec(&self, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+        let new_dir = if args.is_empty() {
+            match scope.lookup("HOME") {
+                Some(v) => v.value().to_string(),
+                _ => "".to_string(),
+            }
+        } else {
+            args.join(" ")
+        };
+        debug_print!(&new_dir);
+
         match env::set_current_dir(&new_dir) {
             Ok(_) => Ok(Value::Int(0)),
-            Err(e) => Err(format!("Error changing directory: {}", e)),
+            Err(e) => Err(format!("{}: {}", &new_dir, e)),
         }
     }
 }

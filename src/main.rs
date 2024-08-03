@@ -1,4 +1,4 @@
-use directories::BaseDirs;
+use directories::UserDirs;
 use eval::Interp;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
@@ -61,36 +61,50 @@ struct Shell {
     source: Option<Box<dyn BufRead>>,
     interactive: bool,
     interp: Interp,
+    home_dir: Option<PathBuf>,
+    history_path: Option<PathBuf>
 }
 
 impl Shell {
     fn new(source: Option<Box<dyn BufRead>>, interactive: bool, interp: Interp) -> Self {
         Self {
-            source, interactive, interp,
+            source, interactive, interp, home_dir: None, history_path: None
         }
     }
 
-    fn get_history_path(&self) -> Result<PathBuf, String> {
-        let base_dirs =
-            BaseDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
+    fn get_history_path(&mut self) -> Result<&PathBuf, String> {
+        if self.history_path.is_none() {
+            let base_dirs =
+                UserDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
 
-        let mut path = base_dirs.home_dir().to_path_buf();
-        path.push(".mysh");
+            let mut path = base_dirs.home_dir().to_path_buf();
 
-        fs::create_dir_all(&path)
-            .map_err(|e| format!("Failed to create .mysh directory: {}", e))?;
+            assert!(self.home_dir.is_none());
+            self.set_home_dir(&path);
 
-        path.push("history.txt");
+            path.push(".mysh");
 
-        // Create the file if it doesn't exist
-        if !path.exists() {
-            File::create(&path).map_err(|e| format!("Failed to create history file: {}", e))?;
+            fs::create_dir_all(&path)
+                .map_err(|e| format!("Failed to create .mysh directory: {}", e))?;
+
+            path.push("history.txt");
+
+            // Create the file if it doesn't exist
+            if !path.exists() {
+                File::create(&path).map_err(|e| format!("Failed to create history file: {}", e))?;
+            }
+
+            self.history_path = Some(path);
         }
-
-        Ok(path)
+        Ok(self.history_path.as_ref().unwrap())
     }
 
-    fn save_history(&self, rl: &mut CmdLineEditor) -> Result<(), String> {
+    fn set_home_dir(&mut self, path: &PathBuf) {
+        self.home_dir = Some(path.clone());
+        env::set_var("HOME", path.to_string_lossy().to_string());
+    }
+
+    fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
         let hist_path = self.get_history_path()?;
         if let Err(e) = rl.save_history(&hist_path) {
             Err(format!(
