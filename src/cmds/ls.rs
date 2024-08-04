@@ -11,7 +11,7 @@ use terminal_size::{terminal_size, Width};
 
 struct Dir;
 
-const OWNER_MAX_LEN: usize = 14;
+const OWNER_MAX_LEN: usize = 16;
 
 struct CmdArgs {
     all_files: bool,
@@ -114,7 +114,7 @@ mod win {
             if ConvertSidToStringSidW(psid, &mut sid_string_ptr).as_bool() {
                 let sid_string = sid_string_ptr
                     .to_string()
-                    .unwrap_or_else(|_| "-".to_string());
+                    .unwrap_or_else(|_| "?".to_string());
                 LocalFree(sid_string_ptr.0 as isize);
                 Some(sid_string)
             } else {
@@ -347,19 +347,30 @@ fn process_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), S
 fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
     println!("total {}", entries.len());
     for entry in entries {
-        let metadata = entry
-            .metadata()
-            .map_err(|e| format!("Failed to get metadata: {}", e))?;
-        let file_name = format_file_name(entry, &metadata, args)?;
-        let size = format_file_size(&metadata, args);
-        let file_type = format_file_type(&metadata);
-        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
-        let (owner, group) = get_owner_and_group(entry.path(), &metadata);
-        let permissions = get_permissions(&metadata);
-        println!(
-            "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-            file_type, permissions, owner, group, size, modified_time, file_name
-        );
+        match entry.metadata() {
+            Ok(metadata) => {
+                let file_name = format_file_name(entry, &metadata, args)?;
+                if file_name.is_empty() {
+                    continue;
+                }
+                let size = format_file_size(&metadata, args);
+                let file_type = format_file_type(&metadata);
+                let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
+                let (owner, group) = get_owner_and_group(entry.path(), &metadata);
+                let permissions = get_permissions(&metadata);
+                println!(
+                    "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
+                    file_type, permissions, owner, group, size, modified_time, file_name
+                );
+            }
+            Err(e) => {
+                println!(
+                    "Failed to get metadata for {}: {}",
+                    entry.file_name().to_string_lossy(),
+                    e
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -435,7 +446,7 @@ fn format_file_name(
 ) -> Result<String, String> {
     let mut file_name = entry.file_name().to_string_lossy().to_string();
     if file_name.starts_with(".") && !args.all_files {
-        return Err(String::new());
+        return Ok(String::default());
     }
     if metadata.is_symlink() {
         if let Ok(path) = fs::read_link(entry.path()) {

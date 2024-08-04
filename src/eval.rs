@@ -1,5 +1,6 @@
 use crate::cmds::{get_command, Exec};
 use gag::Redirect;
+use glob::glob;
 use regex;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -133,7 +134,7 @@ struct Parser<I: Iterator<Item = char>> {
     loc: Location,
     comment: bool,
     escaped: bool,
-    quoted: bool,
+    in_quotes: bool,
     expect_else_expr: bool,
     empty: Rc<Expression>,
     current_expr: Rc<Expression>,
@@ -142,6 +143,7 @@ struct Parser<I: Iterator<Item = char>> {
     scope_stack: Vec<Rc<Scope>>,
     group: Rc<Expression>,
     group_stack: Vec<Rc<Expression>>,
+    globbed_tokens: Vec<String>,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -151,7 +153,6 @@ impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
 }
 
 /// Tokenizer helper.
-///
 macro_rules! token {
     // Single character token
     ($self:expr, $tok:expr, $single_token:expr) => {{
@@ -185,22 +186,41 @@ macro_rules! token {
     }};
 }
 
-/// Parser implementation
-///
 impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
+    fn new(input: T, scope: &Rc<Scope>) -> Self {
+        let empty = Rc::new(Expression::Empty);
+        let loc = Location::new();
+        Self {
+            chars: input.peekable(),
+            loc,
+            comment: false,
+            escaped: false,
+            in_quotes: false,
+            expect_else_expr: false,
+            empty: Rc::clone(&empty),
+            current_expr: Rc::clone(&empty),
+            scope: Rc::clone(&scope),
+            expr_stack: Vec::new(),
+            scope_stack: Vec::new(),
+            group: new_group(loc),
+            group_stack: Vec::new(),
+            globbed_tokens: Vec::new(),
+        }
+    }
+
     fn empty(&self) -> Rc<Expression> {
         Rc::clone(&self.empty)
     }
 
     fn is_reserved(&self, c: char) -> bool {
-        if c == '/' {
-            // Treat forward slashes as regular chars in argument to commands.
-            !self.current_expr.is_cmd()
+        if c == '/' || c == '-' {
+            // Treat as regular chars in argument to commands.
+            !self.current_expr.is_cmd() && !self.current_expr.is_empty()
         } else {
-            const RESERVED_CHARS: &str = " \t\n\r()+-=;*|&<>!";
+            const RESERVED_CHARS: &str = " \t\n\r()+=;|&<>!";
             RESERVED_CHARS.contains(c)
         }
     }
@@ -210,16 +230,46 @@ where
         self.chars.next();
     }
 
+    fn glob_literal(&mut self, literal: String, quoted: bool) -> Result<Token, String> {
+        // This function should not be called if globbed_tokens are not depleted.
+        assert!(self.globbed_tokens.is_empty());
+
+        if !quoted {
+            match glob(&literal) {
+                Ok(paths) => {
+                    self.globbed_tokens = paths
+                        .filter_map(Result::ok)
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect();
+
+                    if !self.globbed_tokens.is_empty() {
+                        return Ok(Token::Literal(self.globbed_tokens.remove(0)));
+                    }
+                }
+                Err(_) => {} // Ignore glob errors and treat as literal
+            }
+        }
+
+        Ok(Token::Literal(literal))
+    }
+
     #[rustfmt::skip]
     pub fn next_token(&mut self) -> Result<Token, String> {
+
+        if !self.globbed_tokens.is_empty() {
+            return Ok(Token::Literal(self.globbed_tokens.remove(0)));
+        }
+
         let mut tok = Token::End;
         let mut literal = String::new();
+        let mut quoted = false;
 
-        while let Some(c) = self.chars.peek() {
+        while let Some(c) = self.chars.peek().cloned() {
             if tok != Token::End {
                 break;
             }
-            if *c == '\n' {
+
+            if c == '\n' {
                 self.loc.next_line();
                 self.comment = false;
                 self.next();
@@ -236,23 +286,27 @@ where
                 ')' => token!(self, tok, Token::RightParen),
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
-                '*' => token!(self, tok, Token::Operator(Op::Mul)),
+
+                // Give glob precedence over multiplication (removed '*' from is_reserved)
+                //'*' => token!(self, tok, Token::Operator(Op::Mul)),
+                '\\' => token!(self, tok, '*', Token::Operator(Op::Mul)),
+
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '-' => { if self.current_expr.is_cmd() {
-                        literal.push(*c);
+                '-' => { if !self.is_reserved(c) {
+                        literal.push(c);
                     } else {
                         tok = Token::Operator(Op::Minus);
                     }
                     self.next();
                 }
-                '/' => if self.current_expr.is_cmd() {
+                '/' => if !self.is_reserved(c) {
                     // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
-                        literal.push(*c);
+                        literal.push(c);
                         self.next();
                     } else {
                         token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
@@ -265,50 +319,55 @@ where
                         }
                         continue;
                     }
-                    let mut has_chars = false;
-
+                    let mut has_regular_chars = false; // Non-quotes, non-escapes
                     while let Some(&next_c) = self.chars.peek() {
-                        // TODO: implement escape sequences correctly.
-                        // if next_c == '\\' {
-                        //     if self.escaped {
-                        //         literal.push(next_c);
-                        //     }
-                        //     self.next();
-                        //     self.escaped ^= true;
-                        //     continue;
-                        // }
-                        if next_c == '"' {
-                            if !self.escaped {
-                                self.quoted ^= true;
-                                self.next();
-                                continue;
+                        if self.escaped {
+                            match next_c {
+                                'n' => literal.push('\n'),
+                                't' => literal.push('\t'),
+                                'r' => literal.push('\r'),
+                                _ => literal.push(next_c),
                             }
-                        }
-                        has_chars = true;
-                        if self.quoted || self.escaped || !self.is_reserved(next_c) {
-                            literal.push(next_c);
+                            self.next();
+                            self.escaped = false;
+                        } else if next_c == '\\' {
+                            self.next();
+                            if self.in_quotes {
+                                self.escaped = true;
+                            } else {
+                                literal.push('\\');
+                            }
+                        } else if next_c == '"' {
+                            quoted = true;
+                            self.in_quotes ^= true;
                             self.next();
                         } else {
-                            break;
+                            has_regular_chars = true;
+                            if self.in_quotes || !self.is_reserved(next_c) {
+                                literal.push(next_c);
+                                self.next();
+                            } else {
+                                break;
+                            }
                         }
-                        self.escaped = false;
                     }
-                    if has_chars && literal.is_empty() {
+
+                    if has_regular_chars && literal.is_empty() {
                         error(self, "Empty token")?;
                     } else {
-                        tok = Token::Literal(literal.clone());
+                        tok = self.glob_literal(literal.clone(), quoted)?;
                         literal.clear();
                     }
                 }
             }
         }
-        if self.quoted {
+        if self.in_quotes {
             error(self, "Unbalanced quotes")?;
         }
 
         // Check for partial token, to handle special cases such as single fwd slash
         if tok == Token::End && !literal.is_empty() {
-            tok = Token::Literal(literal);
+            tok = self.glob_literal(literal, quoted)?;
         }
 
         Ok(tok)
@@ -748,11 +807,11 @@ impl BinExpr {
             Err(e) => return error(self, &format!("Failed to redirect stdout: {}", e)),
         };
 
-        // Get our own program name (argv[0])
-        let program = match env::args().next() {
-            Some(p) => p,
-            None => {
-                return error(self, "Failed to get executable name");
+        // Get our own program name
+        let program = match env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                return error(self, &format!("Failed to get executable name: {}", e));
             }
         };
 
@@ -1218,23 +1277,7 @@ impl Interp {
     }
 
     fn parse(&mut self, quit: &mut bool, input: &str) -> Result<Rc<Expression>, String> {
-        let empty = Rc::new(Expression::Empty);
-        let loc = Location::new();
-        let mut parser = Parser {
-            chars: input.chars().peekable(),
-            loc,
-            comment: false,
-            escaped: false,
-            quoted: false,
-            expect_else_expr: false,
-            empty: Rc::clone(&empty),
-            current_expr: Rc::clone(&empty),
-            scope: Rc::clone(&self.scope),
-            expr_stack: Vec::new(),
-            scope_stack: Vec::new(),
-            group: new_group(loc),
-            group_stack: Vec::new(),
-        };
+        let mut parser = Parser::new(input.chars(), &self.scope);
 
         loop {
             let tok = parser.next_token()?;

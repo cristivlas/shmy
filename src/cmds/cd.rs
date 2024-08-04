@@ -1,6 +1,6 @@
 use super::{register_command, BuiltinCommand, Exec};
 use crate::{
-    debug_print,
+    current_dir, debug_print,
     eval::{Scope, Value},
 };
 
@@ -22,7 +22,10 @@ impl ChangeDir {
 
     fn chdir(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let new_dir = if args.is_empty() {
-            scope.lookup_value("HOME").unwrap_or(Value::default()).to_string()
+            scope
+                .lookup_value("HOME")
+                .unwrap_or(Value::default())
+                .to_string()
         } else {
             args.join(" ")
         };
@@ -32,13 +35,6 @@ impl ChangeDir {
             Ok(_) => Ok(Value::Int(0)),
             Err(e) => Err(format!("Change dir to \"{}\": {}", &new_dir, e)),
         }
-    }
-}
-
-fn current_dir() -> Result<String, String> {
-    match env::current_dir() {
-        Ok(path) => Ok(path.to_path_buf().to_string_lossy().to_string()),
-        Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
 }
 
@@ -54,7 +50,6 @@ impl Exec for ChangeDir {
                 return Err(format!("Already at the top of the stack"));
             }
             let old_dir = self.stack.borrow_mut().pop().unwrap();
-            println!("{}", old_dir);
             self.chdir(name, &vec![old_dir], scope)?;
         }
 

@@ -31,7 +31,7 @@ impl CmdLineHelper {
 
         // TODO: cleaner way to populate keywords
         keywords.extend(
-            ["else", "exit", "if", "quit", "while"]
+            ["exit", "if", "quit", "while"]
                 .iter()
                 .map(|s| s.to_string()),
         );
@@ -45,6 +45,29 @@ impl CmdLineHelper {
     }
 }
 
+fn escape_backslashes(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            // Check if the next character is a backslash
+            if chars.peek() == Some(&'\\') {
+                // Keep both backslashes (skip one)
+                result.push(c);
+                result.push(chars.next().unwrap());
+            } else {
+                // Replace single backslash with double backslash
+                result.push_str("\\\\");
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -56,11 +79,23 @@ impl completion::Completer for CmdLineHelper {
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
         // Use the file completer first
         let completions = self.completer.complete(line, pos, _ctx);
-        if let Ok((_, v)) = &completions {
+
+        if let Ok((start, v)) = completions {
             if !v.is_empty() {
-                return completions;
+                // Replace unescaped \ with \\ in each completion's replacement
+                let escaped_completions: Vec<Self::Candidate> = v
+                    .into_iter()
+                    .map(|mut candidate| {
+                        if line.contains('"') || candidate.replacement.starts_with('"') {
+                            candidate.replacement = escape_backslashes(&candidate.replacement);
+                        }
+                        candidate
+                    })
+                    .collect();
+                return Ok((start, escaped_completions));
             }
         }
+
         // Expand keywords and builtin commands
         let mut keywords = vec![];
         let mut ret_pos = pos;
@@ -101,6 +136,7 @@ struct Shell {
     home_dir: Option<PathBuf>,
     history_path: Option<PathBuf>,
     edit_config: rustyline::config::Config,
+    prompt: String,
 }
 
 impl Shell {
@@ -117,7 +153,13 @@ impl Shell {
                 .max_history_size(1024)
                 .unwrap()
                 .build(),
+            prompt: String::default(),
         }
+    }
+
+    fn prompt(&mut self) -> &str {
+        self.prompt = format!("{}> ", current_dir().unwrap());
+        &self.prompt
     }
 
     fn get_history_path(&mut self) -> Result<&PathBuf, String> {
@@ -185,7 +227,7 @@ impl Shell {
             rl.load_history(&self.get_history_path()?).unwrap();
 
             while !quit {
-                let readline = rl.readline("mysh> ");
+                let readline = rl.readline(self.prompt());
                 match readline {
                     Ok(line) => {
                         rl.add_history_entry(line.as_str()).unwrap();
@@ -224,6 +266,13 @@ impl Shell {
     }
 }
 
+pub fn current_dir() -> Result<String, String> {
+    match env::current_dir() {
+        Ok(path) => Ok(path.to_path_buf().to_string_lossy().to_string()),
+        Err(e) => Err(format!("Error getting current directory: {}", e)),
+    }
+}
+
 fn main() -> Result<(), ()> {
     match &mut parse_cmd_line() {
         Err(e) => {
@@ -231,7 +280,7 @@ fn main() -> Result<(), ()> {
         }
         Ok(shell) => match shell.read_input() {
             Err(e) => eprintln!("{}.", e),
-            _ => {}
+            _ => {},
         },
     }
     Ok(())

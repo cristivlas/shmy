@@ -1,7 +1,7 @@
 use super::{register_command, BuiltinCommand, Exec};
 use crate::eval::{Scope, Value};
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::rc::Rc;
 
 struct Cat;
@@ -15,7 +15,10 @@ impl Exec for Cat {
             stdin
                 .read_to_string(&mut buffer)
                 .map_err(|e| e.to_string())?;
-            print!("{}", buffer);
+            io::stdout()
+                .write(buffer.as_bytes())
+                .map_err(|e| e.to_string())?;
+            io::stdout().flush().map_err(|e| e.to_string())?;
         } else {
             // Read from files specified in args
             for filename in args {
