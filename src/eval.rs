@@ -421,13 +421,14 @@ where
         }
     }
 
-    fn pop_binary_ops(&mut self) -> Result<(), String> {
+    fn pop_binary_ops(&mut self, statement: bool) -> Result<(), String> {
         while let Some(stack_top) = self.expr_stack.last() {
             // If the expression on the top of the expression stack is a binary
             // expression, pop it, make it the new current expression, and add
             // old current as a child.
-            // TODO: consider modeling expression precedence with traits.
-            if stack_top.is_bin_op() {
+            // If this operation does not occur at the end of a statement, do
+            // not pop the stack past assignments.
+            if stack_top.is_bin_op(statement) {
                 let expr = Rc::clone(&self.current_expr);
                 self.current_expr = self.expr_stack.pop().unwrap();
                 self.add_expr(&expr)?;
@@ -441,7 +442,7 @@ where
     fn add_current_expr_to_group(&mut self) -> Result<(), String> {
         if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*Rc::clone(&self.group) {
-                self.pop_binary_ops()?;
+                self.pop_binary_ops(true)?;
                 g.borrow_mut().group.push(Rc::clone(&self.current_expr));
             } else {
                 panic!("Unexpected group error");
@@ -615,8 +616,12 @@ enum Expression {
 }
 
 impl Expression {
-    fn is_bin_op(&self) -> bool {
-        matches!(self, Expression::Bin(_))
+    fn is_bin_op(&self, sequence: bool) -> bool {
+        if let Expression::Bin(b) = &self {
+            sequence || b.borrow().op != Op::Assign
+        } else {
+            false
+        }
     }
 
     fn is_cmd(&self) -> bool {
@@ -1389,7 +1394,7 @@ impl Interp {
                 }
                 Token::Operator(op) => {
                     if op.priority() == Priority::Low {
-                        parser.pop_binary_ops()?;
+                        parser.pop_binary_ops(false)?;
                     }
                     let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
