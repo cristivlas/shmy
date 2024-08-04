@@ -238,10 +238,17 @@ where
         Rc::clone(&self.empty)
     }
 
-    fn is_delimiter(&self, c: char) -> bool {
-        if ['/', '-'].contains(&c) {
-            // Treat as regular chars if argument to commands.
-            !self.current_expr.is_cmd() && !self.current_expr.is_empty()
+    fn is_delimiter(&self, tok: &str, c: char) -> bool {
+        // Forward slashes and dashes need special handling, since they occur in
+        // paths and command line options; it is unreasonable to require quotes.
+        if "'/-'".contains(c) {
+            if tok.is_empty() {
+                return !self.current_expr.is_cmd() && !self.current_expr.is_empty();
+            }
+            match parse_value(tok, &self.scope) {
+                Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
+                _ => false,
+            }
         } else {
             const DELIMITERS: &str = " \t\n\r()+=;|&<>!";
             DELIMITERS.contains(c)
@@ -319,14 +326,14 @@ where
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '-' => { if !self.is_delimiter(c) {
+                '-' => { if !self.is_delimiter(&literal, c) {
                         literal.push(c);
                     } else {
                         tok = Token::Operator(Op::Minus);
                     }
                     self.next();
                 }
-                '/' => if !self.is_delimiter(c) {
+                '/' => if !self.is_delimiter(&literal, c) {
                     // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
                         literal.push(c);
                         self.next();
@@ -365,7 +372,7 @@ where
                             self.next();
                         } else {
                             has_regular_chars = true;
-                            if self.in_quotes || !self.is_delimiter(next_c) {
+                            if self.in_quotes || !self.is_delimiter(&literal, next_c) {
                                 literal.push(next_c);
                                 self.next();
                             } else {
@@ -698,7 +705,8 @@ macro_rules! div_match {
                     Ok(Value::Real(($i as f64) / j))
                 }
             }
-            Value::Str(_) => error($self, "Cannot divide number by string"),
+            // Value::Str(_) => error($self, "Cannot divide number by string"),
+            Value::Str(s) => Ok(Value::Str(format!("{}/{}", $i, s))),
         }
     };
 }
@@ -777,7 +785,8 @@ impl BinExpr {
             Value::Int(i) => div_match!(self, i, rhs),
             Value::Real(i) => div_match!(self, i, rhs),
             Value::Str(s1) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot divide string by number"),
+                // Value::Int(_) | Value::Real(_) => error(self, "Cannot divide string by number"),
+                Value::Int(_) | Value::Real(_) => Ok(Value::Str(format!("{}/{}", s1, rhs))),
                 Value::Str(s2) => Ok(Value::Str(format!("{}/{}", s1, s2))),
             },
         }
