@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
@@ -62,6 +62,29 @@ impl fmt::Display for Op {
             Op::Or => write!(f, "||"),
             Op::Pipe => write!(f, "|"),
             Op::Plus => write!(f, "+"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Priority {
+    Low,
+    High,
+}
+
+impl Op {
+    fn priority(&self) -> Priority {
+        match &self {
+            Op::Assign
+            | Op::Gt
+            | Op::Gte
+            | Op::Lt
+            | Op::Lte
+            | Op::NotEquals
+            | Op::Minus
+            | Op::Pipe
+            | Op::Plus => Priority::Low,
+            _ => Priority::High,
         }
     }
 }
@@ -215,13 +238,13 @@ where
         Rc::clone(&self.empty)
     }
 
-    fn is_reserved(&self, c: char) -> bool {
-        if c == '/' || c == '-' {
-            // Treat as regular chars in argument to commands.
+    fn is_delimiter(&self, c: char) -> bool {
+        if ['/', '-'].contains(&c) {
+            // Treat as regular chars if argument to commands.
             !self.current_expr.is_cmd() && !self.current_expr.is_empty()
         } else {
-            const RESERVED_CHARS: &str = " \t\n\r()+=;|&<>!";
-            RESERVED_CHARS.contains(c)
+            const DELIMITERS: &str = " \t\n\r()+=;|&<>!";
+            DELIMITERS.contains(c)
         }
     }
 
@@ -287,8 +310,7 @@ where
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
 
-                // Give glob precedence over multiplication (removed '*' from is_reserved)
-                //'*' => token!(self, tok, Token::Operator(Op::Mul)),
+                // Give glob precedence over multiplication.
                 '\\' => token!(self, tok, '*', Token::Operator(Op::Mul)),
 
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
@@ -297,14 +319,14 @@ where
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
-                '-' => { if !self.is_reserved(c) {
+                '-' => { if !self.is_delimiter(c) {
                         literal.push(c);
                     } else {
                         tok = Token::Operator(Op::Minus);
                     }
                     self.next();
                 }
-                '/' => if !self.is_reserved(c) {
+                '/' => if !self.is_delimiter(c) {
                     // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
                         literal.push(c);
                         self.next();
@@ -343,7 +365,7 @@ where
                             self.next();
                         } else {
                             has_regular_chars = true;
-                            if self.in_quotes || !self.is_reserved(next_c) {
+                            if self.in_quotes || !self.is_delimiter(next_c) {
                                 literal.push(next_c);
                                 self.next();
                             } else {
@@ -399,18 +421,27 @@ where
         }
     }
 
+    fn pop_binary_ops(&mut self) -> Result<(), String> {
+        while let Some(stack_top) = self.expr_stack.last() {
+            // If the expression on the top of the expression stack is a binary
+            // expression, pop it, make it the new current expression, and add
+            // old current as a child.
+            // TODO: consider modeling expression precedence with traits.
+            if stack_top.is_bin_op() {
+                let expr = Rc::clone(&self.current_expr);
+                self.current_expr = self.expr_stack.pop().unwrap();
+                self.add_expr(&expr)?;
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn add_current_expr_to_group(&mut self) -> Result<(), String> {
         if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*Rc::clone(&self.group) {
-                while let Some(stack_top) = self.expr_stack.last() {
-                    if stack_top.is_bin_op() {
-                        let expr = Rc::clone(&self.current_expr);
-                        self.current_expr = self.expr_stack.pop().unwrap();
-                        self.add_expr(&expr)?;
-                    } else {
-                        break;
-                    }
-                }
+                self.pop_binary_ops()?;
                 g.borrow_mut().group.push(Rc::clone(&self.current_expr));
             } else {
                 panic!("Unexpected group error");
@@ -504,10 +535,16 @@ impl fmt::Display for Variable {
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
     pub vars: RefCell<HashMap<String, Variable>>,
+}
+
+impl Debug for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "parent: {:p}", &self.parent)
+    }
 }
 
 impl Scope {
@@ -1273,6 +1310,8 @@ impl Interp {
     pub fn eval(&mut self, quit: &mut bool, input: &str) -> Result<Value, String> {
         debug_print!(input);
         let ast = self.parse(quit, input)?;
+
+        // debug_print!(&ast);
         ast.eval()
     }
 
@@ -1349,6 +1388,9 @@ impl Interp {
                     }
                 }
                 Token::Operator(op) => {
+                    if op.priority() == Priority::Low {
+                        parser.pop_binary_ops()?;
+                    }
                     let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
                         lhs: Rc::clone(&parser.current_expr),
@@ -1357,23 +1399,11 @@ impl Interp {
                         scope: Rc::clone(&parser.scope),
                     })));
 
-                    match op {
-                        // Right hand-side associative operations.
-                        Op::Assign
-                        | Op::Gt
-                        | Op::Gte
-                        | Op::Lt
-                        | Op::Lte
-                        | Op::NotEquals
-                        | Op::Minus
-                        | Op::Pipe
-                        | Op::Plus => {
-                            parser.expr_stack.push(Rc::clone(&expr));
-                            parser.current_expr = parser.empty();
-                        }
-                        _ => {
-                            parser.current_expr = expr;
-                        }
+                    if op.priority() == Priority::Low {
+                        parser.expr_stack.push(Rc::clone(&expr));
+                        parser.current_expr = parser.empty();
+                    } else {
+                        parser.current_expr = expr;
                     }
                 }
             }
