@@ -979,11 +979,7 @@ macro_rules! eval_bin {
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.rhs.is_empty() {
-            match self.op {
-                // Op::Div => Ok(Value::Str("/".to_string())),
-                // Op::Minus => Ok(Value::Str("-".to_string())),
-                _ => error(self, "Expecting right hand-side expression"),
-            }
+            error(self, "Expecting right hand-side expression")
         } else if self.lhs.is_empty() {
             eval_unary(&self.loc, &self.op, self.rhs.eval()?)
         } else {
