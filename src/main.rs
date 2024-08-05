@@ -148,7 +148,7 @@ impl Shell {
             home_dir: None,
             history_path: None,
             edit_config: rustyline::Config::builder()
-                .edit_mode(rustyline::EditMode::Vi)
+                .edit_mode(rustyline::EditMode::Emacs)
                 .behavior(rustyline::Behavior::PreferTerm)
                 .max_history_size(1024)
                 .unwrap()
