@@ -245,7 +245,6 @@ where
             if tok.is_empty() {
                 return !self.group.is_args()
                     && !self.current_expr.is_cmd()
-                    && !self.current_expr.is_number()
                     && !self.current_expr.is_empty();
             }
             match parse_value(tok, &self.scope) {
@@ -351,7 +350,7 @@ where
                         }
                         continue;
                     }
-                    let mut has_regular_chars = false; // Non-quotes, non-escapes
+
                     while let Some(&next_c) = self.chars.peek() {
                         if self.escaped {
                             match next_c {
@@ -374,7 +373,6 @@ where
                             self.in_quotes ^= true;
                             self.next();
                         } else {
-                            has_regular_chars = true;
                             if self.in_quotes || !self.is_delimiter(&literal, next_c) {
                                 literal.push(next_c);
                                 self.next();
@@ -384,9 +382,9 @@ where
                         }
                     }
 
-                    if has_regular_chars {
-                        assert!(!literal.is_empty());
-                        assert!(literal != "-");
+                    if !literal.is_empty() {
+                        assert!(literal != "-" && literal != "/");
+
                         tok = self.glob_literal(literal.clone(), quoted)?;
                         literal.clear();
                     }
@@ -397,16 +395,15 @@ where
             error(self, "Unbalanced quotes")?;
         }
 
-        // Check for partial token, to handle special cases such as single fwd slash
+        // Check for partial token, handle special cases such as single fwd slash.
         if tok == Token::End && !literal.is_empty() {
-            if literal == "-" {
+            if literal == "-" && self.current_expr.is_number() {
                 tok = Token::Operator(Op::Minus);
-            } else if literal == "/" {
+            } else if literal == "/" && self.current_expr.is_number() {
                 tok = Token::Operator(Op::Div);
             } else {
                 tok = self.glob_literal(literal.clone(), quoted)?;
             }
-            literal.clear();
         }
 
         Ok(tok)
@@ -697,9 +694,12 @@ impl Expression {
     }
 
     fn is_number(&self) -> bool {
+        if self.is_empty() {
+            return false;
+        }
         match self.eval() {
             Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
-            _ => false
+            _ => false,
         }
     }
 }

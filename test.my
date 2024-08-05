@@ -23,7 +23,7 @@ echo;  # New line
 
 # Builtin ls (dir) command. TODO: implement -r (recursive)
 # ls -al c:\\;
-ls -al /.;
+ls -al /. | (echo "\t\t\t\t--- HEADER ---"; cat; echo "\t\t\t\t--- FOOTER ---");
 
 # exit;
 
