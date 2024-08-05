@@ -642,18 +642,21 @@ impl Scope {
 }
 
 fn parse_value(s: &str, scope: &Rc<Scope>) -> Result<Value, String> {
-    let regex = regex::Regex::new(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?").unwrap();
-    let result = regex.replace_all(s, |caps: &regex::Captures| {
-        let var_name = &caps[1];
-        match scope.lookup(var_name) {
-            Some(var) => var.value().to_string(),
-            None => caps
-                .get(0)
-                .map_or(String::new(), |m| m.as_str().to_string()), // Leave unchanged
+    match regex::Regex::new(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?") {
+        Ok(regex) => {
+            let result = regex.replace_all(s, |caps: &regex::Captures| {
+                let var_name = &caps[1];
+                match scope.lookup(var_name) {
+                    Some(var) => var.value().to_string(),
+                    None => caps
+                        .get(0)
+                        .map_or(String::new(), |m| m.as_str().to_string()), // Leave unchanged
+                }
+            });
+            result.parse::<Value>()
         }
-    });
-
-    result.parse::<Value>()
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[derive(Debug)]
@@ -993,7 +996,7 @@ impl Eval for BinExpr {
         } else {
             match self.op {
                 Op::And => eval_bin!(self, eval_and),
-                Op::Assign => self.eval_assign(self.rhs.eval().unwrap().clone()),
+                Op::Assign => self.eval_assign(self.rhs.eval()?.clone()),
                 Op::Div => eval_bin!(self, eval_div),
                 Op::Gt => eval_bin!(self, eval_gt),
                 Op::Gte => eval_bin!(self, eval_gte),
