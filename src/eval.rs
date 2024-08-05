@@ -1547,9 +1547,9 @@ impl Interp {
         Ok(parser.group)
     }
 
-    pub fn set_home_dir(&mut self, path: &String) {
+    pub fn set_var(&mut self, name: &str, value: String) {
         self.scope
-            .insert("HOME".to_string(), Value::Str(path.clone()));
+            .insert(name.to_string(), Value::Str(value))
     }
 
     pub fn get_scope(&self) -> Rc<Scope> {

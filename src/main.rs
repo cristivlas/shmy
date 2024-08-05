@@ -139,6 +139,15 @@ struct Shell {
     prompt: String,
 }
 
+fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Option<String> {
+    let search = &line[1..];
+    rl.history()
+        .iter()
+        .rev()
+        .find(|entry| entry.starts_with(search))
+        .cloned()
+}
+
 impl Shell {
     fn new(source: Option<Box<dyn BufRead>>, interactive: bool, interp: Interp) -> Self {
         Self {
@@ -150,6 +159,8 @@ impl Shell {
             edit_config: rustyline::Config::builder()
                 .edit_mode(rustyline::EditMode::Emacs)
                 .behavior(rustyline::Behavior::PreferTerm)
+                .history_ignore_dups(true)
+                .unwrap()
                 .max_history_size(1024)
                 .unwrap()
                 .build(),
@@ -184,7 +195,9 @@ impl Shell {
                 File::create(&path).map_err(|e| format!("Failed to create history file: {}", e))?;
             }
 
-            self.history_path = Some(path);
+            self.history_path = Some(path.clone());
+            self.interp
+                .set_var("HISTORY", path.to_string_lossy().to_string());
         }
         Ok(self.history_path.as_ref().unwrap())
     }
@@ -193,20 +206,13 @@ impl Shell {
         self.home_dir = Some(path.clone());
         debug_print!(&self.home_dir);
         let home_dir = path.to_string_lossy().to_string();
-        self.interp.set_home_dir(&home_dir);
-        env::set_var("HOME", home_dir);
+        self.interp.set_var("HOME", home_dir);
     }
 
     fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
         let hist_path = self.get_history_path()?;
-        if let Err(e) = rl.save_history(&hist_path) {
-            Err(format!(
-                "Could not save {}: {}",
-                hist_path.to_string_lossy(),
-                e
-            ))?;
-        }
-        Ok(())
+        rl.save_history(&hist_path)
+            .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
     }
 
     fn read_input(&mut self) -> Result<(), String> {
@@ -230,8 +236,19 @@ impl Shell {
                 let readline = rl.readline(self.prompt());
                 match readline {
                     Ok(line) => {
-                        rl.add_history_entry(line.as_str()).unwrap();
-                        self.eval(&mut quit, &line);
+                        if line.starts_with("!") {
+                            if let Some(history_line) = search_history(&rl, &line) {
+                                self.eval(&mut quit, &history_line);
+                            } else {
+                                println!("No match.");
+                            }
+                        } else {
+                            rl.add_history_entry(line.as_str())
+                                .map_err(|e| e.to_string())?;
+                            self.save_history(&mut rl)?;
+
+                            self.eval(&mut quit, &line);
+                        }
                     }
                     Err(ReadlineError::Interrupted) => {
                         println!("Type \"quit\" or \"exit\" to leave the shell.");
@@ -241,7 +258,6 @@ impl Shell {
                     }
                 }
             }
-            self.save_history(&mut rl)?;
         } else {
             let mut script: String = String::new();
             match reader.read_to_string(&mut script) {
@@ -280,7 +296,7 @@ fn main() -> Result<(), ()> {
         }
         Ok(shell) => match shell.read_input() {
             Err(e) => eprintln!("{}.", e),
-            _ => {},
+            _ => {}
         },
     }
     Ok(())

@@ -22,7 +22,7 @@ struct CmdArgs {
 
 impl Exec for Dir {
     fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
-        list_entries(&parse_args(&args))
+        list_entries(&parse_args(&args)?)
     }
 }
 
@@ -34,7 +34,7 @@ fn make_abspath(path: &str) -> Result<String, String> {
     }
 }
 
-fn parse_args(args: &[String]) -> CmdArgs {
+fn parse_args(args: &[String]) -> Result<CmdArgs, String> {
     let mut cmd_args = CmdArgs {
         all_files: false,
         show_details: false,
@@ -50,7 +50,7 @@ fn parse_args(args: &[String]) -> CmdArgs {
                     'l' => cmd_args.show_details = true,
                     'h' => cmd_args.megabytes = true,
                     _ => {
-                        eprintln!("Warning: unknown flag ignored: -{}", flag);
+                        Err(format!("Unrecognized command line flag: -{}", flag))?;
                     }
                 }
             }
@@ -61,7 +61,7 @@ fn parse_args(args: &[String]) -> CmdArgs {
     if cmd_args.paths.is_empty() {
         cmd_args.paths.push(".".to_string());
     }
-    cmd_args
+    Ok(cmd_args)
 }
 
 fn format_file_type(metadata: &fs::Metadata) -> char {

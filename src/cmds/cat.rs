@@ -1,32 +1,50 @@
 use super::{register_command, BuiltinCommand, Exec};
 use crate::eval::{Scope, Value};
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead};
 use std::rc::Rc;
 
 struct Cat;
 
+fn print_file<F: std::io::Read>(file: &mut F, line_numbers: bool) -> Result<(), String> {
+    let reader = io::BufReader::new(file);
+    for line in reader.lines().flatten().enumerate() {
+        if line_numbers {
+            println!("{:>6}: {}", line.0, line.1);
+        } else {
+            println!("{}", line.1);
+        }
+    }
+    Ok(())
+}
+
 impl Exec for Cat {
     fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
-        if args.is_empty() {
-            // Read from stdin
-            let mut stdin = io::stdin();
-            let mut buffer = String::new();
-            stdin
-                .read_to_string(&mut buffer)
-                .map_err(|e| e.to_string())?;
-            io::stdout()
-                .write(buffer.as_bytes())
-                .map_err(|e| e.to_string())?;
-            io::stdout().flush().map_err(|e| e.to_string())?;
+        let mut filenames = Vec::new();
+        let mut line_numbers = false;
+        for arg in args {
+            if arg.starts_with('-') {
+                for flag in arg.chars().skip(1) {
+                    match flag {
+                        'n' => {
+                            line_numbers = true;
+                        }
+                        _ => {
+                            Err(format!("Unrecognized command line flag: -{}", flag))?;
+                        }
+                    }
+                }
+            } else {
+                filenames.push(arg);
+            }
+        }
+
+        if filenames.is_empty() {
+            print_file(&mut io::stdin(), line_numbers)?;
         } else {
-            // Read from files specified in args
-            for filename in args {
+            for filename in &filenames {
                 let mut file = File::open(&filename).map_err(|e| e.to_string())?;
-                let mut buffer = String::new();
-                file.read_to_string(&mut buffer)
-                    .map_err(|e| e.to_string())?;
-                println!("{}", buffer);
+                print_file(&mut file, line_numbers)?;
             }
         }
         Ok(Value::Int(0))
