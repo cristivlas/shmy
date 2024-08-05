@@ -245,6 +245,7 @@ where
             if tok.is_empty() {
                 return !self.group.is_args()
                     && !self.current_expr.is_cmd()
+                    && !self.current_expr.is_number()
                     && !self.current_expr.is_empty();
             }
             match parse_value(tok, &self.scope) {
@@ -693,6 +694,13 @@ impl Expression {
 
     fn is_group(&self) -> bool {
         matches!(self, Expression::Group(_))
+    }
+
+    fn is_number(&self) -> bool {
+        match self.eval() {
+            Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
+            _ => false
+        }
     }
 }
 
