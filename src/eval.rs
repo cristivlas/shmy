@@ -520,7 +520,7 @@ where
     }
 
     fn pop(&mut self) -> Result<(), String> {
-        self.add_current_expr_to_group()?;
+        self.finalize_groups()?;
         self.pop_group()
     }
 
@@ -938,7 +938,7 @@ impl BinExpr {
         };
 
         // Left-side evaluation's stdout goes into the pipe.
-        lhs.eval()?;
+        let lhs_result = lhs.eval();
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
@@ -948,8 +948,8 @@ impl BinExpr {
             Ok(o) => o,
             Err(e) => return error(self, &format!("Failed to get child process output: {}", e)),
         };
+        lhs_result?;
         print!("{}", String::from_utf8_lossy(&output.stdout));
-
         Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
     }
 
@@ -980,8 +980,8 @@ impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.rhs.is_empty() {
             match self.op {
-                Op::Div => parse_value("/", &self.scope),
-                Op::Minus => parse_value("-", &self.scope),
+                // Op::Div => Ok(Value::Str("/".to_string())),
+                // Op::Minus => Ok(Value::Str("-".to_string())),
                 _ => error(self, "Expecting right hand-side expression"),
             }
         } else if self.lhs.is_empty() {
@@ -1497,9 +1497,8 @@ impl Interp {
                     }
                 }
                 Token::Operator(op) => {
-                    if *op == Op::Pipe {
+                    if *op == Op::Pipe && parser.group.is_args() {
                         // Finish the arguments of the left hand-side command.
-                        assert!(parser.group.is_args());
                         parser.add_current_expr_to_group()?;
                     }
 
