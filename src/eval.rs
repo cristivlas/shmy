@@ -383,9 +383,8 @@ where
                         }
                     }
 
-                    if has_regular_chars && literal.is_empty() { // TODO: revisit, dubious
-                        error(self, "Empty token")?;
-                    } else {
+                    if has_regular_chars {
+                        assert!(!literal.is_empty());
                         assert!(literal != "-");
                         tok = self.glob_literal(literal.clone(), quoted)?;
                         literal.clear();
@@ -401,6 +400,8 @@ where
         if tok == Token::End && !literal.is_empty() {
             if literal == "-" {
                 tok = Token::Operator(Op::Minus);
+            } else if literal == "/" {
+                tok = Token::Operator(Op::Div);
             } else {
                 tok = self.glob_literal(literal.clone(), quoted)?;
             }
@@ -489,10 +490,11 @@ where
         self.current_expr = self.empty();
     }
 
-    fn finalize_group(&mut self) -> Result<(), String> {
-        self.add_current_expr_to_group()?;
-        self.clear_current();
-        Ok(())
+    fn finalize_groups(&mut self) -> Result<(), String> {
+        if self.group.is_args() {
+            self.add_current_expr_to_group()?; // Finalize pending cmd line args
+        }
+        self.add_current_expr_to_group()
     }
 
     fn push(&mut self, group: Group) -> Result<(), String> {
@@ -506,7 +508,7 @@ where
             self.group_stack.push(Rc::clone(&self.group));
 
             if group == Group::Args {
-                self.group = Rc::new(Expression::Args(new_group_cell(self.loc)));
+                self.group = new_args(self.loc);
             } else {
                 self.group = new_group(self.loc);
             }
@@ -518,14 +520,12 @@ where
     }
 
     fn pop(&mut self) -> Result<(), String> {
-        self.finalize_group()?;
-        assert!(self.current_expr.is_empty());
-
+        self.add_current_expr_to_group()?;
         self.pop_group()
     }
 
     fn pop_group(&mut self) -> Result<(), String> {
-        // TODO: Revisit under what conditions the expr stack can be empty
+        // TODO: Revisit; under what conditions the expr stack can be empty?
         if !self.expr_stack.is_empty() {
             self.current_expr = self.expr_stack.pop().unwrap();
 
@@ -979,10 +979,12 @@ macro_rules! eval_bin {
 impl Eval for BinExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.rhs.is_empty() {
-            error(self, "Expecting right hand-side expression")?;
-        }
-
-        if self.lhs.is_empty() {
+            match self.op {
+                Op::Div => parse_value("/", &self.scope),
+                Op::Minus => parse_value("-", &self.scope),
+                _ => error(self, "Expecting right hand-side expression"),
+            }
+        } else if self.lhs.is_empty() {
             eval_unary(&self.loc, &self.op, self.rhs.eval()?)
         } else {
             match self.op {
@@ -1016,8 +1018,27 @@ enum Group {
 
 #[derive(Debug)]
 struct GroupExpr {
+    args: bool,
     group: Vec<Rc<Expression>>,
     loc: Location,
+}
+
+impl GroupExpr {
+    fn new_args(loc: Location) -> Self {
+        Self {
+            args: true,
+            group: Vec::new(),
+            loc,
+        }
+    }
+
+    fn new_group(loc: Location) -> Self {
+        Self {
+            args: false,
+            group: Vec::new(),
+            loc,
+        }
+    }
 }
 
 derive_has_location!(GroupExpr);
@@ -1025,8 +1046,12 @@ derive_has_location!(GroupExpr);
 impl Eval for GroupExpr {
     fn eval(&self) -> Result<Value, String> {
         let mut result = Ok(Value::Int(0));
+
         for e in &self.group {
             result = e.eval();
+
+            // println!("{}: {:?}", e, result);
+
             if result.is_err() {
                 break;
             }
@@ -1052,7 +1077,11 @@ fn join_expr(expressions: &[Rc<Expression>], separator: &str) -> String {
 
 impl fmt::Display for GroupExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "( {} )", join_expr(&self.group, "; "))
+        if self.args {
+            write!(f, "{}", join_expr(&self.group, " "))
+        } else {
+            write!(f, "( {} )", join_expr(&self.group, "; "))
+        }
     }
 }
 
@@ -1270,7 +1299,7 @@ impl ExprNode for LoopExpr {
             let expr = if child.is_group() {
                 child
             } else {
-                let g = new_group_cell(self.loc);
+                let g = RefCell::new(GroupExpr::new_group(self.loc));
                 g.borrow_mut().group.push(Rc::clone(&child));
                 &Rc::new(Expression::Group(g))
             };
@@ -1369,15 +1398,12 @@ fn is_command(literal: &String) -> bool {
     get_command(&literal).is_some()
 }
 
-fn new_group_cell(loc: Location) -> RefCell<GroupExpr> {
-    RefCell::new(GroupExpr {
-        group: Vec::new(),
-        loc: loc.clone(),
-    })
+fn new_args(loc: Location) -> Rc<Expression> {
+    Rc::new(Expression::Args(RefCell::new(GroupExpr::new_args(loc))))
 }
 
 fn new_group(loc: Location) -> Rc<Expression> {
-    Rc::new(Expression::Group(new_group_cell(loc)))
+    Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(loc))))
 }
 
 impl Interp {
@@ -1414,7 +1440,7 @@ impl Interp {
                     parser.pop()?;
                 }
                 Token::Semicolon => {
-                    parser.add_current_expr_to_group()?;
+                    parser.finalize_groups()?;
                     parser.clear_current();
                 }
                 Token::Literal(ref s) => {
@@ -1459,9 +1485,7 @@ impl Interp {
                         })));
                         parser.add_expr(&expr)?;
                         parser.current_expr = expr;
-                        parser.add_current_expr_to_group()?;
                         parser.push(Group::Args)?;
-                        parser.clear_current();
                     } else {
                         // Identifiers and literals
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
@@ -1474,12 +1498,7 @@ impl Interp {
                 }
                 Token::Operator(op) => {
                     if *op == Op::Pipe {
-                        // Finish adding all arguments to left hand-side command.
-
-                        // TODO: investigate but that results in both sides of the
-                        // pipe being added to the current group. I suspect it has
-                        // to do with parser.push(Group::Args)?;
-                
+                        // Finish the arguments of the left hand-side command.
                         assert!(parser.group.is_args());
                         parser.add_current_expr_to_group()?;
                     }
@@ -1487,8 +1506,6 @@ impl Interp {
                     if op.priority() == Priority::Low {
                         parser.pop_binary_ops(false)?;
                     }
-
-                    assert!(!parser.current_expr.is_empty());
 
                     let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
@@ -1508,7 +1525,7 @@ impl Interp {
             }
         }
 
-        parser.finalize_group()?; // Finalize the top-level group
+        parser.finalize_groups()?;
 
         if !parser.expr_stack.is_empty() {
             let msg = if parser.expect_else_expr {
