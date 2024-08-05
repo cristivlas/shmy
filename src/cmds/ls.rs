@@ -364,7 +364,7 @@ fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(),
                 );
             }
             Err(e) => {
-                println!(
+                eprintln!(
                     "Failed to get metadata for {}: {}",
                     entry.file_name().to_string_lossy(),
                     e

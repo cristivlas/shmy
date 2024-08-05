@@ -243,7 +243,9 @@ where
         // paths and command line options; it is unreasonable to require quotes.
         if "'/-'".contains(c) {
             if tok.is_empty() {
-                return !self.current_expr.is_cmd() && !self.current_expr.is_empty();
+                return !self.group.is_args()
+                    && !self.current_expr.is_cmd()
+                    && !self.current_expr.is_empty();
             }
             match parse_value(tok, &self.scope) {
                 Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
@@ -381,9 +383,10 @@ where
                         }
                     }
 
-                    if has_regular_chars && literal.is_empty() {
+                    if has_regular_chars && literal.is_empty() { // TODO: revisit, dubious
                         error(self, "Empty token")?;
                     } else {
+                        assert!(literal != "-");
                         tok = self.glob_literal(literal.clone(), quoted)?;
                         literal.clear();
                     }
@@ -396,7 +399,12 @@ where
 
         // Check for partial token, to handle special cases such as single fwd slash
         if tok == Token::End && !literal.is_empty() {
-            tok = self.glob_literal(literal, quoted)?;
+            if literal == "-" {
+                tok = Token::Operator(Op::Minus);
+            } else {
+                tok = self.glob_literal(literal.clone(), quoted)?;
+            }
+            literal.clear();
         }
 
         Ok(tok)
@@ -404,9 +412,7 @@ where
 
     /// Add an expression to the AST.
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
-        if expr.is_empty() {
-            error(self, "Unexpected empty expression")?;
-        }
+        assert!(!expr.is_empty());
 
         if self.expect_else_expr {
             self.current_expr = self.expr_stack.pop().unwrap();
@@ -415,6 +421,7 @@ where
 
         let ref current = *self.current_expr;
         match current {
+            Expression::Args(e) => e.borrow_mut().add_child(expr),
             Expression::Bin(e) => e.borrow_mut().add_child(expr),
             Expression::Branch(e) => e.borrow_mut().add_child(expr),
             Expression::Cmd(e) => e.borrow_mut().add_child(expr),
@@ -423,7 +430,15 @@ where
                 Ok(())
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
-            Expression::Lit(_) => error(self, "Dangling expression after literal"),
+            Expression::Lit(_) => {
+                if let Expression::Args(a) = &*self.group {
+                    a.borrow_mut().group.push(Rc::clone(&self.current_expr));
+                    self.current_expr = Rc::clone(&expr);
+                    Ok(())
+                } else {
+                    error(self, "Dangling expression after literal")
+                }
+            }
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
     }
@@ -438,7 +453,11 @@ where
             if stack_top.is_bin_op(statement) {
                 let expr = Rc::clone(&self.current_expr);
                 self.current_expr = self.expr_stack.pop().unwrap();
-                self.add_expr(&expr)?;
+
+                // TODO: expr can be empty on a tail command, investigate!
+                if !expr.is_empty() {
+                    self.add_expr(&expr)?;
+                }
             } else {
                 break;
             }
@@ -447,24 +466,37 @@ where
     }
 
     fn add_current_expr_to_group(&mut self) -> Result<(), String> {
-        if !self.current_expr.is_empty() {
-            if let Expression::Group(g) = &*Rc::clone(&self.group) {
+        let group = Rc::clone(&self.group);
+
+        if let Expression::Args(g) = &*group {
+            self.pop_binary_ops(true)?;
+            if !self.current_expr.is_empty() {
+                g.borrow_mut().group.push(Rc::clone(&self.current_expr));
+            }
+            self.pop_group()?;
+        } else if !self.current_expr.is_empty() {
+            if let Expression::Group(g) = &*group {
                 self.pop_binary_ops(true)?;
                 g.borrow_mut().group.push(Rc::clone(&self.current_expr));
             } else {
                 panic!("Unexpected group error");
             }
-            self.current_expr = self.empty(); // Clear the current expression
         }
         Ok(())
     }
 
-    fn finalize_group(&mut self) -> Result<(), String> {
-        self.add_current_expr_to_group()
+    fn clear_current(&mut self) {
+        self.current_expr = self.empty();
     }
 
-    fn push(&mut self, make_group: bool) {
-        if make_group {
+    fn finalize_group(&mut self) -> Result<(), String> {
+        self.add_current_expr_to_group()?;
+        self.clear_current();
+        Ok(())
+    }
+
+    fn push(&mut self, group: Group) -> Result<(), String> {
+        if group != Group::None {
             // Save the current scope
             let current_scope = Rc::clone(&self.scope);
             self.scope_stack.push(current_scope.clone());
@@ -472,34 +504,49 @@ where
             self.scope = Scope::new(Some(current_scope));
             // Start a new group
             self.group_stack.push(Rc::clone(&self.group));
-            self.group = new_group(self.loc);
-        }
 
-        // Push current expression, and make the empty expression current
+            if group == Group::Args {
+                self.group = Rc::new(Expression::Args(new_group_cell(self.loc)));
+            } else {
+                self.group = new_group(self.loc);
+            }
+        }
         self.expr_stack.push(Rc::clone(&self.current_expr));
-        self.current_expr = self.empty();
+        self.clear_current();
+
+        Ok(())
     }
 
     fn pop(&mut self) -> Result<(), String> {
         self.finalize_group()?;
         assert!(self.current_expr.is_empty());
 
-        self.current_expr = self.expr_stack.pop().unwrap();
+        self.pop_group()
+    }
 
-        let expr = {
-            if let Expression::Group(g) = &*self.group {
-                let group = &g.borrow().group;
-                if group.len() == 1 {
-                    Rc::clone(&group[0])
-                } else {
+    fn pop_group(&mut self) -> Result<(), String> {
+        // TODO: Revisit under what conditions the expr stack can be empty
+        if !self.expr_stack.is_empty() {
+            self.current_expr = self.expr_stack.pop().unwrap();
+
+            // Replace group with child expression if there's only one child.
+            let expr = {
+                if let Expression::Group(g) = &*self.group {
+                    let group = &g.borrow().group;
+                    if group.len() == 1 {
+                        Rc::clone(&group[0])
+                    } else {
+                        Rc::clone(&self.group)
+                    }
+                } else if let Expression::Args(_) = &*self.group {
                     Rc::clone(&self.group)
+                } else {
+                    panic!("Unexpected group error");
                 }
-            } else {
-                panic!("Unexpected group error");
-            }
-        };
+            };
 
-        self.add_expr(&expr)?;
+            self.add_expr(&expr)?;
+        }
 
         self.group = self.group_stack.pop().unwrap(); // Restore group
         self.scope = self.scope_stack.pop().unwrap(); // Restore scope
@@ -614,6 +661,7 @@ fn parse_value(s: &str, scope: &Rc<Scope>) -> Result<Value, String> {
 #[derive(Debug)]
 enum Expression {
     Empty,
+    Args(RefCell<GroupExpr>),
     Bin(RefCell<BinExpr>),
     Cmd(RefCell<Command>),
     Branch(RefCell<BranchExpr>),
@@ -623,6 +671,10 @@ enum Expression {
 }
 
 impl Expression {
+    fn is_args(&self) -> bool {
+        matches!(self, Expression::Args(_))
+    }
+
     fn is_bin_op(&self, sequence: bool) -> bool {
         if let Expression::Bin(b) = &self {
             sequence || b.borrow().op != Op::Assign
@@ -647,11 +699,12 @@ impl Expression {
 impl fmt::Display for Expression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Expression::Empty => write!(f, ""),
+            Expression::Args(group) => write!(f, "{}", group.borrow()),
             Expression::Bin(bin_expr) => write!(f, "{}", bin_expr.borrow()),
             Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
             Expression::Branch(branch) => write!(f, "Branch({})", branch.borrow()),
             Expression::Group(group) => write!(f, "{}", group.borrow()),
+            Expression::Empty => write!(f, ""),
             Expression::Lit(literal) => write!(f, "{}", literal),
             Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
         }
@@ -676,6 +729,7 @@ impl ExprNode for BinExpr {
             self.rhs = Rc::clone(child);
             Ok(())
         } else {
+            dbg!(&self.rhs, &child);
             error(self, "Dangling expression")
         }
     }
@@ -953,6 +1007,13 @@ impl Eval for BinExpr {
     }
 }
 
+#[derive(PartialEq)]
+enum Group {
+    None,
+    Args,
+    Explicit,
+}
+
 #[derive(Debug)]
 struct GroupExpr {
     group: Vec<Rc<Expression>>,
@@ -998,7 +1059,7 @@ impl fmt::Display for GroupExpr {
 #[derive(Debug)]
 struct Command {
     cmd: String,
-    args: Vec<Rc<Expression>>,
+    args: Rc<Expression>,
     loc: Location,
     scope: Rc<Scope>,
 }
@@ -1009,19 +1070,21 @@ impl Command {
     fn exec(&self) -> Result<Value, String> {
         if let Some(cmd) = get_command(&self.cmd) {
             let mut args: Vec<String> = Vec::new();
-            for a in &self.args {
-                let v = a.eval()?;
-                let mut s = v.to_string();
-                // Expand leading tilde
-                if s.starts_with('~') {
-                    match self.scope.lookup("HOME") {
-                        Some(v) => {
-                            s = format!("{}{}", v.value().to_string(), &s[1..]);
+            if let Expression::Args(a) = &*self.args {
+                for arg in &a.borrow().group {
+                    let v = arg.eval()?;
+                    let mut s = v.to_string();
+                    // Expand leading tilde.
+                    if s.starts_with('~') {
+                        match self.scope.lookup("HOME") {
+                            Some(v) => {
+                                s = format!("{}{}", v.value().to_string(), &s[1..]);
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
+                    args.push(s);
                 }
-                args.push(s);
             }
 
             match cmd.exec(&self.cmd, &args, &self.scope) {
@@ -1043,14 +1106,16 @@ impl Eval for Command {
 impl ExprNode for Command {
     fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
         assert!(!self.cmd.is_empty());
-        self.args.push(Rc::clone(child));
+        assert!(child.is_args());
+        assert!(self.args.is_empty());
+        self.args = Rc::clone(&child);
         Ok(())
     }
 }
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.cmd, join_expr(&self.args, " "))
+        write!(f, "{} {}", self.cmd, self.args)
     }
 }
 
@@ -1282,6 +1347,7 @@ trait Eval {
 impl Eval for Expression {
     fn eval(&self) -> Result<Value, String> {
         match &self {
+            Expression::Args(g) => g.borrow().eval(),
             Expression::Bin(b) => b.borrow().eval(),
             Expression::Branch(b) => b.borrow().eval(),
             Expression::Cmd(c) => c.borrow().eval(),
@@ -1325,7 +1391,7 @@ impl Interp {
         debug_print!(input);
         let ast = self.parse(quit, input)?;
 
-        // debug_print!(&ast);
+        debug_print!(&ast);
         ast.eval()
     }
 
@@ -1339,7 +1405,7 @@ impl Interp {
                     break;
                 }
                 Token::LeftParen => {
-                    parser.push(true);
+                    parser.push(Group::Explicit)?;
                 }
                 Token::RightParen => {
                     if parser.group_stack.is_empty() {
@@ -1349,6 +1415,7 @@ impl Interp {
                 }
                 Token::Semicolon => {
                     parser.add_current_expr_to_group()?;
+                    parser.clear_current();
                 }
                 Token::Literal(ref s) => {
                     // keywords
@@ -1371,7 +1438,7 @@ impl Interp {
                                 error(&parser, "Conditional expression or IF branch missing")?;
                             }
                             parser.expect_else_expr = true;
-                            parser.push(false);
+                            parser.push(Group::None)?;
                         } else {
                             error(&parser, "ELSE without IF")?;
                         }
@@ -1382,17 +1449,21 @@ impl Interp {
                             loc: parser.loc,
                         })));
                         parser.add_expr(&expr)?;
-                    // commands
-                    } else if parser.current_expr.is_empty() && is_command(s) {
+                    } else if !parser.group.is_args() && is_command(s) {
+                        // Commands
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                             cmd: s.to_owned(),
-                            args: Default::default(),
+                            args: parser.empty(),
                             loc: parser.loc,
                             scope: Rc::clone(&parser.scope),
                         })));
                         parser.add_expr(&expr)?;
-                    // identifiers and literals
+                        parser.current_expr = expr;
+                        parser.add_current_expr_to_group()?;
+                        parser.push(Group::Args)?;
+                        parser.clear_current();
                     } else {
+                        // Identifiers and literals
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                             tok,
                             loc: parser.loc,
@@ -1402,9 +1473,23 @@ impl Interp {
                     }
                 }
                 Token::Operator(op) => {
+                    if *op == Op::Pipe {
+                        // Finish adding all arguments to left hand-side command.
+
+                        // TODO: investigate but that results in both sides of the
+                        // pipe being added to the current group. I suspect it has
+                        // to do with parser.push(Group::Args)?;
+                
+                        assert!(parser.group.is_args());
+                        parser.add_current_expr_to_group()?;
+                    }
+
                     if op.priority() == Priority::Low {
                         parser.pop_binary_ops(false)?;
                     }
+
+                    assert!(!parser.current_expr.is_empty());
+
                     let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
                         op: op.clone(),
                         lhs: Rc::clone(&parser.current_expr),
@@ -1415,7 +1500,7 @@ impl Interp {
 
                     if op.priority() == Priority::Low {
                         parser.expr_stack.push(Rc::clone(&expr));
-                        parser.current_expr = parser.empty();
+                        parser.clear_current();
                     } else {
                         parser.current_expr = expr;
                     }
@@ -1423,7 +1508,7 @@ impl Interp {
             }
         }
 
-        parser.finalize_group()?;
+        parser.finalize_group()?; // Finalize the top-level group
 
         if !parser.expr_stack.is_empty() {
             let msg = if parser.expect_else_expr {
