@@ -29,9 +29,8 @@ impl CmdLineHelper {
     fn new(scope: Rc<Scope>) -> Self {
         let mut keywords = list_registered_commands();
 
-        // TODO: cleaner way to populate keywords
         keywords.extend(
-            ["exit", "if", "quit", "while"]
+            ["EXIT", "FOR", "IF", "QUIT", "WHILE"]
                 .iter()
                 .map(|s| s.to_string()),
         );
@@ -151,7 +150,7 @@ impl completion::Completer for CmdLineHelper {
             ret_pos = 0;
             for cmd in &self.keywords {
                 // Only add to completions if the command starts with the input but is not exactly the same
-                if cmd.starts_with(&line[..pos]) && cmd != &line[..pos] {
+                if cmd.to_lowercase().starts_with(&line[..pos]) && cmd != &line[..pos] {
                     keywords.push(completion::Pair {
                         display: cmd.to_string(),
                         replacement: format!("{} ", cmd),

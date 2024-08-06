@@ -596,11 +596,12 @@ where
                 }
                 Token::Literal(ref s) => {
                     // keywords
-                    if s == "exit" || s == "quit" {
+                    let word = s.to_lowercase();
+                    if ["exit", "quit"].iter().any(|&cmd| cmd == word) {
                         *quit = true;
                         break;
                     }
-                    if s == "if" {
+                    if word == "if" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
                             cond: self.empty(),
                             if_branch: self.empty(),
@@ -609,7 +610,7 @@ where
                             loc: self.loc,
                         })));
                         self.add_expr(&expr)?;
-                    } else if s == "in" {
+                    } else if word == "in" {
                         if let Expression::For(f) = &*self.current_expr {
                             if f.borrow().var.is_empty() {
                                 return error(self, "Expecting identifier in FOR expression");
@@ -618,7 +619,7 @@ where
                             return error(self, "IN without FOR");
                         }
                         self.push(Group::Args)?; // args will be added to ForExpr when finalized
-                    } else if s == "else" {
+                    } else if word == "else" {
                         if let Expression::Branch(b) = &*self.current_expr {
                             if !b.borrow_mut().is_else_expected() {
                                 return error(self, "Conditional expression or IF branch missing");
@@ -628,7 +629,7 @@ where
                         } else {
                             return error(self, "ELSE without IF");
                         }
-                    } else if s == "for" {
+                    } else if word == "for" {
                         let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
                             var: String::default(),
                             args: self.empty(),
@@ -638,7 +639,7 @@ where
                         })));
                         self.add_expr(&expr)?;
                         self.current_expr = expr;
-                    } else if s == "while" {
+                    } else if word == "while" {
                         let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
                             cond: self.empty(),
                             body: self.empty(),
@@ -1482,9 +1483,9 @@ derive_has_location!(LoopExpr);
 impl Eval for LoopExpr {
     fn eval(&self) -> EvalResult<Value> {
         if self.cond.is_empty() {
-            return error(self, "Expecting loop condition");
+            return error(self, "Expecting WHILE condition");
         } else if self.body.is_empty() {
-            return error(self, "Expecting loop body");
+            return error(self, "Expecting WHILE body");
         }
         let mut result = Ok(Value::Int(0));
         loop {
@@ -1506,7 +1507,9 @@ impl ExprNode for LoopExpr {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
-            // self.body = add_body(self.loc, child)
+            if !child.is_group() {
+                return error(&**child, "WHILE body must be enclosed in parenthesis");
+            }
             self.body = Rc::clone(&child);
         } else {
             return error(self, "WHILE already has a body");
