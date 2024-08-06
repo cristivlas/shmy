@@ -257,7 +257,7 @@ impl Shell {
         if let Some(reader) = self.source.take() {
             self.read_lines(reader)
         } else {
-            Err("Input source is unexpectedly None".to_string())
+            panic!("No input source")
         }
     }
 
@@ -320,24 +320,7 @@ impl Shell {
     }
 
     fn show_error(&self, input: &String, e: &EvalError) {
-        if !self.interactive {
-            eprintln!("{}.", e);
-        } else {
-            let line = e.loc.line as usize;
-            let col = e.loc.col as usize;
-
-            // Get the problematic line from the input
-            let lines: Vec<&str> = input.lines().collect();
-            let error_line = lines.get(line - 1).unwrap_or(&"");
-
-            // Create the error indicator
-            let indicator = " ".repeat(col) + "^";
-
-            eprintln!("Error at line {}, column {}:", line, col + 1);
-            eprintln!("{}", error_line);
-            eprintln!("{}", indicator);
-            eprintln!("{}", e.message);
-        }
+        e.show(input);
     }
 }
 

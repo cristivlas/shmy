@@ -139,8 +139,27 @@ macro_rules! derive_has_location {
 
 #[derive(Debug)]
 pub struct EvalError {
-    pub loc: Location,
-    pub message: String,
+    loc: Location,
+    message: String,
+}
+
+impl EvalError {
+    pub fn show(&self, input: &String) {
+        let line = self.loc.line as usize;
+        let col = self.loc.col as usize;
+
+        // Get the problematic line from the input
+        let lines: Vec<&str> = input.lines().collect();
+        let error_line = lines.get(line - 1).unwrap_or(&"");
+
+        // Create the error indicator
+        let indicator = "-".repeat(col) + "^";
+
+        eprintln!("Error at line {}, column {}:", line, col + 1);
+        eprintln!("{}", error_line);
+        eprintln!("{}", indicator);
+        eprintln!("{}", self.message);
+    }
 }
 
 impl fmt::Display for EvalError {
@@ -551,6 +570,148 @@ where
         self.scope = self.scope_stack.pop().unwrap(); // Restore scope
 
         Ok(())
+    }
+
+    fn parse(&mut self, quit: &mut bool) -> EvalResult<Rc<Expression>> {
+        loop {
+            let tok = self.next_token()?;
+            match &tok {
+                Token::End => {
+                    break;
+                }
+                Token::LeftParen => {
+                    self.push(Group::Explicit)?;
+                }
+                Token::RightParen => {
+                    if self.group_stack.is_empty() {
+                        return error(self, "Unmatched right parenthesis");
+                    }
+                    self.pop()?;
+                }
+                Token::Semicolon => {
+                    self.finalize_groups()?;
+                    if !self.current_expr.is_for() {
+                        self.clear_current();
+                    }
+                }
+                Token::Literal(ref s) => {
+                    // keywords
+                    if s == "exit" || s == "quit" {
+                        *quit = true;
+                        break;
+                    }
+                    if s == "if" {
+                        let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
+                            cond: self.empty(),
+                            if_branch: self.empty(),
+                            else_branch: self.empty(),
+                            expect_else: false, // becomes true once "else" keyword is seen
+                            loc: self.loc,
+                        })));
+                        self.add_expr(&expr)?;
+                    } else if s == "in" {
+                        if let Expression::For(f) = &*self.current_expr {
+                            if f.borrow().var.is_empty() {
+                                return error(self, "Expecting identifier in FOR expression");
+                            }
+                        } else {
+                            return error(self, "IN without FOR");
+                        }
+                        self.push(Group::Args)?; // args will be added to ForExpr when finalized
+                    } else if s == "else" {
+                        if let Expression::Branch(b) = &*self.current_expr {
+                            if !b.borrow_mut().is_else_expected() {
+                                return error(self, "Conditional expression or IF branch missing");
+                            }
+                            self.expect_else_expr = true;
+                            self.push(Group::None)?;
+                        } else {
+                            return error(self, "ELSE without IF");
+                        }
+                    } else if s == "for" {
+                        let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
+                            var: String::default(),
+                            args: self.empty(),
+                            body: self.empty(),
+                            scope: Rc::clone(&self.scope),
+                            loc: self.loc,
+                        })));
+                        self.add_expr(&expr)?;
+                        self.current_expr = expr;
+                    } else if s == "while" {
+                        let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
+                            cond: self.empty(),
+                            body: self.empty(),
+                            loc: self.loc,
+                        })));
+                        self.add_expr(&expr)?;
+                    } else if let Some(cmd) = if !self.group.is_args() {
+                        get_command(s)
+                    } else {
+                        None
+                    } {
+                        // Commands
+                        let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
+                            cmd,
+                            args: self.empty(),
+                            loc: self.loc,
+                            scope: Rc::clone(&self.scope),
+                        })));
+                        self.add_expr(&expr)?;
+                        self.current_expr = expr;
+                        self.push(Group::Args)?; // args will be added to command when finalized
+                    } else {
+                        // Identifiers and literals
+                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                            tok,
+                            loc: self.loc,
+                            scope: Rc::clone(&self.scope),
+                        })));
+                        self.add_expr(&expr)?;
+                    }
+                }
+                Token::Operator(op) => {
+                    if *op == Op::Pipe && self.group.is_args() {
+                        // Finish the arguments of the left hand-side command.
+                        self.add_current_expr_to_group()?;
+                    }
+
+                    if op.priority() == Priority::Low {
+                        self.pop_binary_ops(false)?;
+                    }
+
+                    let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
+                        op: op.clone(),
+                        lhs: Rc::clone(&self.current_expr),
+                        rhs: self.empty(),
+                        loc: self.loc,
+                        scope: Rc::clone(&self.scope),
+                    })));
+
+                    if op.priority() == Priority::Low {
+                        self.expr_stack.push(Rc::clone(&expr));
+                        self.clear_current();
+                    } else {
+                        self.current_expr = expr;
+                    }
+                }
+            }
+        }
+
+        self.finalize_groups()?;
+
+        if !self.expr_stack.is_empty() {
+            let msg = if self.expect_else_expr {
+                "Dangling ELSE"
+            } else {
+                dbg!(&self.expr_stack);
+                "Unbalanced parenthesis"
+            };
+            return error(self, msg);
+        }
+        assert!(self.group_stack.is_empty()); // because the expr_stack is empty
+
+        Ok(Rc::clone(&self.group))
     }
 }
 
@@ -1238,7 +1399,7 @@ impl ExprNode for BranchExpr {
                 return error(self, "Expecting ELSE keyword");
             }
             if !child.is_group() {
-                return error(self, "ELSE branch must be enclosed in parenthesis");
+                return error(&**child, "ELSE branch must be enclosed in parenthesis");
             }
             self.else_branch = Rc::clone(child);
         } else {
@@ -1532,150 +1693,7 @@ impl Interp {
 
     fn parse(&mut self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
         let mut parser = Parser::new(input.chars(), &self.scope);
-
-        // TODO: refactor to parser func.
-        loop {
-            let tok = parser.next_token()?;
-            match &tok {
-                Token::End => {
-                    break;
-                }
-                Token::LeftParen => {
-                    parser.push(Group::Explicit)?;
-                }
-                Token::RightParen => {
-                    if parser.group_stack.is_empty() {
-                        return error(&parser, "Unmatched right parenthesis");
-                    }
-                    parser.pop()?;
-                }
-                Token::Semicolon => {
-                    parser.finalize_groups()?;
-                    if !parser.current_expr.is_for() {
-                        parser.clear_current();
-                    }
-                }
-                Token::Literal(ref s) => {
-                    // keywords
-                    if s == "exit" || s == "quit" {
-                        *quit = true;
-                        break;
-                    }
-                    if s == "if" {
-                        let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
-                            cond: parser.empty(),
-                            if_branch: parser.empty(),
-                            else_branch: parser.empty(),
-                            expect_else: false, // becomes true once "else" keyword is seen
-                            loc: parser.loc,
-                        })));
-                        parser.add_expr(&expr)?;
-                    } else if s == "in" {
-                        if let Expression::For(f) = &*parser.current_expr {
-                            if f.borrow().var.is_empty() {
-                                return error(&parser, "Expecting identifier in FOR expression");
-                            }
-                        } else {
-                            return error(&parser, "IN without FOR");
-                        }
-                        parser.push(Group::Args)?; // args will be added to ForExpr when finalized
-                    } else if s == "else" {
-                        if let Expression::Branch(b) = &*parser.current_expr {
-                            if !b.borrow_mut().is_else_expected() {
-                                return error(
-                                    &parser,
-                                    "Conditional expression or IF branch missing",
-                                );
-                            }
-                            parser.expect_else_expr = true;
-                            parser.push(Group::None)?;
-                        } else {
-                            return error(&parser, "ELSE without IF");
-                        }
-                    } else if s == "for" {
-                        let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
-                            var: String::default(),
-                            args: parser.empty(),
-                            body: parser.empty(),
-                            scope: Rc::clone(&parser.scope),
-                            loc: parser.loc,
-                        })));
-                        parser.add_expr(&expr)?;
-                        parser.current_expr = expr;
-                    } else if s == "while" {
-                        let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
-                            cond: parser.empty(),
-                            body: parser.empty(),
-                            loc: parser.loc,
-                        })));
-                        parser.add_expr(&expr)?;
-                    } else if let Some(cmd) = if !parser.group.is_args() {
-                        get_command(s)
-                    } else {
-                        None
-                    } {
-                        // Commands
-                        let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
-                            cmd,
-                            args: parser.empty(),
-                            loc: parser.loc,
-                            scope: Rc::clone(&parser.scope),
-                        })));
-                        parser.add_expr(&expr)?;
-                        parser.current_expr = expr;
-                        parser.push(Group::Args)?; // args will be added to command when finalized
-                    } else {
-                        // Identifiers and literals
-                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
-                            tok,
-                            loc: parser.loc,
-                            scope: Rc::clone(&parser.scope),
-                        })));
-                        parser.add_expr(&expr)?;
-                    }
-                }
-                Token::Operator(op) => {
-                    if *op == Op::Pipe && parser.group.is_args() {
-                        // Finish the arguments of the left hand-side command.
-                        parser.add_current_expr_to_group()?;
-                    }
-
-                    if op.priority() == Priority::Low {
-                        parser.pop_binary_ops(false)?;
-                    }
-
-                    let expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
-                        op: op.clone(),
-                        lhs: Rc::clone(&parser.current_expr),
-                        rhs: parser.empty(),
-                        loc: parser.loc,
-                        scope: Rc::clone(&parser.scope),
-                    })));
-
-                    if op.priority() == Priority::Low {
-                        parser.expr_stack.push(Rc::clone(&expr));
-                        parser.clear_current();
-                    } else {
-                        parser.current_expr = expr;
-                    }
-                }
-            }
-        }
-
-        parser.finalize_groups()?;
-
-        if !parser.expr_stack.is_empty() {
-            let msg = if parser.expect_else_expr {
-                "Dangling ELSE"
-            } else {
-                dbg!(&parser.expr_stack);
-                "Unbalanced parenthesis"
-            };
-            return error(&parser, msg);
-        }
-        assert!(parser.group_stack.is_empty()); // because the expr_stack is empty
-
-        Ok(parser.group)
+        parser.parse(quit)
     }
 
     pub fn set_var(&mut self, name: &str, value: String) {
