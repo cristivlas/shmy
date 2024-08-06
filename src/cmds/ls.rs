@@ -91,12 +91,14 @@ mod win {
     use std::os::windows::prelude::*;
     use std::path::PathBuf;
     use windows::core::PWSTR;
-    use windows::Win32::Foundation::{HANDLE, PSID, WIN32_ERROR};
+    use windows::Win32::Foundation::{HANDLE, WIN32_ERROR};
     use windows::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, GetSecurityInfo, SE_OBJECT_TYPE,
+        ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT,
     };
-    use windows::Win32::Security::PSECURITY_DESCRIPTOR;
-    use windows_sys::Win32::System::Memory::LocalFree;
+    use windows::Win32::Security::{
+        GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    };
+    use windows_sys::Win32::Foundation::LocalFree;
 
     use std::cmp::min;
     use std::ffi::c_void;
@@ -111,11 +113,11 @@ mod win {
     ) -> (Option<String>, Option<String>) {
         let get_sid_string = |psid: PSID| unsafe {
             let mut sid_string_ptr = PWSTR::null();
-            if ConvertSidToStringSidW(psid, &mut sid_string_ptr).as_bool() {
+            if ConvertSidToStringSidW(psid, &mut sid_string_ptr).is_ok() {
                 let sid_string = sid_string_ptr
                     .to_string()
                     .unwrap_or_else(|_| "?".to_string());
-                LocalFree(sid_string_ptr.0 as isize);
+                LocalFree(sid_string_ptr.0 as _);
                 Some(sid_string)
             } else {
                 None
@@ -137,7 +139,7 @@ mod win {
             Err(_) => return (None, None),
         };
 
-        let handle = HANDLE(file.as_raw_handle() as isize);
+        let handle = HANDLE(file.as_raw_handle());
 
         unsafe {
             let mut psid_owner: PSID = PSID::default();
@@ -146,8 +148,8 @@ mod win {
 
             let result = GetSecurityInfo(
                 handle,
-                SE_OBJECT_TYPE(1i32), // SE_FILE_OBJECT
-                3u32,                 // OWNER_SECURITY_INFORMATION + GROUP_SECURITY_INFORMATION
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION,
                 Some(&mut psid_owner),
                 Some(&mut psid_group),
                 None,
@@ -156,7 +158,7 @@ mod win {
             );
 
             if result != WIN32_ERROR(0) {
-                LocalFree(sd.0 as isize);
+                LocalFree(sd.0);
             } else {
                 let owner = get_sid_string(psid_owner);
                 let group = get_sid_string(psid_group);
@@ -206,11 +208,11 @@ mod win {
                     &mut sid_use,
                 ) != 0
                 {
-                    LocalFree(psid as isize);
+                    LocalFree(psid);
                     name_size = min(name_size, OWNER_MAX_LEN as u32);
                     String::from_utf16_lossy(&name[..name_size as usize])
                 } else {
-                    LocalFree(psid as isize);
+                    LocalFree(psid);
                     sid[..OWNER_MAX_LEN].to_string()
                 }
             }
