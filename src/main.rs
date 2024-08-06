@@ -1,6 +1,6 @@
 use cmds::list_registered_commands;
 use directories::UserDirs;
-use eval::{Interp, Scope};
+use eval::{EvalError, Interp, Scope};
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
@@ -108,7 +108,7 @@ impl completion::Completer for CmdLineHelper {
                     0,
                     vec![Self::Candidate {
                         display: repl.clone(),
-                        replacement: repl.clone()
+                        replacement: repl.clone(),
                     }],
                 ));
             }
@@ -313,9 +313,30 @@ impl Shell {
             Ok(result) => {
                 debug_print!(&result);
             }
-            Err(s) => {
-                eprintln!("{}.", s);
+            Err(e) => {
+                self.show_error(input, &e);
             }
+        }
+    }
+
+    fn show_error(&self, input: &String, e: &EvalError) {
+        if !self.interactive {
+            eprintln!("{}.", e);
+        } else {
+            let line = e.loc.line as usize;
+            let col = e.loc.col as usize;
+
+            // Get the problematic line from the input
+            let lines: Vec<&str> = input.lines().collect();
+            let error_line = lines.get(line - 1).unwrap_or(&"");
+
+            // Create the error indicator
+            let indicator = " ".repeat(col) + "^";
+
+            eprintln!("Error at line {}, column {}:", line, col + 1);
+            eprintln!("{}", error_line);
+            eprintln!("{}", indicator);
+            eprintln!("{}", e.message);
         }
     }
 }
@@ -325,19 +346,6 @@ pub fn current_dir() -> Result<String, String> {
         Ok(path) => Ok(path.to_path_buf().to_string_lossy().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
-}
-
-fn main() -> Result<(), ()> {
-    match &mut parse_cmd_line() {
-        Err(e) => {
-            eprint!("Command line error: {}.", e);
-        }
-        Ok(shell) => match shell.read_input() {
-            Err(e) => eprintln!("{}.", e),
-            _ => {}
-        },
-    }
-    Ok(())
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
@@ -369,4 +377,17 @@ fn parse_cmd_line() -> Result<Shell, String> {
     }
 
     Ok(shell)
+}
+
+fn main() -> Result<(), ()> {
+    match &mut parse_cmd_line() {
+        Err(e) => {
+            eprint!("Command line error: {}.", e);
+        }
+        Ok(shell) => match shell.read_input() {
+            Err(e) => eprintln!("{}.", e),
+            _ => {}
+        },
+    }
+    Ok(())
 }

@@ -100,9 +100,9 @@ enum Token {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-struct Location {
-    line: u32,
-    col: u32,
+pub struct Location {
+    pub line: u32,
+    pub col: u32,
 }
 
 impl fmt::Display for Location {
@@ -113,7 +113,7 @@ impl fmt::Display for Location {
 
 /// Trait for objects with location info.
 trait HasLocation {
-    fn loc(&self) -> &Location;
+    fn loc(&self) -> Location;
 }
 
 impl Location {
@@ -127,29 +127,40 @@ impl Location {
     }
 }
 
-impl HasLocation for Location {
-    fn loc(&self) -> &Location {
-        self
-    }
-}
-
 macro_rules! derive_has_location {
     ($type:ty) => {
         impl HasLocation for $type {
-            fn loc(&self) -> &Location {
-                &self.loc
+            fn loc(&self) -> Location {
+                self.loc
             }
         }
     };
 }
 
-fn error<T: HasLocation, R>(t: &T, s: &str) -> Result<R, String> {
-    return Err(format!("{} {}", t.loc(), s));
+#[derive(Debug)]
+pub struct EvalError {
+    pub loc: Location,
+    pub message: String,
+}
+
+impl fmt::Display for EvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.loc, self.message)
+    }
+}
+
+pub type EvalResult<T = ()> = std::result::Result<T, EvalError>;
+
+fn error<T: HasLocation, R>(w: &T, message: &str) -> EvalResult<R> {
+    Err(EvalError {
+        loc: w.loc(),
+        message: message.to_string(),
+    })
 }
 
 /// Non-terminal AST node.
 trait ExprNode {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String>;
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult;
 }
 
 struct Parser<I: Iterator<Item = char>> {
@@ -170,8 +181,8 @@ struct Parser<I: Iterator<Item = char>> {
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
-    fn loc(&self) -> &Location {
-        &self.loc
+    fn loc(&self) -> Location {
+        self.loc
     }
 }
 
@@ -247,7 +258,7 @@ where
                     && !self.current_expr.is_cmd()
                     && !self.current_expr.is_empty();
             }
-            match parse_value(tok, &self.scope) {
+            match parse_value(tok, self.loc, &self.scope) {
                 Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
                 _ => false,
             }
@@ -262,7 +273,7 @@ where
         self.chars.next();
     }
 
-    fn glob_literal(&mut self, literal: String, quoted: bool) -> Result<Token, String> {
+    fn glob_literal(&mut self, literal: String, quoted: bool) -> EvalResult<Token> {
         // This function should not be called if globbed_tokens are not depleted.
         assert!(self.globbed_tokens.is_empty());
 
@@ -286,7 +297,7 @@ where
     }
 
     #[rustfmt::skip]
-    pub fn next_token(&mut self) -> Result<Token, String> {
+    pub fn next_token(&mut self) -> EvalResult<Token> {
 
         if !self.globbed_tokens.is_empty() {
             return Ok(Token::Literal(self.globbed_tokens.remove(0)));
@@ -394,7 +405,7 @@ where
             }
         }
         if self.in_quotes {
-            error(self, "Unbalanced quotes")?;
+            return error(self, "Unbalanced quotes");
         }
 
         // Check for partial token, handle special cases such as single fwd slash.
@@ -412,7 +423,7 @@ where
     }
 
     /// Add an expression to the AST.
-    fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
+    fn add_expr(&mut self, expr: &Rc<Expression>) -> EvalResult {
         assert!(!expr.is_empty());
 
         if self.expect_else_expr {
@@ -451,7 +462,7 @@ where
         }
     }
 
-    fn pop_binary_ops(&mut self, statement: bool) -> Result<(), String> {
+    fn pop_binary_ops(&mut self, statement: bool) -> EvalResult {
         while let Some(stack_top) = self.expr_stack.last() {
             // If the expression on the top of the expression stack is a binary
             // expression, pop it, make it the new current expression, and add
@@ -472,7 +483,7 @@ where
         Ok(())
     }
 
-    fn add_current_expr_to_group(&mut self) -> Result<(), String> {
+    fn add_current_expr_to_group(&mut self) -> EvalResult {
         let group = Rc::clone(&self.group);
 
         if let Expression::Args(g) = &*group {
@@ -496,14 +507,14 @@ where
         self.current_expr = self.empty();
     }
 
-    fn finalize_groups(&mut self) -> Result<(), String> {
+    fn finalize_groups(&mut self) -> EvalResult {
         if self.group.is_args() {
             self.add_current_expr_to_group()?; // Finalize pending cmd line args
         }
         self.add_current_expr_to_group()
     }
 
-    fn push(&mut self, group: Group) -> Result<(), String> {
+    fn push(&mut self, group: Group) -> EvalResult {
         if group != Group::None {
             // Save the current scope
             let current_scope = Rc::clone(&self.scope);
@@ -525,12 +536,12 @@ where
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<(), String> {
+    fn pop(&mut self) -> EvalResult {
         self.finalize_groups()?;
         self.pop_group()
     }
 
-    fn pop_group(&mut self) -> Result<(), String> {
+    fn pop_group(&mut self) -> EvalResult {
         if !self.expr_stack.is_empty() {
             self.current_expr = self.expr_stack.pop().unwrap();
             self.add_expr(&Rc::clone(&self.group))?;
@@ -631,7 +642,7 @@ impl Scope {
     }
 }
 
-fn parse_value(s: &str, scope: &Rc<Scope>) -> Result<Value, String> {
+fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
     match regex::Regex::new(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?") {
         Ok(regex) => {
             let result = regex.replace_all(s, |caps: &regex::Captures| {
@@ -645,7 +656,10 @@ fn parse_value(s: &str, scope: &Rc<Scope>) -> Result<Value, String> {
             });
             result.parse::<Value>()
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(EvalError {
+            loc: loc,
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -662,12 +676,8 @@ enum Expression {
     Loop(RefCell<LoopExpr>),
 }
 
-trait Inner {
-
-}
-
 impl Expression {
-    fn expand_args(&self, scope: &Rc<Scope>) -> Result<Vec<String>, String> {
+    fn expand_args(&self, scope: &Rc<Scope>) -> EvalResult<Vec<String>> {
         let mut args = Vec::new();
 
         if let Expression::Args(a) = &self {
@@ -686,13 +696,13 @@ impl Expression {
                 args.push(s);
             }
         } else if !self.is_empty() {
-            return Err("Expression is not an argument list".to_string());
+            return error(self, "Expression is not an argument list");
         }
 
         Ok(args)
     }
 
-    fn expand_arg_values(&self) -> Result<Vec<Value>, String> {
+    fn expand_arg_values(&self) -> EvalResult<Vec<Value>> {
         let mut vals: Vec<Value> = Vec::new();
 
         if let Expression::Args(a) = &self {
@@ -700,7 +710,7 @@ impl Expression {
                 vals.push(arg.eval()?);
             }
         } else if !self.is_empty() {
-            return Err("Expression is not an argument list".to_string());
+            return error(self, "Expression is not an argument list");
         }
 
         Ok(vals)
@@ -751,12 +761,28 @@ impl fmt::Display for Expression {
             Expression::Args(group) => write!(f, "{}", group.borrow()),
             Expression::Bin(bin_expr) => write!(f, "{}", bin_expr.borrow()),
             Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
-            Expression::Branch(branch) => write!(f, "Branch({})", branch.borrow()),
+            Expression::Branch(branch) => write!(f, "{}", branch.borrow()),
             Expression::Group(group) => write!(f, "{}", group.borrow()),
             Expression::For(for_expr) => write!(f, "{}", for_expr.borrow()),
             Expression::Empty => write!(f, ""),
             Expression::Lit(literal) => write!(f, "{}", literal),
             Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
+        }
+    }
+}
+
+impl HasLocation for Expression {
+    fn loc(&self) -> Location {
+        match self {
+            Expression::Args(group) => group.borrow().loc(),
+            Expression::Bin(bin_expr) => bin_expr.borrow().loc(),
+            Expression::Cmd(cmd) => cmd.borrow().loc(),
+            Expression::Branch(branch) => branch.borrow().loc(),
+            Expression::Group(group) => group.borrow().loc(),
+            Expression::For(for_expr) => for_expr.borrow().loc(),
+            Expression::Empty => panic!("Empty expression"),
+            Expression::Lit(literal) => literal.loc(),
+            Expression::Loop(loop_expr) => loop_expr.borrow().loc(),
         }
     }
 }
@@ -774,7 +800,7 @@ derive_has_location!(BinExpr);
 
 impl ExprNode for BinExpr {
     /// Add right hand-side child expression.
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.rhs.is_empty() {
             self.rhs = Rc::clone(child);
             Ok(())
@@ -818,7 +844,7 @@ macro_rules! div_match {
 /// Macro to generate comparison functions
 macro_rules! eval_cmp_fn {
     ($fn_name:ident, $op:tt) => {
-        fn $fn_name(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+        fn $fn_name(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
             match self.eval_cmp(lhs, rhs)? {
                 Value::Real(r) => Ok(Value::Int((r $op 0.0) as i64)),
                 _ => panic!("Unexpected result type in comparison"),
@@ -828,12 +854,11 @@ macro_rules! eval_cmp_fn {
 }
 
 impl BinExpr {
-    fn eval_and(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_and(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         Ok(Value::Int((value_as_bool(lhs) && value_as_bool(rhs)) as _))
     }
 
-    fn eval_assign(&self, rhs: Value) -> Result<Value, String> {
-        // TODO: refactor nested ifs
+    fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
         if let Expression::Lit(lit) = &*self.lhs {
             if let Token::Literal(name) = &lit.tok {
                 if name.starts_with('$') {
@@ -841,7 +866,7 @@ impl BinExpr {
                         var.assign(rhs);
                         return Ok(var.value());
                     } else {
-                        error(self, &format!("Variable not found: {}", name))?;
+                        return error(self, &format!("Variable not found: {}", name));
                     }
                 } else {
                     self.scope.insert(name.to_owned(), rhs.clone());
@@ -852,7 +877,7 @@ impl BinExpr {
         error(self, "Identifier expected on left hand-side of assignment")
     }
 
-    fn eval_cmp(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_cmp(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real((i - j) as _)),
@@ -885,7 +910,7 @@ impl BinExpr {
     eval_cmp_fn!(eval_gt, >);
     eval_cmp_fn!(eval_gte, >=);
 
-    fn eval_div(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_div(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => div_match!(self, i, rhs),
             Value::Real(i) => div_match!(self, i, rhs),
@@ -897,11 +922,11 @@ impl BinExpr {
         }
     }
 
-    fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
-        Err("NOT IMPLEMENTED".to_string())
+    fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
+        todo!()
     }
 
-    fn eval_minus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_minus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Int(i - j)),
@@ -920,11 +945,11 @@ impl BinExpr {
         }
     }
 
-    fn eval_mod(&self, _lhs: Value, _rhs: Value) -> Result<Value, String> {
-        Err("NOT IMPLEMENTED".to_string())
+    fn eval_mod(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
+        todo!()
     }
 
-    fn eval_mul(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_mul(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Int(i * j)),
@@ -943,18 +968,18 @@ impl BinExpr {
         }
     }
 
-    fn eval_or(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_or(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         Ok(Value::Int((value_as_bool(lhs) || value_as_bool(rhs)) as _))
     }
 
-    fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> Result<Value, String> {
+    fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> EvalResult<Value> {
         if lhs.is_empty() {
-            error(&self.loc, "Expecting pipe input")?;
+            return error(self, "Expecting pipe input");
         }
         // Create a pipe
         let (reader, writer) = match os_pipe::pipe() {
             Ok((r, w)) => (r, w),
-            Err(e) => return error(&self.loc, &format!("Failed to create pipe: {}", e)),
+            Err(e) => return error(self, &format!("Failed to create pipe: {}", e)),
         };
 
         // Redirect stdout to the pipe
@@ -1004,7 +1029,7 @@ impl BinExpr {
         Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
     }
 
-    fn eval_plus(&self, lhs: Value, rhs: Value) -> Result<Value, String> {
+    fn eval_plus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Int(i + j)),
@@ -1028,11 +1053,11 @@ macro_rules! eval_bin {
 }
 
 impl Eval for BinExpr {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         if self.rhs.is_empty() {
             error(self, "Expecting right hand-side expression")
         } else if self.lhs.is_empty() {
-            eval_unary(&self.loc, &self.op, self.rhs.eval()?)
+            eval_unary(self, &self.op, self.rhs.eval()?)
         } else {
             match self.op {
                 Op::And => eval_bin!(self, eval_and),
@@ -1091,14 +1116,11 @@ impl GroupExpr {
 derive_has_location!(GroupExpr);
 
 impl Eval for GroupExpr {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         let mut result = Ok(Value::Int(0));
 
         for e in &self.group {
             result = e.eval();
-
-            // println!("{}: {:?}", e, result);
-
             if result.is_err() {
                 break;
             }
@@ -1108,7 +1130,7 @@ impl Eval for GroupExpr {
 }
 
 impl ExprNode for GroupExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         self.group.push(Rc::clone(child));
         Ok(())
     }
@@ -1143,14 +1165,19 @@ struct Command {
 derive_has_location!(Command);
 
 impl Eval for Command {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         let args = self.args.expand_args(&self.scope)?;
-        self.cmd.exec(&self.cmd.name(), &args, &self.scope)
+        self.cmd
+            .exec(&self.cmd.name(), &args, &self.scope)
+            .map_err(|e| EvalError {
+                loc: self.loc,
+                message: e,
+            })
     }
 }
 
 impl ExprNode for Command {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         assert!(child.is_args());
         assert!(self.args.is_empty());
         self.args = Rc::clone(&child);
@@ -1193,12 +1220,12 @@ fn value_as_bool(val: Value) -> bool {
     }
 }
 
-fn eval_as_bool(expr: &Rc<Expression>) -> Result<bool, String> {
+fn eval_as_bool(expr: &Rc<Expression>) -> EvalResult<bool> {
     Ok(value_as_bool(expr.eval()?))
 }
 
 impl ExprNode for BranchExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
@@ -1208,25 +1235,25 @@ impl ExprNode for BranchExpr {
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
             if !self.expect_else {
-                error(self, "Expecting ELSE keyword")?;
+                return error(self, "Expecting ELSE keyword");
             }
             if !child.is_group() {
                 return error(self, "ELSE branch must be enclosed in parenthesis");
             }
             self.else_branch = Rc::clone(child);
         } else {
-            error(self, "Dangling expression after else branch")?;
+            return error(self, "Dangling expression after else branch");
         }
         Ok(())
     }
 }
 
 impl Eval for BranchExpr {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         if self.cond.is_empty() {
-            error(self, "Expecting IF condition")?;
+            return error(self, "Expecting IF condition");
         } else if self.if_branch.is_empty() {
-            error(self, "Expecting IF branch")?;
+            return error(self, "Expecting IF branch");
         }
         if eval_as_bool(&self.cond)? {
             self.if_branch.eval()
@@ -1259,9 +1286,9 @@ struct Literal {
 derive_has_location!(Literal);
 
 impl Eval for Literal {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         match &self.tok {
-            Token::Literal(s) => parse_value(&s, &self.scope),
+            Token::Literal(s) => parse_value(&s, self.loc, &self.scope),
             _ => {
                 panic!("Invalid token type in literal expression");
             }
@@ -1292,11 +1319,11 @@ struct LoopExpr {
 derive_has_location!(LoopExpr);
 
 impl Eval for LoopExpr {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         if self.cond.is_empty() {
-            error(self, "Expecting loop conditional")?;
+            return error(self, "Expecting loop condition");
         } else if self.body.is_empty() {
-            error(self, "Expecting loop body")?;
+            return error(self, "Expecting loop body");
         }
         let mut result = Ok(Value::Int(0));
         loop {
@@ -1314,7 +1341,7 @@ impl Eval for LoopExpr {
 }
 
 impl ExprNode for LoopExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
@@ -1345,7 +1372,16 @@ struct ForExpr {
 derive_has_location!(ForExpr);
 
 impl Eval for ForExpr {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
+        if self.var.is_empty() {
+            return error(self, "Expecting FOR variable");
+        }
+        if self.args.is_empty() {
+            return error(self, "Expecting argument list");
+        }
+        if self.body.is_empty() {
+            return error(self, "Expecting FOR body");
+        }
         let vals = self.args.expand_arg_values()?;
         let mut result = Value::Int(0);
 
@@ -1358,16 +1394,15 @@ impl Eval for ForExpr {
 }
 
 impl ExprNode for ForExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+    fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
-            // TODO: refactor nested ifs
             if let Expression::Lit(lit) = &**child {
                 if let Token::Literal(name) = &lit.tok {
                     self.var = name.clone();
                     return Ok(());
                 }
             }
-            return error(self, "Identifier expected in for expression");
+            return error(self, "Expecting identifier FOR expression");
         } else if self.args.is_empty() {
             if child.is_args() {
                 self.args = Rc::clone(&child);
@@ -1376,7 +1411,6 @@ impl ExprNode for ForExpr {
             }
         } else if self.body.is_empty() {
             if !child.is_group() {
-                // TODO: use inner type and child loc.
                 return error(self, "FOR body must be enclosed in parenthesis");
             }
             self.body = Rc::clone(&child);
@@ -1393,7 +1427,7 @@ impl fmt::Display for ForExpr {
     }
 }
 
-fn eval_unary(loc: &Location, op: &Op, val: Value) -> Result<Value, String> {
+fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value> {
     match op {
         Op::Minus => match val {
             Value::Int(i) => Ok(Value::Int(-i)),
@@ -1434,7 +1468,7 @@ impl fmt::Display for Value {
 }
 
 impl FromStr for Value {
-    type Err = String;
+    type Err = EvalError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(i) = s.parse::<i64>() {
@@ -1448,11 +1482,11 @@ impl FromStr for Value {
 }
 
 trait Eval {
-    fn eval(&self) -> Result<Value, String>;
+    fn eval(&self) -> EvalResult<Value>;
 }
 
 impl Eval for Expression {
-    fn eval(&self) -> Result<Value, String> {
+    fn eval(&self) -> EvalResult<Value> {
         match &self {
             Expression::Args(g) => g.borrow().eval(),
             Expression::Bin(b) => b.borrow().eval(),
@@ -1488,7 +1522,7 @@ impl Interp {
         }
     }
 
-    pub fn eval(&mut self, quit: &mut bool, input: &str) -> Result<Value, String> {
+    pub fn eval(&mut self, quit: &mut bool, input: &str) -> EvalResult<Value> {
         debug_print!(input);
         let ast = self.parse(quit, input)?;
 
@@ -1496,7 +1530,7 @@ impl Interp {
         ast.eval()
     }
 
-    fn parse(&mut self, quit: &mut bool, input: &str) -> Result<Rc<Expression>, String> {
+    fn parse(&mut self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
         let mut parser = Parser::new(input.chars(), &self.scope);
 
         // TODO: refactor to parser func.
@@ -1511,7 +1545,7 @@ impl Interp {
                 }
                 Token::RightParen => {
                     if parser.group_stack.is_empty() {
-                        error(&parser, "Unmatched right parenthesis")?;
+                        return error(&parser, "Unmatched right parenthesis");
                     }
                     parser.pop()?;
                 }
@@ -1548,12 +1582,15 @@ impl Interp {
                     } else if s == "else" {
                         if let Expression::Branch(b) = &*parser.current_expr {
                             if !b.borrow_mut().is_else_expected() {
-                                error(&parser, "Conditional expression or IF branch missing")?;
+                                return error(
+                                    &parser,
+                                    "Conditional expression or IF branch missing",
+                                );
                             }
                             parser.expect_else_expr = true;
                             parser.push(Group::None)?;
                         } else {
-                            error(&parser, "ELSE without IF")?;
+                            return error(&parser, "ELSE without IF");
                         }
                     } else if s == "for" {
                         let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
@@ -1634,7 +1671,7 @@ impl Interp {
                 dbg!(&parser.expr_stack);
                 "Unbalanced parenthesis"
             };
-            error(&parser, msg)?;
+            return error(&parser, msg);
         }
         assert!(parser.group_stack.is_empty()); // because the expr_stack is empty
 
