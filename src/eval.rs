@@ -1,4 +1,4 @@
-use crate::cmds::{get_command, Exec};
+use crate::cmds::{get_command, Exec, RegisteredCommand};
 use gag::Redirect;
 use glob::glob;
 use regex;
@@ -415,6 +415,7 @@ where
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         assert!(!expr.is_empty());
 
+        // TODO: this is a horrible hack.
         if self.expect_else_expr {
             self.current_expr = self.expr_stack.pop().unwrap();
             self.expect_else_expr = false;
@@ -431,6 +432,13 @@ where
                 Ok(())
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
+            Expression::For(e) => {
+                e.borrow_mut().add_child(expr)?;
+                if !e.borrow().body.is_empty() {
+                    self.clear_current();
+                }
+                Ok(())
+            }
             Expression::Lit(_) => {
                 if let Expression::Args(a) = &*self.group {
                     a.borrow_mut().group.push(Rc::clone(&self.current_expr));
@@ -524,27 +532,9 @@ where
     }
 
     fn pop_group(&mut self) -> Result<(), String> {
-        // TODO: Revisit; under what conditions the expr stack can be empty?
         if !self.expr_stack.is_empty() {
             self.current_expr = self.expr_stack.pop().unwrap();
-
-            // Replace group with child expression if there's only one child.
-            let expr = {
-                if let Expression::Group(g) = &*self.group {
-                    let group = &g.borrow().group;
-                    if group.len() == 1 {
-                        Rc::clone(&group[0])
-                    } else {
-                        Rc::clone(&self.group)
-                    }
-                } else if let Expression::Args(_) = &*self.group {
-                    Rc::clone(&self.group)
-                } else {
-                    panic!("Unexpected group error");
-                }
-            };
-
-            self.add_expr(&expr)?;
+            self.add_expr(&Rc::clone(&self.group))?;
         }
 
         self.group = self.group_stack.pop().unwrap(); // Restore group
@@ -667,12 +657,52 @@ enum Expression {
     Bin(RefCell<BinExpr>),
     Cmd(RefCell<Command>),
     Branch(RefCell<BranchExpr>),
+    For(RefCell<ForExpr>),
     Group(RefCell<GroupExpr>),
     Lit(Rc<Literal>),
     Loop(RefCell<LoopExpr>),
 }
 
 impl Expression {
+    fn expand_args(&self, scope: &Rc<Scope>) -> Result<Vec<String>, String> {
+        let mut args = Vec::new();
+
+        if let Expression::Args(a) = &self {
+            for arg in &a.borrow().group {
+                let v = arg.eval()?;
+                let mut s = v.to_string();
+                // Expand leading tilde.
+                if s.starts_with('~') {
+                    match scope.lookup("HOME") {
+                        Some(v) => {
+                            s = format!("{}{}", v.value().to_string(), &s[1..]);
+                        }
+                        _ => {}
+                    }
+                }
+                args.push(s);
+            }
+        } else if !self.is_empty() {
+            return Err("Expression is not an argument list".to_string());
+        }
+
+        Ok(args)
+    }
+
+    fn expand_arg_values(&self) -> Result<Vec<Value>, String> {
+        let mut vals: Vec<Value> = Vec::new();
+
+        if let Expression::Args(a) = &self {
+            for arg in &a.borrow().group {
+                vals.push(arg.eval()?);
+            }
+        } else if !self.is_empty() {
+            return Err("Expression is not an argument list".to_string());
+        }
+
+        Ok(vals)
+    }
+
     fn is_args(&self) -> bool {
         matches!(self, Expression::Args(_))
     }
@@ -687,6 +717,10 @@ impl Expression {
 
     fn is_cmd(&self) -> bool {
         matches!(self, Expression::Cmd(_))
+    }
+
+    fn is_for(&self) -> bool {
+        matches!(self, Expression::For(_))
     }
 
     fn is_empty(&self) -> bool {
@@ -716,6 +750,7 @@ impl fmt::Display for Expression {
             Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
             Expression::Branch(branch) => write!(f, "Branch({})", branch.borrow()),
             Expression::Group(group) => write!(f, "{}", group.borrow()),
+            Expression::For(for_expr) => write!(f, "{}", for_expr.borrow()),
             Expression::Empty => write!(f, ""),
             Expression::Lit(literal) => write!(f, "{}", literal),
             Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
@@ -795,6 +830,7 @@ impl BinExpr {
     }
 
     fn eval_assign(&self, rhs: Value) -> Result<Value, String> {
+        // TODO: refactor nested ifs
         if let Expression::Lit(lit) = &*self.lhs {
             if let Token::Literal(name) = &lit.tok {
                 if name.starts_with('$') {
@@ -1017,7 +1053,7 @@ impl Eval for BinExpr {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Group {
     None,
     Args,
@@ -1026,7 +1062,7 @@ enum Group {
 
 #[derive(Debug)]
 struct GroupExpr {
-    args: bool,
+    kind: Group,
     group: Vec<Rc<Expression>>,
     loc: Location,
 }
@@ -1034,7 +1070,7 @@ struct GroupExpr {
 impl GroupExpr {
     fn new_args(loc: Location) -> Self {
         Self {
-            args: true,
+            kind: Group::Args,
             group: Vec::new(),
             loc,
         }
@@ -1042,7 +1078,7 @@ impl GroupExpr {
 
     fn new_group(loc: Location) -> Self {
         Self {
-            args: false,
+            kind: Group::Explicit,
             group: Vec::new(),
             loc,
         }
@@ -1085,7 +1121,7 @@ fn join_expr(expressions: &[Rc<Expression>], separator: &str) -> String {
 
 impl fmt::Display for GroupExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.args {
+        if self.kind == Group::Args {
             write!(f, "{}", join_expr(&self.group, " "))
         } else {
             write!(f, "( {} )", join_expr(&self.group, "; "))
@@ -1095,7 +1131,7 @@ impl fmt::Display for GroupExpr {
 
 #[derive(Debug)]
 struct Command {
-    cmd: String,
+    cmd: RegisteredCommand,
     args: Rc<Expression>,
     loc: Location,
     scope: Rc<Scope>,
@@ -1103,46 +1139,15 @@ struct Command {
 
 derive_has_location!(Command);
 
-impl Command {
-    fn exec(&self) -> Result<Value, String> {
-        if let Some(cmd) = get_command(&self.cmd) {
-            let mut args: Vec<String> = Vec::new();
-            if let Expression::Args(a) = &*self.args {
-                for arg in &a.borrow().group {
-                    let v = arg.eval()?;
-                    let mut s = v.to_string();
-                    // Expand leading tilde.
-                    if s.starts_with('~') {
-                        match self.scope.lookup("HOME") {
-                            Some(v) => {
-                                s = format!("{}{}", v.value().to_string(), &s[1..]);
-                            }
-                            _ => {}
-                        }
-                    }
-                    args.push(s);
-                }
-            }
-
-            match cmd.exec(&self.cmd, &args, &self.scope) {
-                Ok(v) => Ok(v),
-                Err(e) => error(self, e.as_str()),
-            }
-        } else {
-            panic!("Command not found");
-        }
-    }
-}
-
 impl Eval for Command {
     fn eval(&self) -> Result<Value, String> {
-        self.exec()
+        let args = self.args.expand_args(&self.scope)?;
+        self.cmd.exec(&self.cmd.name(), &args, &self.scope)
     }
 }
 
 impl ExprNode for Command {
     fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
-        assert!(!self.cmd.is_empty());
         assert!(child.is_args());
         assert!(self.args.is_empty());
         self.args = Rc::clone(&child);
@@ -1152,7 +1157,7 @@ impl ExprNode for Command {
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.cmd, self.args)
+        write!(f, "{} {}", self.cmd.name(), self.args)
     }
 }
 
@@ -1304,14 +1309,10 @@ impl ExprNode for LoopExpr {
         if self.cond.is_empty() {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
-            let expr = if child.is_group() {
-                child
-            } else {
-                let g = RefCell::new(GroupExpr::new_group(self.loc));
-                g.borrow_mut().group.push(Rc::clone(&child));
-                &Rc::new(Expression::Group(g))
-            };
-            self.body = Rc::clone(expr);
+            // self.body = add_body(self.loc, child)
+            self.body = Rc::clone(&child);
+        } else {
+            return error(self, "WHILE already has a body");
         }
         Ok(())
     }
@@ -1320,6 +1321,66 @@ impl ExprNode for LoopExpr {
 impl fmt::Display for LoopExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "while ({}) {}", self.cond, self.body)
+    }
+}
+
+#[derive(Debug)]
+struct ForExpr {
+    var: String,
+    args: Rc<Expression>,
+    body: Rc<Expression>,
+    scope: Rc<Scope>,
+    loc: Location,
+}
+
+derive_has_location!(ForExpr);
+
+impl Eval for ForExpr {
+    fn eval(&self) -> Result<Value, String> {
+        let vals = self.args.expand_arg_values()?;
+        let mut result = Value::Int(0);
+
+        for v in &vals {
+            self.scope.insert(self.var.clone(), v.clone());
+            result = self.body.eval()?;
+        }
+        Ok(result)
+    }
+}
+
+impl ExprNode for ForExpr {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+        if self.var.is_empty() {
+            // TODO: refactor nested ifs
+            if let Expression::Lit(lit) = &**child {
+                if let Token::Literal(name) = &lit.tok {
+                    self.var = name.clone();
+                    return Ok(());
+                }
+            }
+            return error(self, "Identifier expected in for expression");
+        } else if self.args.is_empty() {
+            if child.is_args() {
+                self.args = Rc::clone(&child);
+            } else {
+                return error(self, "Expecting argument list");
+            }
+        } else if self.body.is_empty() {
+            if !child.is_group() {
+                // TODO: use inner type and child loc.
+                return error(self, "FOR body must be enclosed in parenthesis");
+            }
+            self.body = Rc::clone(&child);
+        } else {
+            return error(self, "FOR already has a body");
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for ForExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "for {} in {} ({})", &self.var, self.args, self.body)
     }
 }
 
@@ -1389,6 +1450,7 @@ impl Eval for Expression {
             Expression::Branch(b) => b.borrow().eval(),
             Expression::Cmd(c) => c.borrow().eval(),
             Expression::Group(g) => g.borrow().eval(),
+            Expression::For(f) => f.borrow().eval(),
             Expression::Empty => {
                 panic!("Empty expression");
             }
@@ -1400,10 +1462,6 @@ impl Eval for Expression {
 
 pub struct Interp {
     scope: Rc<Scope>,
-}
-
-fn is_command(literal: &String) -> bool {
-    get_command(&literal).is_some()
 }
 
 fn new_args(loc: Location) -> Rc<Expression> {
@@ -1432,6 +1490,7 @@ impl Interp {
     fn parse(&mut self, quit: &mut bool, input: &str) -> Result<Rc<Expression>, String> {
         let mut parser = Parser::new(input.chars(), &self.scope);
 
+        // TODO: refactor to parser func.
         loop {
             let tok = parser.next_token()?;
             match &tok {
@@ -1449,7 +1508,9 @@ impl Interp {
                 }
                 Token::Semicolon => {
                     parser.finalize_groups()?;
-                    parser.clear_current();
+                    if !parser.current_expr.is_for() {
+                        parser.clear_current();
+                    }
                 }
                 Token::Literal(ref s) => {
                     // keywords
@@ -1457,6 +1518,7 @@ impl Interp {
                         *quit = true;
                         break;
                     }
+                    // TODO: FIX IF/ELSE
                     if s == "if" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
                             cond: parser.empty(),
@@ -1466,6 +1528,15 @@ impl Interp {
                             loc: parser.loc,
                         })));
                         parser.add_expr(&expr)?;
+                    } else if s == "in" {
+                        if let Expression::For(f) = &*parser.current_expr {
+                            if f.borrow().var.is_empty() {
+                                return error(&parser, "Expecting identifier in FOR expression");
+                            }
+                        } else {
+                            return error(&parser, "IN without FOR");
+                        }
+                        parser.push(Group::Args)?; // args will be added to ForExpr when finalized
                     } else if s == "else" {
                         if let Expression::Branch(b) = &*parser.current_expr {
                             if !b.borrow_mut().is_else_expected() {
@@ -1476,6 +1547,16 @@ impl Interp {
                         } else {
                             error(&parser, "ELSE without IF")?;
                         }
+                    } else if s == "for" {
+                        let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
+                            var: String::default(),
+                            args: parser.empty(),
+                            body: parser.empty(),
+                            scope: Rc::clone(&parser.scope),
+                            loc: parser.loc,
+                        })));
+                        parser.add_expr(&expr)?;
+                        parser.current_expr = expr;
                     } else if s == "while" {
                         let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
                             cond: parser.empty(),
@@ -1483,17 +1564,21 @@ impl Interp {
                             loc: parser.loc,
                         })));
                         parser.add_expr(&expr)?;
-                    } else if !parser.group.is_args() && is_command(s) {
+                    } else if let Some(cmd) = if !parser.group.is_args() {
+                        get_command(s)
+                    } else {
+                        None
+                    } {
                         // Commands
                         let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
-                            cmd: s.to_owned(),
+                            cmd,
                             args: parser.empty(),
                             loc: parser.loc,
                             scope: Rc::clone(&parser.scope),
                         })));
                         parser.add_expr(&expr)?;
                         parser.current_expr = expr;
-                        parser.push(Group::Args)?;
+                        parser.push(Group::Args)?; // args will be added to command when finalized
                     } else {
                         // Identifiers and literals
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
@@ -1549,8 +1634,7 @@ impl Interp {
     }
 
     pub fn set_var(&mut self, name: &str, value: String) {
-        self.scope
-            .insert(name.to_string(), Value::Str(value))
+        self.scope.insert(name.to_string(), Value::Str(value))
     }
 
     pub fn get_scope(&self) -> Rc<Scope> {

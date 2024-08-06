@@ -1,6 +1,7 @@
 use crate::eval::{Scope, Value};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -17,36 +18,48 @@ pub trait Exec {
 }
 
 #[derive(Clone)]
-pub struct BuiltinCommand {
+pub struct RegisteredCommand {
     name: String,
     inner: Rc<dyn Exec>,
 }
 
-impl Exec for BuiltinCommand {
+impl RegisteredCommand {
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+}
+
+impl Debug for RegisteredCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "name: {}", &self.name)
+    }
+}
+
+impl Exec for RegisteredCommand {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
     }
 }
 
-unsafe impl Send for BuiltinCommand {}
+unsafe impl Send for RegisteredCommand {}
 
 lazy_static! {
-    pub static ref COMMAND_REGISTRY: Mutex<HashMap<String, BuiltinCommand>> =
+    pub static ref COMMAND_REGISTRY: Mutex<HashMap<String, RegisteredCommand>> =
         Mutex::new(HashMap::new());
 }
 
-pub fn register_command(command: BuiltinCommand) {
+pub fn register_command(command: RegisteredCommand) {
     COMMAND_REGISTRY
         .lock()
         .unwrap()
         .insert(command.name.clone(), command);
 }
 
-pub fn get_command(name: &str) -> Option<BuiltinCommand> {
+pub fn get_command(name: &str) -> Option<RegisteredCommand> {
     let mut cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
     if cmd.is_none() {
         if let Some(path) = locate_executable(name) {
-            register_command(BuiltinCommand {
+            register_command(RegisteredCommand {
                 name: name.to_string(),
                 inner: Rc::new(External { path }),
             });
@@ -68,6 +81,7 @@ fn locate_executable(name: &str) -> Option<String> {
     }
 }
 
+// Wrap execution of an external program.
 struct External {
     path: String,
 }

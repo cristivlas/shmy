@@ -1,4 +1,4 @@
-use super::{register_command, BuiltinCommand, Exec};
+use super::{register_command, RegisteredCommand, Exec};
 use crate::eval::{Scope, Value};
 use chrono::DateTime;
 use std::fs::{self, DirEntry, Metadata};
@@ -470,12 +470,12 @@ fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
 fn register() {
     let exec = Rc::new(Dir);
 
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "ls".to_string(),
         inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "dir".to_string(),
         inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });

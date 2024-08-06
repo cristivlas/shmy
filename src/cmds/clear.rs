@@ -1,4 +1,4 @@
-use super::{register_command, BuiltinCommand, Exec};
+use super::{register_command, RegisteredCommand, Exec};
 use crate::eval::{Scope, Value};
 use clearscreen;
 use std::rc::Rc;
@@ -16,12 +16,12 @@ impl Exec for Clear {
 
 #[ctor::ctor]
 fn register() {
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "clear".to_string(),
         inner: Rc::new(Clear),
     });
 
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "cls".to_string(),
         inner: Rc::new(Clear),
     });

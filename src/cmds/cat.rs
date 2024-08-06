@@ -1,4 +1,4 @@
-use super::{register_command, BuiltinCommand, Exec};
+use super::{register_command, RegisteredCommand, Exec};
 use crate::eval::{Scope, Value};
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -53,7 +53,7 @@ impl Exec for Cat {
 
 #[ctor::ctor]
 fn register() {
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "cat".to_string(),
         inner: Rc::new(Cat),
     });

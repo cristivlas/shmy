@@ -1,4 +1,4 @@
-use super::{register_command, BuiltinCommand, Exec};
+use super::{register_command, RegisteredCommand, Exec};
 use crate::eval::{Scope, Value};
 use std::rc::Rc;
 
@@ -26,7 +26,7 @@ impl Exec for Environ {
 
 #[ctor::ctor]
 fn register() {
-    register_command(BuiltinCommand {
+    register_command(RegisteredCommand {
         name: "env".to_string(),
         inner: Rc::new(Environ),
     });
