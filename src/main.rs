@@ -4,7 +4,7 @@ use eval::{Interp, Scope};
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
-use rustyline::{history::DefaultHistory, Editor};
+use rustyline::{history::DefaultHistory, history::SearchDirection, Editor};
 use rustyline::{Context, Helper, Highlighter, Hinter, Validator};
 use std::env;
 use std::fs::{self, File};
@@ -43,6 +43,26 @@ impl CmdLineHelper {
             scope: Rc::clone(&scope),
         }
     }
+
+    // https://github.com/kkawakam/rustyline/blob/master/src/hint.rs#L66
+    fn search_history(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<String> {
+        let start = if ctx.history_index() == ctx.history().len() {
+            ctx.history_index().saturating_sub(1)
+        } else {
+            ctx.history_index()
+        };
+        if let Some(sr) = ctx
+            .history()
+            .starts_with(line, start, SearchDirection::Reverse)
+            .unwrap_or(None)
+        {
+            if sr.entry == line {
+                return None;
+            }
+            return Some(sr.entry[pos..].to_owned());
+        }
+        None
+    }
 }
 
 fn escape_backslashes(input: &str) -> String {
@@ -75,10 +95,27 @@ impl completion::Completer for CmdLineHelper {
         &self,
         line: &str,
         pos: usize,
-        _ctx: &Context<'_>,
+        ctx: &Context<'_>,
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
-        // Use the file completer first
-        let completions = self.completer.complete(line, pos, _ctx);
+        if pos < line.len() {
+            return Ok((pos, vec![])); // Autocomplete only if at the end of the input.
+        }
+        // Expand !... TAB from history.
+        if line.starts_with("!") {
+            if let Some(entry) = self.search_history(&line[1..], pos - 1, ctx) {
+                let repl = format!("{}{}", &line[1..], entry);
+                return Ok((
+                    0,
+                    vec![Self::Candidate {
+                        display: repl.clone(),
+                        replacement: repl.clone()
+                    }],
+                ));
+            }
+        }
+
+        // Try the file completer next ...
+        let completions = self.completer.complete(line, pos, ctx);
 
         if let Ok((start, v)) = completions {
             if !v.is_empty() {
@@ -96,7 +133,7 @@ impl completion::Completer for CmdLineHelper {
             }
         }
 
-        // Expand keywords and builtin commands
+        // If no file completion, expand keywords and builtin commands.
         let mut keywords = vec![];
         let mut ret_pos = pos;
 
