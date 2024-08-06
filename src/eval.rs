@@ -319,7 +319,7 @@ where
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
 
-                // Give glob precedence over multiplication.
+                // Give glob precedence over multiplication. For multiplication, use \*
                 '\\' => token!(self, tok, '*', Token::Operator(Op::Mul)),
 
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
@@ -364,6 +364,8 @@ where
                         } else if next_c == '\\' {
                             self.next();
                             if self.in_quotes {
+                                // Escapes only work inside quotes, to avoid
+                                // issues with path delimiters under Windows
                                 self.escaped = true;
                             } else {
                                 literal.push('\\');
@@ -453,7 +455,6 @@ where
                 let expr = Rc::clone(&self.current_expr);
                 self.current_expr = self.expr_stack.pop().unwrap();
 
-                // TODO: expr can be empty on a tail command, investigate!
                 if !expr.is_empty() {
                     self.add_expr(&expr)?;
                 }

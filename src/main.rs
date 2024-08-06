@@ -210,6 +210,7 @@ impl Shell {
         &self.prompt
     }
 
+    // Retrieve the path to the file where history is saved.
     fn get_history_path(&mut self) -> Result<&PathBuf, String> {
         if self.history_path.is_none() {
             let base_dirs =
