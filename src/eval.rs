@@ -415,7 +415,6 @@ where
     fn add_expr(&mut self, expr: &Rc<Expression>) -> Result<(), String> {
         assert!(!expr.is_empty());
 
-        // TODO: this is a horrible hack.
         if self.expect_else_expr {
             self.current_expr = self.expr_stack.pop().unwrap();
             self.expect_else_expr = false;
@@ -661,6 +660,10 @@ enum Expression {
     Group(RefCell<GroupExpr>),
     Lit(Rc<Literal>),
     Loop(RefCell<LoopExpr>),
+}
+
+trait Inner {
+
 }
 
 impl Expression {
@@ -1194,6 +1197,30 @@ fn eval_as_bool(expr: &Rc<Expression>) -> Result<bool, String> {
     Ok(value_as_bool(expr.eval()?))
 }
 
+impl ExprNode for BranchExpr {
+    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
+        if self.cond.is_empty() {
+            self.cond = Rc::clone(child);
+        } else if self.if_branch.is_empty() {
+            if !child.is_group() {
+                return error(self, "IF branch must be enclosed in parenthesis");
+            }
+            self.if_branch = Rc::clone(child);
+        } else if self.else_branch.is_empty() {
+            if !self.expect_else {
+                error(self, "Expecting ELSE keyword")?;
+            }
+            if !child.is_group() {
+                return error(self, "ELSE branch must be enclosed in parenthesis");
+            }
+            self.else_branch = Rc::clone(child);
+        } else {
+            error(self, "Dangling expression after else branch")?;
+        }
+        Ok(())
+    }
+}
+
 impl Eval for BranchExpr {
     fn eval(&self) -> Result<Value, String> {
         if self.cond.is_empty() {
@@ -1217,24 +1244,6 @@ impl fmt::Display for BranchExpr {
 
         if !self.else_branch.is_empty() {
             write!(f, " else {}", self.else_branch)?;
-        }
-        Ok(())
-    }
-}
-
-impl ExprNode for BranchExpr {
-    fn add_child(&mut self, child: &Rc<Expression>) -> Result<(), String> {
-        if self.cond.is_empty() {
-            self.cond = Rc::clone(child);
-        } else if self.if_branch.is_empty() {
-            self.if_branch = Rc::clone(child);
-        } else if self.else_branch.is_empty() {
-            if !self.expect_else {
-                error(self, "Expecting ELSE keyword")?;
-            }
-            self.else_branch = Rc::clone(child);
-        } else {
-            error(self, "Dangling expression after else branch")?;
         }
         Ok(())
     }
@@ -1518,7 +1527,6 @@ impl Interp {
                         *quit = true;
                         break;
                     }
-                    // TODO: FIX IF/ELSE
                     if s == "if" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
                             cond: parser.empty(),
