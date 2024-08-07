@@ -30,7 +30,7 @@ impl CmdLineHelper {
         let mut keywords = list_registered_commands();
 
         keywords.extend(
-            ["EXIT", "FOR", "IF", "QUIT", "WHILE"]
+            ["ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE"]
                 .iter()
                 .map(|s| s.to_string()),
         );
@@ -87,6 +87,16 @@ fn escape_backslashes(input: &str) -> String {
     result
 }
 
+fn split_delim(line: &str) -> (String, String) {
+    if let Some(pos) = line.rfind(&['\t', ' '][..]) {
+        let head = line[..pos + 1].to_string();
+        let tail = line[pos..].trim().to_lowercase();
+        (head, tail)
+    } else {
+        (String::new(), line.to_lowercase())
+    }
+}
+
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -106,8 +116,8 @@ impl completion::Completer for CmdLineHelper {
                 return Ok((
                     0,
                     vec![Self::Candidate {
-                        display: repl.clone(),
-                        replacement: repl.clone(),
+                        display: String::default(),
+                        replacement: repl,
                     }],
                 ));
             }
@@ -141,19 +151,21 @@ impl completion::Completer for CmdLineHelper {
             // uses home_dir, while here the value of $HOME is used (and the user can change it).
             if let Some(v) = self.scope.lookup_value("HOME") {
                 keywords.push(completion::Pair {
-                    display: v.to_string(),
+                    display: String::default(),
                     replacement: v.to_string(),
                 });
                 ret_pos -= 1;
             }
         } else {
             ret_pos = 0;
-            for cmd in &self.keywords {
-                // Only add to completions if the command starts with the input but is not exactly the same
-                if cmd.to_lowercase().starts_with(&line[..pos]) && cmd != &line[..pos] {
+
+            let (head, tail) = split_delim(line);
+            for kw in &self.keywords {
+                if kw.to_lowercase().starts_with(&tail) {
+                    let repl = format!("{}{} ", head, kw);
                     keywords.push(completion::Pair {
-                        display: cmd.to_string(),
-                        replacement: format!("{} ", cmd),
+                        display: String::default(),
+                        replacement: repl,
                     });
                 }
             }
