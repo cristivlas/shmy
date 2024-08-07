@@ -5,17 +5,19 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
-clearscreen = "2.0.1"
-ctor = "0.1.21"
+clearscreen = "3.0.0"
+ctor = "0.2.8"
+ctrlc = "3.2"
 directories = "5.0"
 gag = "1.0.0"
 glob = "0.3.1"
+indicatif = "0.17.3"
 lazy_static = "1.4.0"
 os_pipe = "1.1.4"
 regex = "1"
 rustyline = { version = "14.0", features = ["derive"] }
-terminal_size = "0.2.6"
-which = "4.2"
+terminal_size = "0.3.0"
+which = "6.0.2"
 
 [target.'cfg(unix)'.dependencies]
 users = "0.11.0"

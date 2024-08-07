@@ -1495,7 +1495,7 @@ impl Eval for Command {
         self.cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError {
-                loc: self.loc,
+                loc: self.args.loc(),
                 message: e,
             })
     }
@@ -1834,6 +1834,7 @@ impl Eval for Expression {
 }
 
 pub struct Interp {
+    interrupt: bool,
     scope: Rc<Scope>,
 }
 
@@ -1847,9 +1848,19 @@ fn new_group(loc: Location) -> Rc<Expression> {
 
 impl Interp {
     pub fn new() -> Self {
-        Self {
+        let mut interp = Self {
+            interrupt: false,
             scope: Scope::new_from_env(),
+        };
+
+        #[cfg(not(test))] // Only set the handler if not in test configuration
+        {
+            ctrlc::set_handler(move || {
+                interp.interrupt = true; // Set interrupt to true
+            })
+            .expect("Error setting Ctrl+C handler");
         }
+        interp
     }
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
