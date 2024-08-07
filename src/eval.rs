@@ -1510,7 +1510,7 @@ impl ExprNode for LoopExpr {
             }
             self.body = Rc::clone(&child);
         } else {
-            return error(self, "WHILE already has a body");
+            return error(&**child, "WHILE already has a body");
         }
         Ok(())
     }
