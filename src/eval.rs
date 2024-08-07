@@ -1,7 +1,7 @@
 use crate::cmds::{get_command, Exec, RegisteredCommand};
 use gag::Redirect;
 use glob::glob;
-use regex;
+use regex::Regex;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -820,24 +820,55 @@ impl Scope {
 }
 
 fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
-    match regex::Regex::new(r"\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?") {
-        Ok(regex) => {
-            let result = regex.replace_all(s, |caps: &regex::Captures| {
-                let var_name = &caps[1];
-                match scope.lookup(var_name) {
-                    Some(var) => var.value().to_string(),
-                    None => caps
-                        .get(0)
-                        .map_or(String::new(), |m| m.as_str().to_string()), // Leave unchanged
+    let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)").map_err(|e| EvalError {
+        loc: loc.clone(),
+        message: e.to_string(),
+    })?;
+
+    let result = re.replace_all(s, |caps: &regex::Captures| {
+        let var_expr = caps
+            .get(1)
+            .or_else(|| caps.get(2))
+            .map(|m| m.as_str())
+            .unwrap_or("");
+
+        let parts: Vec<&str> = var_expr.splitn(3, '/').collect();
+        let var_name = parts[0];
+
+        match scope.lookup(var_name) {
+            Some(var) => {
+                let mut value = var.value().to_string();
+
+                if parts.len() == 3 {
+                    let search = parts[1];
+                    let replace = parts[2];
+
+                    if let Ok(re) = Regex::new(search) {
+                        // Implement shell-like substitution with capture groups
+                        value = re
+                            .replace_all(&value, |caps: &regex::Captures| {
+                                let mut result = replace.to_string();
+                                for (i, cap) in caps.iter().enumerate().skip(1) {
+                                    if let Some(m) = cap {
+                                        result = result.replace(&format!("\\{}", i), m.as_str());
+                                    }
+                                }
+                                result
+                            })
+                            .into_owned();
+                    }
                 }
-            });
-            result.parse::<Value>()
+
+                value
+            }
+            None => caps[0].to_string(), // Leave unchanged if VAR not found
         }
-        Err(e) => Err(EvalError {
-            loc,
-            message: e.to_string(),
-        }),
-    }
+    });
+
+    result.parse::<Value>().map_err(|e| EvalError {
+        loc,
+        message: e.to_string(),
+    })
 }
 
 #[derive(Debug)]
@@ -1841,5 +1872,35 @@ mod tests {
             "while (1) hello",
             "Parentheses are required around WHILE body"
         )
+    }
+
+    #[test]
+    fn test_var_subst() {
+        assert_eval_ok!(
+            "TEST=/tmp/foobar/baz/bam; $TEST",
+            Value::from_str("/tmp/foobar/baz/bam").unwrap()
+        );
+        assert_eval_ok!(
+            "TEST=/tmp/foobar/baz/bam; ${TEST}",
+            Value::from_str("/tmp/foobar/baz/bam").unwrap()
+        );
+        assert_eval_ok!(
+            "TEST=/tmp/foobar/baz/bam; aaa${TEST}bbb",
+            Value::from_str("aaa/tmp/foobar/baz/bambbb").unwrap()
+        );
+        assert_eval_ok!(
+            "TEST=/tmp/foobar/baz/bam; aaa${TEST/.a/}",
+            Value::from_str("aaa/tmp/foor/z/m").unwrap()
+        );
+
+        assert_eval_ok!(
+            "TEST=\"/tmp/f  bar/baz/bam\"; \"${TEST/ +/_}\"",
+            Value::from_str("/tmp/f_bar/baz/bam").unwrap()
+        );
+
+        assert_eval_ok!(
+            "TEST=/tmp/foobar.txt; \"${TEST/(.txt)/\\\\1.tmp}\"",
+            Value::from_str("/tmp/foobar.txt.tmp").unwrap()
+        );
     }
 }
