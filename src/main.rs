@@ -14,6 +14,7 @@ use std::rc::Rc;
 mod cmds;
 #[macro_use]
 mod eval;
+mod tests;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]
 struct CmdLineHelper {
