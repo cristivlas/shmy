@@ -2,6 +2,7 @@ use crate::eval::{Scope, Value};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs;
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -82,8 +83,36 @@ pub fn list_registered_commands() -> Vec<String> {
 
 fn locate_executable(name: &str) -> Option<String> {
     match which(name) {
-        Ok(path) => Some(path.to_string_lossy().to_string()),
+        Ok(path) => {
+            // Check if the path is an executable
+            if let Ok(metadata) = fs::metadata(&path) {
+                if metadata.is_file() && is_executable(&path) {
+                    return Some(path.to_string_lossy().to_string());
+                }
+            }
+            None
+        }
         Err(_) => None,
+    }
+}
+
+fn is_executable(path: &std::path::Path) -> bool {
+    // Check the file's executable permission
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(perms) = fs::metadata(path).map(|m| m.permissions()) {
+            return perms.mode() & 0o111 != 0; // Check if any execute bit is set
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, we can't check permissions in the same way,
+        // so we consider files with .exe, .bat, .cmd, etc., as executables
+        let extension = path.extension().and_then(std::ffi::OsStr::to_str);
+        return matches!(extension, Some("exe") | Some("bat") | Some("cmd"));
     }
 }
 

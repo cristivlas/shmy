@@ -7,7 +7,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
-use std::io::Read;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
@@ -42,6 +43,7 @@ enum Op {
     Or,
     Pipe,
     Plus,
+    Write,
 }
 
 impl fmt::Display for Op {
@@ -63,6 +65,7 @@ impl fmt::Display for Op {
             Op::Or => write!(f, "||"),
             Op::Pipe => write!(f, "|"),
             Op::Plus => write!(f, "+"),
+            Op::Write => write!(f, ">>"),
         }
     }
 }
@@ -86,7 +89,8 @@ impl Op {
             | Op::NotEquals
             | Op::Minus
             | Op::Pipe
-            | Op::Plus => Priority::Low,
+            | Op::Plus
+            | Op::Write => Priority::Low,
             _ => Priority::High,
         }
     }
@@ -370,7 +374,22 @@ where
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
-                '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
+                '>' => {
+                    self.next();
+                    if let Some(&next_c) = self.chars.peek() {
+                        if next_c == '=' {
+                            self.next();
+                            tok = Token::Operator(Op::Gte); // >=
+                            continue;
+                        }
+                        if next_c == '>' {
+                            self.next();
+                            tok = Token::Operator(Op::Write); // >>
+                            continue;
+                        }
+                        tok = Token::Operator(Op::Gt);
+                    }
+                },
                 '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
                 '-' => { if !self.is_delimiter(&literal, c) {
                         literal.push(c);
@@ -688,7 +707,7 @@ where
                     }
                 }
                 Token::Operator(op) => {
-                    if *op == Op::Pipe && self.group.is_args() {
+                    if matches!(op, Op::Pipe | Op::Write) && self.group.is_args() {
                         // Finish the arguments of the left hand-side command.
                         self.add_current_expr_to_group()?;
                     }
@@ -1192,6 +1211,26 @@ impl BinExpr {
         Ok(Value::Int((value_as_bool(lhs) || value_as_bool(rhs)) as _))
     }
 
+    fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
+        let mut redirect = BufferRedirect::stdout().map_err(|e| EvalError {
+            loc: self.loc,
+            message: e.to_string(),
+        })?;
+
+        expr.eval()?;
+
+        let mut str_buf = String::new();
+        redirect
+            .read_to_string(&mut str_buf)
+            .map_err(|e| EvalError {
+                loc: self.loc,
+                message: e.to_string(),
+            })?;
+
+        drop(redirect);
+        Ok(str_buf.trim().to_string())
+    }
+
     fn eval_pipe_to_var(
         &self,
         lhs: &Rc<Expression>,
@@ -1200,24 +1239,7 @@ impl BinExpr {
         // Piping into a literal? assign standard output capture to string variable.
         if let Expression::Lit(lit) = &**rhs {
             if let Token::Literal(name) = &lit.tok {
-                let mut redirect = BufferRedirect::stdout().map_err(|e| EvalError {
-                    loc: self.loc,
-                    message: e.to_string(),
-                })?;
-
-                lhs.eval()?; // Evaluate the left side expression
-
-                let mut str_buf = String::new();
-                redirect
-                    .read_to_string(&mut str_buf)
-                    .map_err(|e| EvalError {
-                        loc: self.loc,
-                        message: e.to_string(),
-                    })?;
-
-                drop(redirect);
-
-                let val = Value::Str(str_buf.trim().to_string());
+                let val = Value::Str(self.eval_redirect(lhs)?);
                 self.scope.insert(name.clone(), val.clone());
                 return Ok(Some(val));
             }
@@ -1287,7 +1309,8 @@ impl BinExpr {
                 )
             }
         };
-        lhs_result?;
+        lhs_result?; // Check left hand-side errors
+
         // Print the output of the right hand-side expression.
         print!("{}", String::from_utf8_lossy(&output.stdout));
         Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
@@ -1308,6 +1331,29 @@ impl BinExpr {
             },
             Value::Str(s) => Ok(Value::Str(format!("{}{}", s, rhs))),
         }
+    }
+
+    /// Write output to file
+    fn eval_write(&self) -> EvalResult<Value> {
+        // Evaluate the output
+        let output = self.eval_redirect(&self.lhs)?;
+        let filename = self.rhs.eval()?.to_string();
+
+        // Open or create the file
+        let mut file = File::create(&filename).map_err(|e| EvalError {
+            loc: self.loc,
+            message: e.to_string(),
+        })?;
+
+        dbg!(&output);
+        // Write the output to the file
+        file.write_all(output.as_bytes()).map_err(|e| EvalError {
+            loc: self.loc,
+            message: e.to_string(),
+        })?;
+
+        // Return the value indicating success (adjust as needed for your context)
+        Ok(Value::Str(output))
     }
 }
 
@@ -1345,6 +1391,7 @@ impl Eval for BinExpr {
                 Op::Or => eval_bin!(self, eval_or),
                 Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
                 Op::Plus => eval_bin!(self, eval_plus),
+                Op::Write => self.eval_write(),
             }
         }
     }

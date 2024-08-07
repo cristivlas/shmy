@@ -49,8 +49,15 @@ mod tests {
     }
 
     #[test]
+    fn test_gt() {
+        assert_eval_ok!("i = 42; $i > 42", Value::Int(0));
+        assert_eval_ok!("i = 50; $i > 42", Value::Int(1));
+        assert_eval_ok!("i = 42; $i >= 42", Value::Int(1));
+    }
+
+    #[test]
     fn test_if() {
-        assert_eval_ok!("i = 1; if $i (true)", Value::from_str("true").unwrap());
+        assert_eval_ok!("i = 1; if $i (True)", Value::from_str("True").unwrap());
     }
 
     #[test]
