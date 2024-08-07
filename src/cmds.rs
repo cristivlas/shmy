@@ -17,6 +17,7 @@ mod flags;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
+    fn is_external(&self) -> bool;
 }
 
 #[derive(Clone)]
@@ -40,6 +41,9 @@ impl Debug for RegisteredCommand {
 impl Exec for RegisteredCommand {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
+    }
+    fn is_external(&self) -> bool {
+        self.inner.is_external()
     }
 }
 
@@ -114,5 +118,9 @@ impl Exec for External {
             },
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
+    }
+
+    fn is_external(&self) -> bool {
+        true
     }
 }

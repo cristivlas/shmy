@@ -1,4 +1,4 @@
-use super::{register_command, RegisteredCommand, Exec};
+use super::{register_command, Exec, RegisteredCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use std::rc::Rc;
@@ -43,6 +43,10 @@ impl Exec for Environ {
         }
 
         Ok(Value::Int(0))
+    }
+
+    fn is_external(&self) -> bool {
+        false
     }
 }
 

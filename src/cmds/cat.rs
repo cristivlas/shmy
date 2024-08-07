@@ -43,6 +43,10 @@ impl Exec for Cat {
         }
         Ok(Value::Int(0))
     }
+
+    fn is_external(&self) -> bool {
+        false
+    }
 }
 
 fn print_file<F: std::io::Read>(file: &mut F, line_numbers: bool) -> Result<(), String> {

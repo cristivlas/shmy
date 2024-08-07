@@ -1,4 +1,4 @@
-use super::{register_command, RegisteredCommand, Exec};
+use super::{register_command, Exec, RegisteredCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use clearscreen;
@@ -33,6 +33,10 @@ impl Exec for Clear {
             Ok(_) => Ok(Value::Int(0)),
             Err(e) => Err(format!("Could not clear screen: {}", e)),
         }
+    }
+
+    fn is_external(&self) -> bool {
+        false
     }
 }
 

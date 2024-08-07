@@ -96,6 +96,10 @@ impl Exec for ChangeDir {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         self.chdir(name, args, scope)
     }
+
+    fn is_external(&self) -> bool {
+        false
+    }
 }
 
 impl PrintWorkingDir {
@@ -121,6 +125,10 @@ impl Exec for PrintWorkingDir {
 
         println!("{}", current_dir()?);
         Ok(Value::Int(0))
+    }
+
+    fn is_external(&self) -> bool {
+        false
     }
 }
 

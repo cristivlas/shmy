@@ -1,5 +1,5 @@
 use crate::cmds::{get_command, Exec, RegisteredCommand};
-use gag::Redirect;
+use gag::{BufferRedirect, Redirect};
 use glob::glob;
 use regex::Regex;
 use std::cell::RefCell;
@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
+use std::io::Read;
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
@@ -1191,10 +1192,48 @@ impl BinExpr {
         Ok(Value::Int((value_as_bool(lhs) || value_as_bool(rhs)) as _))
     }
 
+    fn eval_pipe_to_var(
+        &self,
+        lhs: &Rc<Expression>,
+        rhs: &Rc<Expression>,
+    ) -> EvalResult<Option<Value>> {
+        // Piping into a literal? assign standard output capture to string variable.
+        if let Expression::Lit(lit) = &**rhs {
+            if let Token::Literal(name) = &lit.tok {
+                let mut redirect = BufferRedirect::stdout().map_err(|e| EvalError {
+                    loc: self.loc,
+                    message: e.to_string(),
+                })?;
+
+                lhs.eval()?; // Evaluate the left side expression
+
+                let mut str_buf = String::new();
+                redirect
+                    .read_to_string(&mut str_buf)
+                    .map_err(|e| EvalError {
+                        loc: self.loc,
+                        message: e.to_string(),
+                    })?;
+
+                drop(redirect);
+
+                let val = Value::Str(str_buf.trim().to_string());
+                self.scope.insert(name.clone(), val.clone());
+                return Ok(Some(val));
+            }
+        }
+        Ok(None)
+    }
+
     fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> EvalResult<Value> {
         if lhs.is_empty() {
             return error(self, "Expecting pipe input");
         }
+
+        if let Some(val) = self.eval_pipe_to_var(lhs, rhs)? {
+            return Ok(val);
+        }
+
         // Create a pipe
         let (reader, writer) = match os_pipe::pipe() {
             Ok((r, w)) => (r, w),
@@ -1229,7 +1268,7 @@ impl BinExpr {
             .spawn()
         {
             Ok(c) => c,
-            Err(e) => return error(self, &format!("Failed to spawn child process: {}", e)),
+            Err(e) => return error(&**rhs, &format!("Failed to spawn child process: {}", e)),
         };
 
         // Left-side evaluation's stdout goes into the pipe.
@@ -1241,13 +1280,20 @@ impl BinExpr {
         // Wait for the child process to complete and get its output
         let output = match child.wait_with_output() {
             Ok(o) => o,
-            Err(e) => return error(self, &format!("Failed to get child process output: {}", e)),
+            Err(e) => {
+                return error(
+                    &**rhs,
+                    &format!("Failed to get child process output: {}", e),
+                )
+            }
         };
         lhs_result?;
+        // Print the output of the right hand-side expression.
         print!("{}", String::from_utf8_lossy(&output.stdout));
         Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
     }
 
+    /// Binary plus
     fn eval_plus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {

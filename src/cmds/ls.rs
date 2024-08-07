@@ -74,6 +74,10 @@ impl Exec for Dir {
         }
         list_entries(&cmd_args)
     }
+
+    fn is_external(&self) -> bool {
+        false
+    }
 }
 
 fn make_abspath(path: &str) -> Result<String, String> {
