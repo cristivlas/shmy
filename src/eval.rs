@@ -75,7 +75,9 @@ enum Priority {
 impl Op {
     fn priority(&self) -> Priority {
         match &self {
-            Op::Assign
+            Op::And
+            | Op::Or
+            | Op::Assign
             | Op::Gt
             | Op::Gte
             | Op::Lt
@@ -86,6 +88,10 @@ impl Op {
             | Op::Plus => Priority::Low,
             _ => Priority::High,
         }
+    }
+
+    fn is_unary_ok(&self) -> bool {
+        return matches!(&self, Op::Minus);
     }
 }
 
@@ -414,7 +420,7 @@ where
                         }
                     }
 
-                    if !literal.is_empty() {
+                    if !literal.is_empty() || quoted {
                         assert!(literal != "-" && literal != "/");
 
                         tok = self.glob_literal(literal.clone(), quoted)?;
@@ -580,7 +586,7 @@ where
                     break;
                 }
                 Token::LeftParen => {
-                    self.push(Group::Explicit)?;
+                    self.push(Group::Block)?;
                 }
                 Token::RightParen => {
                     if self.group_stack.is_empty() {
@@ -706,7 +712,7 @@ where
                 "Dangling ELSE"
             } else {
                 dbg!(&self.expr_stack);
-                "Unbalanced parenthesis"
+                "Unbalanced expression"
             };
             return error(self, msg);
         }
@@ -1217,9 +1223,13 @@ macro_rules! eval_bin {
 impl Eval for BinExpr {
     fn eval(&self) -> EvalResult<Value> {
         if self.rhs.is_empty() {
-            error(self, "Expecting right hand-side expression")
+            error(self, "Expecting right hand-side operand")
         } else if self.lhs.is_empty() {
-            eval_unary(self, &self.op, self.rhs.eval()?)
+            if self.op.is_unary_ok() {
+                eval_unary(self, &self.op, self.rhs.eval()?)
+            } else {
+                error(self, "Expecting left hand-side operand")
+            }
         } else {
             match self.op {
                 Op::And => eval_bin!(self, eval_and),
@@ -1247,7 +1257,7 @@ impl Eval for BinExpr {
 enum Group {
     None,
     Args,
-    Explicit,
+    Block,
 }
 
 #[derive(Debug)]
@@ -1268,7 +1278,7 @@ impl GroupExpr {
 
     fn new_group(loc: Location) -> Self {
         Self {
-            kind: Group::Explicit,
+            kind: Group::Block,
             group: Vec::new(),
             loc,
         }
@@ -1392,7 +1402,7 @@ impl ExprNode for BranchExpr {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
             if !child.is_group() {
-                return error(self, "IF branch must be enclosed in parenthesis");
+                return error(self, "Parentheses are required around IF block");
             }
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
@@ -1400,11 +1410,11 @@ impl ExprNode for BranchExpr {
                 return error(self, "Expecting ELSE keyword");
             }
             if !child.is_group() {
-                return error(&**child, "ELSE branch must be enclosed in parenthesis");
+                return error(&**child, "Parentheses are required around ELSE block");
             }
             self.else_branch = Rc::clone(child);
         } else {
-            return error(self, "Dangling expression after else branch");
+            return error(self, "Dangling expression after ELSE block");
         }
         Ok(())
     }
@@ -1415,7 +1425,7 @@ impl Eval for BranchExpr {
         if self.cond.is_empty() {
             return error(self, "Expecting IF condition");
         } else if self.if_branch.is_empty() {
-            return error(self, "Expecting IF branch");
+            return error(self, "Expecting IF block");
         }
         if eval_as_bool(&self.cond)? {
             self.if_branch.eval()
@@ -1508,7 +1518,7 @@ impl ExprNode for LoopExpr {
             self.cond = Rc::clone(child);
         } else if self.body.is_empty() {
             if !child.is_group() {
-                return error(&**child, "WHILE body must be enclosed in parenthesis");
+                return error(&**child, "Parentheses are required around WHILE body");
             }
             self.body = Rc::clone(&child);
         } else {
@@ -1575,7 +1585,7 @@ impl ExprNode for ForExpr {
             }
         } else if self.body.is_empty() {
             if !child.is_group() {
-                return error(self, "FOR body must be enclosed in parenthesis");
+                return error(self, "Parentheses are required around FOR body");
             }
             self.body = Rc::clone(&child);
         } else {
@@ -1598,11 +1608,11 @@ fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value>
             Value::Real(r) => Ok(Value::Real(-r)),
             Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
         },
-        _ => error(loc, "Expecting left-hand term in binary operation"),
+        _ => error(loc, "Unexpected unary operation"),
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Int(i64),
     Real(f64),
@@ -1686,7 +1696,7 @@ impl Interp {
         }
     }
 
-    pub fn eval(&mut self, quit: &mut bool, input: &str) -> EvalResult<Value> {
+    pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
         debug_print!(input);
         let ast = self.parse(quit, input)?;
 
@@ -1694,7 +1704,7 @@ impl Interp {
         ast.eval()
     }
 
-    fn parse(&mut self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
+    fn parse(&self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
         let mut parser = Parser::new(input.chars(), &self.scope);
         parser.parse(quit)
     }
@@ -1705,5 +1715,121 @@ impl Interp {
 
     pub fn get_scope(&self) -> Rc<Scope> {
         Rc::clone(&self.scope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn eval(input: &str) -> EvalResult<Value> {
+        let interp = Interp::new();
+        let mut quit = false;
+        let result = interp.eval(&mut quit, input);
+        dbg!(&result);
+        result
+    }
+
+    macro_rules! assert_eval_ok {
+        ($expr:literal, $val:pat) => {
+            assert!(matches!(eval($expr), Ok($val)));
+        };
+        ($expr:literal, $val:expr) => {
+            assert!(matches!(eval($expr), Ok(ref v) if *v == $val));
+        };
+    }
+
+    macro_rules! assert_eval_err {
+        ($expr:literal, $message:literal) => {
+            match eval($expr) {
+                Err(EvalError {
+                    message: ref msg, ..
+                }) => {
+                    assert_eq!(msg, $message);
+                }
+                Ok(_) => panic!("Expected an error for expression '{}', but got Ok", $expr),
+            }
+        };
+    }
+
+    #[test]
+    fn test_assign() {
+        assert_eval_ok!("i = 3; $i", Value::Int(3));
+    }
+
+    #[test]
+    fn test_assign_chain() {
+        assert_eval_ok!("i = j = 3; $i == $j && $i == 3 && $j == 3", Value::Int(1));
+    }
+
+    #[test]
+    fn test_equals() {
+        assert_eval_ok!("i = 42; $i == 42", Value::Int(1));
+    }
+
+    #[test]
+    fn test_if() {
+        assert_eval_ok!("i = 1; if $i (true)", Value::from_str("true").unwrap());
+    }
+
+    #[test]
+    fn test_if_no_group() {
+        assert_eval_err!(
+            "i = 1; if $i true",
+            "Parentheses are required around IF block"
+        )
+    }
+
+    #[test]
+    fn test_else() {
+        assert_eval_ok!(
+            "i = 1; if ($i < 0) (Apple) else (Orange)",
+            Value::from_str("Orange").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_else_no_if() {
+        assert_eval_err!("else fail", "ELSE without IF")
+    }
+
+    #[test]
+    fn test_else_no_group() {
+        assert_eval_err!(
+            "i = 1; if $i (1) else 0",
+            "Parentheses are required around ELSE block"
+        )
+    }
+
+    #[test]
+    fn test_for() {
+        assert_eval_ok!(
+            "i = \"\"; for j in a b c d; ($i = $i + $j)",
+            Value::from_str("abcd").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_for_no_group() {
+        assert_eval_err!(
+            "for i in _; hello",
+            "Parentheses are required around FOR body"
+        )
+    }
+
+    #[test]
+    fn test_while() {
+        assert_eval_ok!(
+            "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
+            Value::Int(3)
+        );
+    }
+
+    #[test]
+    fn test_while_no_group() {
+        assert_eval_err!(
+            "while (1) hello",
+            "Parentheses are required around WHILE body"
+        )
     }
 }
