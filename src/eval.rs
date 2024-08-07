@@ -477,6 +477,9 @@ where
             Expression::For(e) => {
                 e.borrow_mut().add_child(expr)?;
                 if !e.borrow().body.is_empty() {
+                    // Prevent the For Expression from being added to the current
+                    // group twice. The expression is added when the Args group
+                    // (the argument list) is finalized and popped off the stack.
                     self.clear_current();
                 }
                 Ok(())
