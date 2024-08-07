@@ -477,16 +477,15 @@ where
             Expression::For(e) => {
                 e.borrow_mut().add_child(expr)?;
                 if !e.borrow().body.is_empty() {
-                    // Prevent the For Expression from being added to the current
-                    // group twice. The expression is added when the Args group
-                    // (the argument list) is finalized and popped off the stack.
+                    // Prevent the For Expression from being added to the
+                    // current group twice when the group is finalized.
                     self.clear_current();
                 }
                 Ok(())
             }
             Expression::Lit(_) => {
                 if let Expression::Args(a) = &*self.group {
-                    a.borrow_mut().group.push(Rc::clone(&self.current_expr));
+                    a.borrow_mut().add_child(&self.current_expr)?;
                     self.current_expr = Rc::clone(&expr);
                     Ok(())
                 } else {
@@ -524,13 +523,13 @@ where
         if let Expression::Args(g) = &*group {
             self.pop_binary_ops(true)?;
             if !self.current_expr.is_empty() {
-                g.borrow_mut().group.push(Rc::clone(&self.current_expr));
+                g.borrow_mut().add_child(&self.current_expr)?;
             }
             self.pop_group()?;
         } else if !self.current_expr.is_empty() {
             if let Expression::Group(g) = &*group {
                 self.pop_binary_ops(true)?;
-                g.borrow_mut().group.push(Rc::clone(&self.current_expr));
+                g.borrow_mut().add_child(&self.current_expr)?;
             } else {
                 panic!("Unexpected group error");
             }
@@ -835,7 +834,7 @@ fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
             result.parse::<Value>()
         }
         Err(e) => Err(EvalError {
-            loc: loc,
+            loc,
             message: e.to_string(),
         }),
     }
@@ -1294,6 +1293,11 @@ impl Eval for GroupExpr {
 
 impl ExprNode for GroupExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
+        if self.kind == Group::Args && matches!(&**child, Expression::For(_) | Expression::Loop(_))
+        {
+            // Just to keep things simple...
+            return error(&**child, "Loops are not allowed in argument list");
+        }
         self.group.push(Rc::clone(child));
         Ok(())
     }
