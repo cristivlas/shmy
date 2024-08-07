@@ -7,14 +7,15 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
 use which::which;
+mod flags;
+use flags::CommandFlags;
+
 mod cat;
 mod cd;
 mod clear;
 mod echo;
 mod ls;
 mod vars;
-
-mod flags;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
@@ -152,4 +153,65 @@ impl Exec for External {
     fn is_external(&self) -> bool {
         true
     }
+}
+
+struct Which {
+    flags: CommandFlags,
+}
+
+impl Which {
+    fn new() -> Self {
+        let mut flags = CommandFlags::new();
+        flags.add_flag('?', "help", "Display this help message", false);
+        Which { flags }
+    }
+}
+
+impl Exec for Which {
+    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+        let mut flags = self.flags.clone();
+        flags.parse(args)?;
+
+        if flags.is_present("help") {
+            println!("Usage: which [COMMAND]...");
+            println!("Locate a command and display its path.");
+            println!("\nOptions:");
+            print!("{}", flags.help());
+            return Ok(Value::Int(0));
+        }
+
+        if args.is_empty() {
+            return Err("which: missing command name".to_string());
+        }
+
+        let mut found = false;
+
+        for command in args {
+            if let Some(registered_command) = get_command(command) {
+                if !registered_command.is_external() {
+                    println!("{}: built-in shell command", command);
+                    found = true;
+                }
+            }
+            if !found {
+                if let Some(path) = locate_executable(command) {
+                    println!("{}", path);
+                }
+            }
+        }
+
+        Ok(Value::Int(found as _))
+    }
+
+    fn is_external(&self) -> bool {
+        false
+    }
+}
+
+#[ctor::ctor]
+fn register() {
+    register_command(RegisteredCommand {
+        name: "which".to_string(),
+        inner: Rc::new(Which::new()),
+    });
 }
