@@ -253,7 +253,6 @@ impl Shell {
 
     fn set_home_dir(&mut self, path: &PathBuf) {
         self.home_dir = Some(path.clone());
-        debug_print!(&self.home_dir);
         let home_dir = path.to_string_lossy().to_string();
         self.interp.set_var("HOME", home_dir);
     }

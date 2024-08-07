@@ -298,12 +298,19 @@ where
         self.chars.next();
     }
 
-    fn glob_literal(&mut self, literal: String, quoted: bool) -> EvalResult<Token> {
+    fn glob_literal(&mut self, literal: &String, quoted: bool) -> EvalResult<Token> {
         // This function should not be called if globbed_tokens are not depleted.
         assert!(self.globbed_tokens.is_empty());
 
+        let mut local_literal = literal.clone();
         if !quoted {
-            match glob(&literal) {
+            if local_literal.starts_with("~") {
+                if let Some(v) = self.scope.lookup("HOME") {
+                    local_literal = format!("{}{}", v.value().to_string(), &local_literal[1..]);
+                }
+            }
+
+            match glob(&local_literal) {
                 Ok(paths) => {
                     self.globbed_tokens = paths
                         .filter_map(Result::ok)
@@ -318,7 +325,7 @@ where
             }
         }
 
-        Ok(Token::Literal(literal))
+        Ok(Token::Literal(local_literal))
     }
 
     #[rustfmt::skip]
@@ -423,7 +430,7 @@ where
                     if !literal.is_empty() || quoted {
                         assert!(literal != "-" && literal != "/");
 
-                        tok = self.glob_literal(literal.clone(), quoted)?;
+                        tok = self.glob_literal(&literal, quoted)?;
                         literal.clear();
                     }
                 }
@@ -440,7 +447,7 @@ where
             } else if literal == "/" && self.current_expr.is_number() {
                 tok = Token::Operator(Op::Div);
             } else {
-                tok = self.glob_literal(literal.clone(), quoted)?;
+                tok = self.glob_literal(&literal, quoted)?;
             }
         }
 
@@ -845,43 +852,20 @@ enum Expression {
 }
 
 impl Expression {
-    fn expand_args(&self, scope: &Rc<Scope>) -> EvalResult<Vec<String>> {
-        let mut args = Vec::new();
+    fn eval_args(&self) -> EvalResult<Vec<String>> {
+        let mut cmd_args = Vec::new();
 
-        if let Expression::Args(a) = &self {
-            for arg in &a.borrow().group {
-                let v = arg.eval()?;
-                let mut s = v.to_string();
-                // Expand leading tilde.
-                if s.starts_with('~') {
-                    match scope.lookup("HOME") {
-                        Some(v) => {
-                            s = format!("{}{}", v.value().to_string(), &s[1..]);
-                        }
-                        _ => {}
-                    }
+        match &self {
+            Expression::Args(args) => {
+                for v in args.borrow().lazy_eval() {
+                    let value = v?;
+                    cmd_args.push(value.to_string())
                 }
-                args.push(s);
             }
-        } else if !self.is_empty() {
-            return error(self, "Expression is not an argument list");
+            _ => error(self, "Expecting argument list")?,
         }
 
-        Ok(args)
-    }
-
-    fn expand_arg_values(&self) -> EvalResult<Vec<Value>> {
-        let mut vals: Vec<Value> = Vec::new();
-
-        if let Expression::Args(a) = &self {
-            for arg in &a.borrow().group {
-                vals.push(arg.eval()?);
-            }
-        } else if !self.is_empty() {
-            return error(self, "Expression is not an argument list");
-        }
-
-        Ok(vals)
+        Ok(cmd_args)
     }
 
     fn is_args(&self) -> bool {
@@ -1283,6 +1267,10 @@ impl GroupExpr {
             loc,
         }
     }
+
+    fn lazy_eval(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
+        self.group.iter().map(|expr| expr.eval())
+    }
 }
 
 derive_has_location!(GroupExpr);
@@ -1338,7 +1326,7 @@ derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
-        let args = self.args.expand_args(&self.scope)?;
+        let args = self.args.eval_args()?;
         self.cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError {
@@ -1550,18 +1538,21 @@ impl Eval for ForExpr {
         if self.var.is_empty() {
             return error(self, "Expecting FOR variable");
         }
-        if self.args.is_empty() {
-            return error(self, "Expecting argument list");
-        }
         if self.body.is_empty() {
             return error(self, "Expecting FOR body");
         }
-        let vals = self.args.expand_arg_values()?;
-        let mut result = Value::Int(0);
 
-        for v in &vals {
-            self.scope.insert(self.var.clone(), v.clone());
-            result = self.body.eval()?;
+        let mut result: Value = Value::Int(0);
+
+        match &*self.args {
+            Expression::Args(args) => {
+                for v in args.borrow().lazy_eval() {
+                    let val = v?;
+                    self.scope.insert(self.var.clone(), val);
+                    result = self.body.eval()?;
+                }
+            }
+            _ => error(self, "Expecting argument list")?,
         }
         Ok(result)
     }
@@ -1585,7 +1576,7 @@ impl ExprNode for ForExpr {
             }
         } else if self.body.is_empty() {
             if !child.is_group() {
-                return error(self, "Parentheses are required around FOR body");
+                return error(&**child, "Parentheses are required around FOR body");
             }
             self.body = Rc::clone(&child);
         } else {
@@ -1807,6 +1798,18 @@ mod tests {
             "i = \"\"; for j in a b c d; ($i = $i + $j)",
             Value::from_str("abcd").unwrap()
         );
+    }
+
+    #[test]
+    fn test_for_tilde() {
+        let interp = Interp::new();
+        let mut quit = false;
+        interp
+            .scope
+            .insert("HOME".to_string(), Value::from_str("abc").unwrap());
+        let result = interp.eval(&mut quit, "for i in ~/foo; ($i)");
+        dbg!(&result);
+        assert!(matches!(result, Ok(ref v) if v.to_string() == "abc/foo"));
     }
 
     #[test]
