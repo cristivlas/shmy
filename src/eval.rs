@@ -819,6 +819,40 @@ impl Scope {
     }
 }
 
+/// Parses and expands shell-like variable expressions in a given string.
+/// # Note
+/// Groups need to be enclosed in quotes, to distinguish from normal parentheses.
+/// Captures need to be double escaped.
+///
+/// # Examples
+///
+/// Assuming the following variables are in scope:
+/// - `NAME="John Doe"`
+/// - `GREETING="Hello, World!"`
+///
+/// Basic variable expansion:
+/// ```
+/// "${NAME}"         -> "John Doe"
+/// "$GREETING"       -> "Hello, World!"
+/// ```
+///
+/// Variable substitution:
+/// ```
+/// "${NAME/John/Jane}"            -> "Jane Doe"
+/// "${GREETING/World/Universe}"   -> "Hello, Universe!"
+/// ```
+///
+/// Capture groups in substitution:
+/// ```
+/// "${NAME/(\\w+) (\\w+)/\\2, \\1}"   -> "Doe, John"
+/// "${GREETING/(Hello), (World)!/\\2 says \\1}" -> "World says Hello"
+/// ```
+///
+/// Handling non-existent variables:
+/// ```
+/// "${UNDEFINED_VAR}"             -> "${UNDEFINED_VAR}"
+/// "${UNDEFINED_VAR/foo/bar}"     -> "${UNDEFINED_VAR/foo/bar}"
+/// ```
 fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
     let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)").map_err(|e| EvalError {
         loc: loc.clone(),
@@ -1892,15 +1926,50 @@ mod tests {
             "TEST=/tmp/foobar/baz/bam; aaa${TEST/.a/}",
             Value::from_str("aaa/tmp/foor/z/m").unwrap()
         );
-
         assert_eval_ok!(
             "TEST=\"/tmp/f  bar/baz/bam\"; \"${TEST/ +/_}\"",
             Value::from_str("/tmp/f_bar/baz/bam").unwrap()
         );
-
         assert_eval_ok!(
             "TEST=/tmp/foobar.txt; \"${TEST/(.txt)/\\\\1.tmp}\"",
             Value::from_str("/tmp/foobar.txt.tmp").unwrap()
+        );
+
+        assert_eval_ok!(
+            "NAME=\"John Doe\"; \"${NAME}\"",
+            Value::from_str("John Doe").unwrap()
+        );
+        assert_eval_ok!(
+            "GREETING=\"Hello, World!\"; \"$GREETING\"",
+            Value::from_str("Hello, World!").unwrap()
+        );
+        assert_eval_ok!(
+            "NAME=\"John Doe\"; \"${NAME/John/Jane}\"",
+            Value::from_str("Jane Doe").unwrap()
+        );
+        assert_eval_ok!(
+            "GREETING=\"Hello, World!\"; \"${GREETING/World/Universe}\"",
+            Value::from_str("Hello, Universe!").unwrap()
+        );
+        assert_eval_ok!(
+            "NAME=\"John Doe\"; \"${NAME/[aeiou]/X}\"",
+            Value::from_str("JXhn DXX").unwrap()
+        );
+        assert_eval_ok!(
+            "NAME=\"John Doe\"; \"${NAME/(\\\\w+) (\\\\w+)/\\\\2, \\\\1}\"",
+            Value::from_str("Doe, John").unwrap()
+        );
+        assert_eval_ok!(
+            "GREETING=\"Hello, World!\"; \"${GREETING/(Hello), (World)!/\\\\2 says \\\\1}\"",
+            Value::from_str("World says Hello").unwrap()
+        );
+        assert_eval_ok!(
+            "\"${UNDEFINED_VAR}\"",
+            Value::from_str("${UNDEFINED_VAR}").unwrap()
+        );
+        assert_eval_ok!(
+            "\"${UNDEFINED_VAR/foo/bar}\"",
+            Value::from_str("${UNDEFINED_VAR/foo/bar}").unwrap()
         );
     }
 }
