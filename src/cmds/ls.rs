@@ -1,4 +1,5 @@
-use super::{register_command, RegisteredCommand, Exec};
+use super::{register_command, Exec, RegisteredCommand};
+use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use chrono::DateTime;
 use std::fs::{self, DirEntry, Metadata};
@@ -9,20 +10,69 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
 
-struct Dir;
+struct Dir {
+    flags: CommandFlags,
+}
 
 const OWNER_MAX_LEN: usize = 16;
-
 struct CmdArgs {
     all_files: bool,
     show_details: bool,
-    megabytes: bool,
+    human_readable: bool,
+    help: bool,
     paths: Vec<String>,
+}
+
+impl Dir {
+    fn new() -> Self {
+        let mut flags = CommandFlags::new();
+        flags.add_flag('a', "all", "Do not ignore entries starting with .", false);
+        flags.add_flag('l', "long", "Use a long listing format", false);
+        flags.add_flag(
+            'h',
+            "human",
+            "Print sizes in human readable format (e.g., 1K 234M 2G)",
+            false,
+        );
+        flags.add_flag('?', "help", "Display this help and exit", false);
+        Self { flags }
+    }
+
+    fn parse_args(&self, args: &[String]) -> Result<CmdArgs, String> {
+        let mut flags = self.flags.clone();
+        let parsed_args = flags.parse(args)?;
+
+        let cmd_args = CmdArgs {
+            all_files: flags.is_present("all"),
+            show_details: flags.is_present("long"),
+            human_readable: flags.is_present("human-readable"),
+            help: flags.is_present("help"),
+            paths: if parsed_args.is_empty() {
+                vec![".".to_string()]
+            } else {
+                parsed_args
+            },
+        };
+
+        Ok(cmd_args)
+    }
+
+    fn print_help(&self) {
+        println!("Usage: ls [OPTION]... [FILE]...");
+        println!("List information about the FILEs (the current directory by default).");
+        println!("\nOptions:");
+        print!("{}", self.flags.help());
+    }
 }
 
 impl Exec for Dir {
     fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
-        list_entries(&parse_args(&args)?)
+        let cmd_args = self.parse_args(args)?;
+        if cmd_args.help {
+            self.print_help();
+            return Ok(Value::Int(0));
+        }
+        list_entries(&cmd_args)
     }
 }
 
@@ -32,36 +82,6 @@ fn make_abspath(path: &str) -> Result<String, String> {
         Ok(abs_path) => Ok(abs_path.to_string_lossy().to_string()),
         Err(e) => Err(e.to_string()),
     }
-}
-
-fn parse_args(args: &[String]) -> Result<CmdArgs, String> {
-    let mut cmd_args = CmdArgs {
-        all_files: false,
-        show_details: false,
-        megabytes: false,
-        paths: Vec::new(),
-    };
-
-    for arg in args {
-        if arg.starts_with('-') {
-            for flag in arg.chars().skip(1) {
-                match flag {
-                    'a' => cmd_args.all_files = true,
-                    'l' => cmd_args.show_details = true,
-                    'h' => cmd_args.megabytes = true,
-                    _ => {
-                        Err(format!("Unrecognized command line flag: -{}", flag))?;
-                    }
-                }
-            }
-        } else {
-            cmd_args.paths.push(arg.clone());
-        }
-    }
-    if cmd_args.paths.is_empty() {
-        cmd_args.paths.push(".".to_string());
-    }
-    Ok(cmd_args)
 }
 
 fn format_file_type(metadata: &fs::Metadata) -> char {
@@ -459,8 +479,17 @@ fn format_file_name(
 }
 
 fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
-    if args.megabytes {
-        format!("{:.2}M", metadata.len() as f64 / 1_048_576.0)
+    if args.human_readable {
+        let size = metadata.len();
+        if size < 1024 {
+            format!("{}B", size)
+        } else if size < 1024 * 1024 {
+            format!("{:.1}K", size as f64 / 1024.0)
+        } else if size < 1024 * 1024 * 1024 {
+            format!("{:.1}M", size as f64 / (1024.0 * 1024.0))
+        } else {
+            format!("{:.1}G", size as f64 / (1024.0 * 1024.0 * 1024.0))
+        }
     } else {
         metadata.len().to_string()
     }
@@ -468,7 +497,7 @@ fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
 
 #[ctor::ctor]
 fn register() {
-    let exec = Rc::new(Dir);
+    let exec = Rc::new(Dir::new());
 
     register_command(RegisteredCommand {
         name: "ls".to_string(),

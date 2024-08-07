@@ -10,8 +10,10 @@ mod cat;
 mod cd;
 mod clear;
 mod echo;
-mod env;
 mod ls;
+mod vars;
+
+mod flags;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
