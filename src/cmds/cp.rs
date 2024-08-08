@@ -93,6 +93,7 @@ impl Cp {
 
     fn copy_files(
         &self,
+        scope: &Rc<Scope>,
         src: &Path,
         dst: &Path,
         files: &[PathBuf],
@@ -100,6 +101,9 @@ impl Cp {
         interactive: bool,
     ) -> io::Result<()> {
         for file in files {
+            if scope.is_interrupted() {
+                break;
+            }
             let relative_path = file.strip_prefix(src).unwrap();
             let dst_path = dst.join(relative_path);
 
@@ -114,6 +118,7 @@ impl Cp {
 
     fn copy(
         &self,
+        scope: &Rc<Scope>,
         src: &Path,
         dst: &Path,
         interactive: bool,
@@ -139,13 +144,17 @@ impl Cp {
         };
 
         if recursive {
-            self.copy_files(src, dst, &files, pb.as_ref(), interactive)?;
+            self.copy_files(scope, src, dst, &files, pb.as_ref(), interactive)?;
         } else {
             self.copy_file(src, dst, pb.as_ref(), interactive)?;
         }
 
         if let Some(pb) = pb {
-            pb.finish_with_message("done");
+            pb.finish_with_message(if scope.is_interrupted() {
+                "interrupted"
+            } else {
+                "done"
+            });
         }
         Ok(())
     }
@@ -156,7 +165,7 @@ impl Exec for Cp {
         false
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
 
@@ -184,7 +193,7 @@ impl Exec for Cp {
             return Ok(Value::Int(0));
         }
 
-        self.copy(src, dst, interactive, show_progress, recursive)
+        self.copy(scope, src, dst, interactive, show_progress, recursive)
             .map_err(|e| format!("cp: {}", e))?;
 
         Ok(Value::Int(0))

@@ -12,8 +12,8 @@ use flags::CommandFlags;
 
 mod cat;
 mod cd;
-mod clear;
 mod cp;
+mod clear;
 mod echo;
 mod ls;
 mod vars;

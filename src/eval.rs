@@ -13,6 +13,7 @@ use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 
 #[macro_export]
 macro_rules! debug_print {
@@ -837,6 +838,14 @@ impl Scope {
             None => None,
         }
     }
+
+    pub fn reset_interrupted(&self) {
+        INTERRUPT.store(false, SeqCst);
+    }
+
+    pub fn is_interrupted(&self) -> bool {
+        INTERRUPT.load(SeqCst)
+    }
 }
 
 /// Parses and expands shell-like variable expressions in a given string.
@@ -1491,6 +1500,8 @@ derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
+        self.scope.reset_interrupted();
+
         let args = self.args.eval_args()?;
         self.cmd
             .exec(&self.cmd.name(), &args, &self.scope)
@@ -1834,7 +1845,6 @@ impl Eval for Expression {
 }
 
 pub struct Interp {
-    interrupt: bool,
     scope: Rc<Scope>,
 }
 
@@ -1846,20 +1856,22 @@ fn new_group(loc: Location) -> Rc<Expression> {
     Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(loc))))
 }
 
+static INTERRUPT: AtomicBool = AtomicBool::new(false);
+
 impl Interp {
     pub fn new() -> Self {
-        let mut interp = Self {
-            interrupt: false,
+        let interp = Self {
             scope: Scope::new_from_env(),
         };
 
-        #[cfg(not(test))] // Only set the handler if not in test configuration
+        #[cfg(not(test))]
         {
-            ctrlc::set_handler(move || {
-                interp.interrupt = true; // Set interrupt to true
+            ctrlc::set_handler(|| {
+                INTERRUPT.store(true, SeqCst); // Set interrupt to true
             })
             .expect("Error setting Ctrl+C handler");
         }
+
         interp
     }
 
