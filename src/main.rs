@@ -300,7 +300,7 @@ impl Shell {
                         }
                     }
                     Err(ReadlineError::Interrupted) => {
-                        println!("Type \"quit\" or \"exit\" to leave the shell.");
+                        println!("^C");
                     }
                     Err(err) => {
                         Err(format!("Readline error: {}", err))?;

@@ -12,10 +12,11 @@ use flags::CommandFlags;
 
 mod cat;
 mod cd;
-mod cp;
 mod clear;
+mod cp;
 mod echo;
 mod ls;
+mod rm;
 mod vars;
 
 pub trait Exec {
