@@ -31,9 +31,11 @@ impl CmdLineHelper {
         let mut keywords = list_registered_commands();
 
         keywords.extend(
-            ["ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE"]
-                .iter()
-                .map(|s| s.to_string()),
+            [
+                "BREAK", "CONTINUE", "ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
         );
 
         Self {

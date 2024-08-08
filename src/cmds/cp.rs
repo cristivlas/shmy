@@ -69,22 +69,39 @@ impl Cp {
         let mut total_size = 0;
         let mut files = Vec::new();
 
+        fn wrap_error<E>(path: &Path, error: E) -> io::Error
+        where
+            E: std::fmt::Display,
+        {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}: {}", path.display(), error),
+            )
+        }
+
         if src.is_dir() {
-            for entry in fs::read_dir(src)? {
-                let entry = entry?;
+            for entry in fs::read_dir(src).map_err(|e| wrap_error(src, e))? {
+                let entry = entry.map_err(|e| wrap_error(src, e))?;
                 let path = entry.path();
+
+                if path.is_symlink() {
+                    continue; // TODO
+                }
+
                 if path.is_dir() {
-                    let (mut sub_files, size) = self.get_source_files_and_size(&path)?;
+                    let (mut sub_files, size) = self
+                        .get_source_files_and_size(&path)
+                        .map_err(|e| wrap_error(&path, e))?;
                     total_size += size;
                     files.append(&mut sub_files);
                 } else {
-                    let size = fs::metadata(&path)?.len();
+                    let size = fs::metadata(&path).map_err(|e| wrap_error(&path, e))?.len();
                     total_size += size;
                     files.push(path);
                 }
             }
         } else {
-            total_size = fs::metadata(src)?.len();
+            total_size = fs::metadata(src).map_err(|e| wrap_error(src, e))?.len();
             files.push(src.to_path_buf());
         }
 
@@ -187,11 +204,6 @@ impl Exec for Cp {
 
         let src = Path::new(&args[0]);
         let dst = Path::new(&args[1]);
-
-        if !recursive && src.is_dir() {
-            eprintln!("cp: omitting directory");
-            return Ok(Value::Int(0));
-        }
 
         self.copy(scope, src, dst, interactive, show_progress, recursive)
             .map_err(|e| format!("cp: {}", e))?;

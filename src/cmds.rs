@@ -14,6 +14,7 @@ mod cat;
 mod cd;
 mod clear;
 mod cp;
+mod df;
 mod echo;
 mod ls;
 mod rm;
@@ -186,23 +187,18 @@ impl Exec for Which {
             return Err("which: missing command name".to_string());
         }
 
-        let mut found = false;
-
         for command in args {
             if let Some(registered_command) = get_command(command) {
                 if !registered_command.is_external() {
                     println!("{}: built-in shell command", command);
-                    found = true;
                 }
             }
-            if !found {
-                if let Some(path) = locate_executable(command) {
-                    println!("{}", path);
-                }
+            if let Some(path) = locate_executable(command) {
+                println!("{}", path);
             }
         }
 
-        Ok(Value::Int(found as _))
+        Ok(Value::Int(0))
     }
 
     fn is_external(&self) -> bool {
