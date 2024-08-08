@@ -123,6 +123,11 @@ mod tests {
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
             Value::Int(3)
         );
+        // nested loops
+        assert_eval_ok!(
+            "i = 5; while ($i > 0) (j = $i; $i = $i - 1; k = $j; while ($j > 1) ($j = $j - 1); $k)",
+            Value::Int(1)
+        );
     }
 
     #[test]

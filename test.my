@@ -15,7 +15,12 @@ while ($i >= 54) (
     # Subexpression assignment
     $i = $i - ($j = $j + 2 \* 2);
 
+    # continue;
+
     echo "i =" $i;
+
+    if ($i < 70) ( BREAK );
+
     echo "j =" $j;
 );
 

@@ -1450,8 +1450,18 @@ impl Eval for GroupExpr {
 
         for e in &self.group {
             result = e.eval();
-            if result.is_err() {
-                break;
+            match &result {
+                Ok(Value::Str(s)) => {
+                    let lower = s.to_lowercase();
+                    if lower == "break" || lower == "continue" {
+                        result = Ok(Value::Str(lower));
+                        break;
+                    }
+                }
+                Err(_) => {
+                    break;
+                }
+                _ => {}
             }
         }
         result // return the last evaluation
@@ -1654,6 +1664,26 @@ struct LoopExpr {
 
 derive_has_location!(LoopExpr);
 
+macro_rules! eval_iteration {
+    ($self:expr, $result:ident) => {{
+        let temp = $self.body.eval();
+        match &temp {
+            Ok(Value::Str(s)) => {
+                if s == "break" {
+                    break;
+                } else if s == "continue" {
+                    continue;
+                }
+            }
+            Err(_) => {
+                break;
+            }
+            _ => {}
+        }
+        $result = temp;
+    }};
+}
+
 impl Eval for LoopExpr {
     fn eval(&self) -> EvalResult<Value> {
         if self.cond.is_empty() {
@@ -1666,11 +1696,7 @@ impl Eval for LoopExpr {
             if !eval_as_bool(&self.cond)? {
                 break;
             }
-            result = self.body.eval();
-
-            if result.is_err() {
-                break;
-            }
+            eval_iteration!(self, result);
         }
         result
     }
@@ -1718,19 +1744,20 @@ impl Eval for ForExpr {
             return error(self, "Expecting FOR body");
         }
 
-        let mut result: Value = Value::Int(0);
+        let mut result = Ok(Value::Int(0));
 
         match &*self.args {
             Expression::Args(args) => {
                 for v in args.borrow().lazy_eval() {
                     let val = v?;
                     self.scope.insert(self.var.clone(), val);
-                    result = self.body.eval()?;
+                    eval_iteration!(self, result);
                 }
             }
             _ => error(self, "Expecting argument list")?,
         }
-        Ok(result)
+
+        result
     }
 }
 
