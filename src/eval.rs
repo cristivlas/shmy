@@ -149,6 +149,49 @@ macro_rules! derive_has_location {
     };
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Int(i64),
+    Real(f64),
+    Str(String),
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Value::Str(String::default())
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self {
+            Value::Int(v) => {
+                write!(f, "{}", v)
+            }
+            Value::Real(v) => {
+                write!(f, "{}", v)
+            }
+            Value::Str(s) => {
+                write!(f, "{}", s)
+            }
+        }
+    }
+}
+
+impl FromStr for Value {
+    type Err = EvalError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(i) = s.parse::<i64>() {
+            Ok(Value::Int(i))
+        } else if let Ok(f) = s.parse::<f64>() {
+            Ok(Value::Real(f))
+        } else {
+            Ok(Value::Str(s.to_string()))
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct EvalError {
     pub loc: Location,
@@ -181,6 +224,10 @@ impl fmt::Display for EvalError {
 }
 
 pub type EvalResult<T = ()> = std::result::Result<T, EvalError>;
+
+trait Eval {
+    fn eval(&self) -> EvalResult<Value>;
+}
 
 fn error<T: HasLocation, R>(w: &T, message: &str) -> EvalResult<R> {
     Err(EvalError {
@@ -1804,53 +1851,6 @@ fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value>
         },
         _ => error(loc, "Unexpected unary operation"),
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Value {
-    Int(i64),
-    Real(f64),
-    Str(String),
-}
-
-impl Default for Value {
-    fn default() -> Self {
-        Value::Str(String::default())
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self {
-            Value::Int(v) => {
-                write!(f, "{}", v)
-            }
-            Value::Real(v) => {
-                write!(f, "{}", v)
-            }
-            Value::Str(s) => {
-                write!(f, "{}", s)
-            }
-        }
-    }
-}
-
-impl FromStr for Value {
-    type Err = EvalError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(i) = s.parse::<i64>() {
-            Ok(Value::Int(i))
-        } else if let Ok(f) = s.parse::<f64>() {
-            Ok(Value::Real(f))
-        } else {
-            Ok(Value::Str(s.to_string()))
-        }
-    }
-}
-
-trait Eval {
-    fn eval(&self) -> EvalResult<Value>;
 }
 
 impl Eval for Expression {
