@@ -833,7 +833,7 @@ where
                     } else {
                         // Identifiers and literals
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
-                            tok,
+                            tok: s.clone(),
                             loc: self.loc,
                             scope: Rc::clone(&self.scope),
                         })));
@@ -1248,18 +1248,17 @@ impl BinExpr {
 
     fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
         if let Expression::Lit(lit) = &*self.lhs {
-            if let Token::Literal(name) = &lit.tok {
-                if name.starts_with('$') {
-                    if let Some(var) = lit.scope.lookup(&name[1..]) {
-                        var.assign(rhs);
-                        return Ok(var.value());
-                    } else {
-                        return error(self, &format!("Variable not found: {}", name));
-                    }
+            let name = &lit.tok;
+            if name.starts_with('$') {
+                if let Some(var) = lit.scope.lookup(&name[1..]) {
+                    var.assign(rhs);
+                    return Ok(var.value());
                 } else {
-                    self.scope.insert(name.to_owned(), rhs.clone());
-                    return Ok(rhs);
+                    return error(self, &format!("Variable not found: {}", name));
                 }
+            } else {
+                self.scope.insert(name.to_owned(), rhs.clone());
+                return Ok(rhs);
             }
         }
         error(self, "Identifier expected on left hand-side of assignment")
@@ -1395,11 +1394,9 @@ impl BinExpr {
     ) -> EvalResult<Option<Value>> {
         // Piping into a literal? assign standard output capture to string variable.
         if let Expression::Lit(lit) = &**rhs {
-            if let Token::Literal(name) = &lit.tok {
-                let val = Value::Str(self.eval_redirect(lhs)?);
-                self.scope.insert(name.clone(), val.clone());
-                return Ok(Some(val));
-            }
+            let val = Value::Str(self.eval_redirect(lhs)?);
+            self.scope.insert(lit.tok.clone(), val.clone());
+            return Ok(Some(val));
         }
         Ok(None)
     }
@@ -1789,7 +1786,7 @@ impl fmt::Display for BranchExpr {
 
 #[derive(Debug)]
 struct Literal {
-    tok: Token,
+    tok: String,
     loc: Location,
     scope: Rc<Scope>,
 }
@@ -1798,25 +1795,13 @@ derive_has_location!(Literal);
 
 impl Eval for Literal {
     fn eval(&self) -> EvalResult<Value> {
-        match &self.tok {
-            Token::Literal(s) => parse_value(&s, self.loc, &self.scope),
-            _ => {
-                panic!("Invalid token type in literal expression");
-            }
-        }
+        parse_value(&self.tok, self.loc, &self.scope)
     }
 }
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.tok {
-            Token::LeftParen => write!(f, "("),
-            Token::RightParen => write!(f, ")"),
-            Token::Semicolon => write!(f, ";"),
-            Token::Literal(s) => write!(f, "\"{}\"", &s),
-            Token::Operator(op) => write!(f, "{}", op),
-            Token::End => write!(f, ""),
-        }
+        write!(f, "\"{}\"", &self.tok)
     }
 }
 
@@ -1844,7 +1829,9 @@ macro_rules! eval_iteration {
                 Some(Jump::Continue(v)) => {
                     $result = Ok(v.clone());
                 }
-                None => { break; }
+                None => {
+                    break;
+                }
             }
         }
     }};
@@ -1931,10 +1918,8 @@ impl ExprNode for ForExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
             if let Expression::Lit(lit) = &**child {
-                if let Token::Literal(name) = &lit.tok {
-                    self.var = name.clone();
-                    return Ok(());
-                }
+                self.var = lit.tok.clone();
+                return Ok(());
             }
             return error(self, "Expecting identifier FOR expression");
         } else if self.args.is_empty() {
