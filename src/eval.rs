@@ -169,18 +169,30 @@ pub struct Status {
     checked: bool,
     result: EvalResult<Value>,
     scope: Rc<Scope>,
+    stderr: String,
 }
 
 impl Status {
-    fn new(result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
+    fn new(result: &EvalResult<Value>, scope: &Rc<Scope>, stderr: String) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
             result: result.clone(),
             scope: Rc::clone(&scope),
+            stderr,
         }))
     }
 
-    fn as_bool(&mut self) -> bool {
+    fn as_bool(&mut self, scope: &Rc<Scope>) -> bool {
+        let parent_scope = match &scope.parent {
+            Some(scope) => scope,
+            None => scope,
+        };
+        // Hoist the error (if any) and the stderr contents as variable into the current scope
+        if let Err(e) = &self.result {
+            parent_scope.insert("__error".to_string(), Value::Str(e.message.clone()));
+        }
+        parent_scope.insert("__stderr".to_string(), Value::Str(self.stderr.clone()));
+
         self.checked = true;
         self.result.is_ok()
     }
@@ -753,6 +765,12 @@ where
             self.add_expr(&Rc::clone(&self.group))?;
         }
 
+        if self.group_stack.is_empty() {
+            return Err(EvalError::new(
+                self.loc,
+                "Unbalanced parentheses?".to_string(),
+            ));
+        }
         self.group = self.group_stack.pop().unwrap(); // Restore group
         self.scope = self.scope_stack.pop().unwrap(); // Restore scope
 
@@ -793,6 +811,7 @@ where
                             else_branch: self.empty(),
                             expect_else: false, // becomes true once "else" keyword is seen
                             loc: self.loc,
+                            scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "IN" {
@@ -819,8 +838,8 @@ where
                             var: String::default(),
                             args: self.empty(),
                             body: self.empty(),
-                            scope: Rc::clone(&self.scope),
                             loc: self.loc,
+                            scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                         self.current_expr = expr;
@@ -829,6 +848,7 @@ where
                             cond: self.empty(),
                             body: self.empty(),
                             loc: self.loc,
+                            scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "BREAK" || word == "CONTINUE" {
@@ -866,7 +886,12 @@ where
                     self.add_expr(&expr)?;
                 }
                 Token::Operator(op) => {
-                    if matches!(op, Op::Append | Op::Pipe | Op::Write) && self.group.is_args() {
+                    // TODO: cleanup
+                    if matches!(
+                        op,
+                        Op::And | Op::Or | Op::Append | Op::NotEquals | Op::Pipe | Op::Write
+                    ) && self.group.is_args()
+                    {
                         // Finish the arguments of the left hand-side command.
                         self.add_current_expr_to_group()?;
                     }
@@ -1254,7 +1279,7 @@ macro_rules! div_match {
     };
 }
 
-/// Macro to generate comparison functions
+/// Macro that generates comparison functions
 macro_rules! eval_cmp_fn {
     ($fn_name:ident, $op:tt) => {
         fn $fn_name(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
@@ -1268,7 +1293,9 @@ macro_rules! eval_cmp_fn {
 
 impl BinExpr {
     fn eval_and(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        Ok(Value::Int((value_as_bool(lhs) && value_as_bool(rhs)) as _))
+        Ok(Value::Int(
+            (value_as_bool(lhs, &self.scope) && value_as_bool(rhs, &self.scope)) as _,
+        ))
     }
 
     fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
@@ -1394,7 +1421,9 @@ impl BinExpr {
     }
 
     fn eval_or(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        Ok(Value::Int((value_as_bool(lhs) || value_as_bool(rhs)) as _))
+        Ok(Value::Int(
+            (value_as_bool(lhs, &self.scope) || value_as_bool(rhs, &self.scope)) as _,
+        ))
     }
 
     fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
@@ -1544,7 +1573,7 @@ impl Eval for BinExpr {
             error(self, "Expecting right hand-side operand")
         } else if self.lhs.is_empty() {
             if self.op.is_unary_ok() {
-                eval_unary(self, &self.op, self.rhs.eval()?)
+                eval_unary(self, &self.op, self.rhs.eval()?, &self.scope)
             } else {
                 error(self, "Expecting left hand-side operand")
             }
@@ -1696,14 +1725,31 @@ derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
+        let mut redirect_stderr = BufferRedirect::stderr();
+        // Evaluate command line arguments and convert to strings
         let args = self.args.eval_args()?;
 
+        // Execute command
         let result = self
             .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.args.loc(), e));
 
-        Ok(Value::Stat(Status::new(&result, &self.scope)))
+        // Wrap the execution result and the stderr output into a Status object
+        let mut stderr_content = String::new();
+
+        // The gag crate supports only one redirect at a time
+        // TODO: investigate stacked redirects
+        if let Ok(stderr) = &mut redirect_stderr {
+            stderr
+                .read_to_string(&mut stderr_content)
+                .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
+        }
+        Ok(Value::Stat(Status::new(
+            &result,
+            &self.scope,
+            stderr_content,
+        )))
     }
 }
 
@@ -1729,6 +1775,7 @@ struct BranchExpr {
     else_branch: Rc<Expression>,
     expect_else: bool,
     loc: Location,
+    scope: Rc<Scope>,
 }
 
 derive_has_location!(BranchExpr);
@@ -1743,17 +1790,17 @@ impl BranchExpr {
     }
 }
 
-fn value_as_bool(val: Value) -> bool {
+fn value_as_bool(val: Value, scope: &Rc<Scope>) -> bool {
     match val {
         Value::Int(i) => i != 0,
         Value::Real(r) => r != 0.0,
-        Value::Str(s) => !s.is_empty(),
-        Value::Stat(s) => s.borrow_mut().as_bool(),
+        Value::Str(s) => !s.is_empty(), // TODO: probably not a good idea?
+        Value::Stat(s) => s.borrow_mut().as_bool(&scope),
     }
 }
 
-fn eval_as_bool(expr: &Rc<Expression>) -> EvalResult<bool> {
-    Ok(value_as_bool(expr.eval()?))
+fn eval_as_bool(expr: &Rc<Expression>, scope: &Rc<Scope>) -> EvalResult<bool> {
+    Ok(value_as_bool(expr.eval()?, &scope))
 }
 
 impl ExprNode for BranchExpr {
@@ -1787,7 +1834,7 @@ impl Eval for BranchExpr {
         } else if self.if_branch.is_empty() {
             return error(self, "Expecting IF block");
         }
-        if eval_as_bool(&self.cond)? {
+        if eval_as_bool(&self.cond, &self.scope)? {
             self.if_branch.eval()
         } else if self.else_branch.is_empty() {
             Ok(Value::success())
@@ -1834,6 +1881,7 @@ struct LoopExpr {
     cond: Rc<Expression>,
     body: Rc<Expression>,
     loc: Location,
+    scope: Rc<Scope>,
 }
 
 derive_has_location!(LoopExpr);
@@ -1870,7 +1918,7 @@ impl Eval for LoopExpr {
         }
         let mut result = Ok(Value::success());
         loop {
-            if !eval_as_bool(&self.cond)? {
+            if !eval_as_bool(&self.cond, &self.scope)? {
                 break;
             }
             eval_iteration!(self, result);
@@ -1906,8 +1954,8 @@ struct ForExpr {
     var: String,
     args: Rc<Expression>,
     body: Rc<Expression>,
-    scope: Rc<Scope>,
     loc: Location,
+    scope: Rc<Scope>,
 }
 
 derive_has_location!(ForExpr);
@@ -1970,7 +2018,12 @@ impl fmt::Display for ForExpr {
     }
 }
 
-fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value> {
+fn eval_unary<T: HasLocation>(
+    loc: &T,
+    op: &Op,
+    val: Value,
+    scope: &Rc<Scope>,
+) -> EvalResult<Value> {
     match op {
         Op::Minus => match val {
             Value::Int(i) => Ok(Value::Int(-i)),
@@ -1978,7 +2031,7 @@ fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value>
             Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
             Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
-        Op::Not => Ok(Value::Int(!value_as_bool(val) as _)),
+        Op::Not => Ok(Value::Int(!value_as_bool(val, &scope) as _)),
         _ => error(loc, "Unexpected unary operation"),
     }
 }
