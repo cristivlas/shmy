@@ -25,7 +25,7 @@ impl Exec for Environ {
             println!("Display variables.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         // Borrow the vars from scope
@@ -42,7 +42,7 @@ impl Exec for Environ {
             }
         }
 
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 
     fn is_external(&self) -> bool {

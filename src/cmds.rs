@@ -180,7 +180,7 @@ impl Exec for Which {
             println!("Locate a command and display its path.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         if args.is_empty() {
@@ -198,7 +198,7 @@ impl Exec for Which {
             }
         }
 
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 
     fn is_external(&self) -> bool {

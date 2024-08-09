@@ -26,11 +26,11 @@ impl Exec for Clear {
             println!("Clear the terminal screen.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         match clearscreen::clear() {
-            Ok(_) => Ok(Value::Int(0)),
+            Ok(_) => Ok(Value::success()),
             Err(e) => Err(format!("Could not clear screen: {}", e)),
         }
     }

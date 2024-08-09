@@ -191,7 +191,7 @@ impl Exec for Cp {
             println!("Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         if args.len() != 2 {
@@ -209,7 +209,7 @@ impl Exec for Cp {
             .map_err(|e| format!("cp: {}", e))?;
 
         println!();
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 }
 

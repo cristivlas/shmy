@@ -80,7 +80,7 @@ impl Exec for Rm {
             println!("Remove (delete) the specified FILE(s).");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         if args.is_empty() {
@@ -97,7 +97,7 @@ impl Exec for Rm {
             }
         }
 
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 }
 

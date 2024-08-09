@@ -7,7 +7,7 @@ struct Echo;
 impl Exec for Echo {
     fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         println!("{}", args.join(" "));
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 
     fn is_external(&self) -> bool {

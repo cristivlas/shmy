@@ -48,12 +48,12 @@ impl Exec for DiskFree {
             println!("Display disk space usage for file systems.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         let path = args.get(0).map_or("/", |s| s.as_str());
         self.print_usage(path);
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 }
 

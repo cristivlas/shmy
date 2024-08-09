@@ -50,7 +50,7 @@ impl ChangeDir {
             }
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         match name {
@@ -88,7 +88,7 @@ impl ChangeDir {
             _ => unreachable!(),
         }
 
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 }
 
@@ -120,11 +120,11 @@ impl Exec for PrintWorkingDir {
             println!("Print the current working directory.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         println!("{}", current_dir()?);
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 
     fn is_external(&self) -> bool {

@@ -247,6 +247,12 @@ impl FromStr for Value {
     }
 }
 
+impl Value {
+    pub fn success() -> Self {
+        Value::Int(0)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct EvalError {
     pub loc: Location,
@@ -1589,7 +1595,7 @@ impl Eval for GroupExpr {
     fn eval(&self) -> EvalResult<Value> {
         self.scope.clear();
 
-        let mut result = Ok(Value::Int(0));
+        let mut result = Ok(Value::success());
 
         for e in &self.group {
             Status::check_result(result)?; // Check the previous result
@@ -1753,7 +1759,7 @@ impl Eval for BranchExpr {
         if eval_as_bool(&self.cond)? {
             self.if_branch.eval()
         } else if self.else_branch.is_empty() {
-            Ok(Value::Int(0))
+            Ok(Value::success())
         } else {
             self.else_branch.eval()
         }
@@ -1841,7 +1847,7 @@ impl Eval for LoopExpr {
         } else if self.body.is_empty() {
             return error(self, "Expecting WHILE body");
         }
-        let mut result = Ok(Value::Int(0));
+        let mut result = Ok(Value::success());
         loop {
             if !eval_as_bool(&self.cond)? {
                 break;
@@ -1894,7 +1900,7 @@ impl Eval for ForExpr {
             return error(self, "Expecting FOR body");
         }
 
-        let mut result = Ok(Value::Int(0));
+        let mut result = Ok(Value::success());
 
         match &*self.args {
             Expression::Args(args) => {

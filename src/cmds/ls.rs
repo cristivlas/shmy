@@ -70,7 +70,7 @@ impl Exec for Dir {
         let cmd_args = self.parse_args(args)?;
         if cmd_args.help {
             self.print_help();
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
         list_entries(&cmd_args)
     }
@@ -337,7 +337,7 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
         }
     }
 
-    Ok(Value::Int(0))
+    Ok(Value::success())
 }
 
 fn process_directory(path: &str, args: &CmdArgs) -> Result<(), String> {

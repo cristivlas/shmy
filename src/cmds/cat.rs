@@ -28,7 +28,7 @@ impl Exec for Cat {
             println!("Concatenate FILE(s) to standard output.");
             println!("\nOptions:");
             print!("{}", flags.help());
-            return Ok(Value::Int(0));
+            return Ok(Value::success());
         }
 
         let line_numbers = flags.is_present("number");
@@ -41,7 +41,7 @@ impl Exec for Cat {
                 print_file(&mut file, line_numbers)?;
             }
         }
-        Ok(Value::Int(0))
+        Ok(Value::success())
     }
 
     fn is_external(&self) -> bool {
