@@ -41,6 +41,7 @@ enum Op {
     Mul,
     Lt,
     Lte,
+    Not,
     NotEquals,
     Or,
     Pipe,
@@ -64,6 +65,7 @@ impl fmt::Display for Op {
             Op::Mul => write!(f, "*"),
             Op::Lt => write!(f, "<"),
             Op::Lte => write!(f, "<="),
+            Op::Not => write!(f, "!"),
             Op::NotEquals => write!(f, "!="),
             Op::Or => write!(f, "||"),
             Op::Pipe => write!(f, "|"),
@@ -89,6 +91,7 @@ impl Op {
             | Op::Gte
             | Op::Lt
             | Op::Lte
+            | Op::Not
             | Op::NotEquals
             | Op::Minus
             | Op::Pipe
@@ -99,7 +102,7 @@ impl Op {
     }
 
     fn is_unary_ok(&self) -> bool {
-        return matches!(&self, Op::Minus);
+        return matches!(&self, Op::Minus | Op::Not);
     }
 }
 
@@ -393,7 +396,7 @@ where
                 _ => false,
             }
         } else {
-            const DELIMITERS: &str = " \t\n\r()+=;|&<>!";
+            const DELIMITERS: &str = " \t\n\r()+=;|&<>";
             DELIMITERS.contains(c)
         }
     }
@@ -468,7 +471,7 @@ where
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
-                '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
+                '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
                 '*' => {
                     self.next();
                     if self.group.is_args() {
@@ -1529,6 +1532,7 @@ impl Eval for BinExpr {
                 Op::Minus => eval_bin!(self, eval_minus),
                 Op::Mod => eval_bin!(self, eval_mod),
                 Op::Mul => eval_bin!(self, eval_mul),
+                Op::Not => error(self, "Unexpected logical negation operator"),
                 Op::NotEquals => eval_bin!(self, eval_not_equals),
                 Op::Or => eval_bin!(self, eval_or),
                 Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
@@ -1949,6 +1953,7 @@ fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value>
             Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
             Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
+        Op::Not => Ok(Value::Int(!value_as_bool(val) as _)),
         _ => error(loc, "Unexpected unary operation"),
     }
 }
