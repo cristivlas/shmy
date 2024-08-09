@@ -130,7 +130,7 @@ trait HasLocation {
 
 impl Location {
     fn new() -> Self {
-        Self { line: 1, col: 0 }
+        Self { line: 1, col: 1 }
     }
 
     fn next_line(&mut self) {
@@ -149,11 +149,58 @@ macro_rules! derive_has_location {
     };
 }
 
+/// Wrap the status (result) of a command execution.
+/// The idea is to delay dealing with errors: if the status is checked (by
+/// being evaluated as bool), then the error (if any) is treated as handled.
+/// If the Status object is never checked, the error is returned by the eval
+/// of group containing the command expression.
+#[derive(Debug, PartialEq)]
+pub struct Status {
+    checked: bool,
+    result: EvalResult<Value>,
+    scope: Rc<Scope>,
+}
+
+impl Status {
+    fn new(result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
+            checked: false,
+            result: result.clone(),
+            scope: Rc::clone(&scope),
+        }))
+    }
+
+    fn as_bool(&mut self) -> bool {
+        self.checked = true;
+        self.result.is_ok()
+    }
+
+    fn check_result(result: EvalResult<Value>) -> EvalResult<Value> {
+        match &result {
+            Ok(Value::Stat(status)) => {
+                if !status.borrow().checked {
+                    status.borrow_mut().checked = true;
+                    return status.borrow().result.clone();
+                }
+            }
+            _ => {}
+        }
+        result
+    }
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "result: {:?} checked: {}", &self.result, self.checked)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Int(i64),
     Real(f64),
     Str(String),
+    Stat(Rc<RefCell<Status>>),
 }
 
 impl Default for Value {
@@ -174,6 +221,9 @@ impl fmt::Display for Value {
             Value::Str(s) => {
                 write!(f, "{}", s)
             }
+            Value::Stat(s) => {
+                write!(f, "{}", s.borrow())
+            }
         }
     }
 }
@@ -192,7 +242,7 @@ impl FromStr for Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EvalError {
     pub loc: Location,
     pub message: String,
@@ -210,7 +260,7 @@ impl EvalError {
         // Create the error indicator
         let indicator = "-".repeat(col) + "^";
 
-        eprintln!("Error at line {}, column {}:", line, col + 1);
+        eprintln!("Error at line {}, column {}:", line, col);
         eprintln!("{}", error_line);
         eprintln!("{}", indicator);
         eprintln!("{}", self.message);
@@ -317,7 +367,7 @@ where
             scope: Rc::clone(&scope),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
-            group: new_group(loc),
+            group: new_group(loc, &scope),
             group_stack: Vec::new(),
             globbed_tokens: Vec::new(),
         }
@@ -627,9 +677,9 @@ where
             self.group_stack.push(Rc::clone(&self.group));
 
             if group == Group::Args {
-                self.group = new_args(self.loc);
+                self.group = new_args(self.loc, &self.scope);
             } else {
-                self.group = new_group(self.loc);
+                self.group = new_group(self.loc, &self.scope);
             }
         }
         self.expr_stack.push(Rc::clone(&self.current_expr));
@@ -799,7 +849,7 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Variable {
     val: Rc<RefCell<Value>>,
 }
@@ -834,7 +884,7 @@ impl fmt::Display for Variable {
     }
 }
 
-// #[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
     pub vars: RefCell<HashMap<String, Variable>>,
@@ -842,7 +892,12 @@ pub struct Scope {
 
 impl Debug for Scope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "parent: {:p}", &self.parent)
+        let parent_addr: Option<String> = self.parent.as_ref().map(|p| format!("{:p}", p));
+
+        f.debug_struct("Scope")
+            .field("address", &format_args!("{:p}", self))
+            .field("parent", &parent_addr)
+            .finish()
     }
 }
 
@@ -863,6 +918,10 @@ impl Scope {
             parent: None,
             vars: RefCell::new(vars),
         })
+    }
+
+    pub fn is_interrupted(&self) -> bool {
+        INTERRUPT.load(SeqCst)
     }
 
     pub fn insert(&self, name: String, val: Value) {
@@ -886,12 +945,13 @@ impl Scope {
         }
     }
 
-    pub fn reset_interrupted(&self) {
+    fn reset_interrupted(&self) {
         INTERRUPT.store(false, SeqCst);
     }
 
-    pub fn is_interrupted(&self) -> bool {
-        INTERRUPT.load(SeqCst)
+    fn clear(&self) {
+        self.vars.borrow_mut().clear();
+        self.reset_interrupted();
     }
 }
 
@@ -1130,8 +1190,8 @@ macro_rules! div_match {
                     Ok(Value::Real(($i as f64) / j))
                 }
             }
-            // Value::Str(_) => error($self, "Cannot divide number by string"),
             Value::Str(s) => Ok(Value::Str(format!("{}/{}", $i, s))),
+            Value::Stat(_) => error($self, "Cannot divide by command status"),
         }
     };
 }
@@ -1178,11 +1238,13 @@ impl BinExpr {
                 Value::Int(j) => Ok(Value::Real((i - j) as _)),
                 Value::Real(j) => Ok(Value::Real(i as f64 - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
+                Value::Stat(_) => error(self, "Command status does not support comparison"),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i - j as f64)),
                 Value::Real(j) => Ok(Value::Real(i - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
+                Value::Stat(_) => error(self, "Command status does not support comparison"),
             },
             Value::Str(s1) => match rhs {
                 Value::Int(_) | Value::Real(_) => error(self, "Cannot compare string to number"),
@@ -1194,7 +1256,9 @@ impl BinExpr {
                     };
                     Ok(Value::Real(ord as _))
                 }
+                Value::Stat(_) => error(self, "Command status does not support comparison"),
             },
+            Value::Stat(_) => error(self, "Command status does not support comparison"),
         }
     }
 
@@ -1210,10 +1274,11 @@ impl BinExpr {
             Value::Int(i) => div_match!(self, i, rhs),
             Value::Real(i) => div_match!(self, i, rhs),
             Value::Str(s1) => match rhs {
-                // Value::Int(_) | Value::Real(_) => error(self, "Cannot divide string by number"),
                 Value::Int(_) | Value::Real(_) => Ok(Value::Str(format!("{}/{}", s1, rhs))),
                 Value::Str(s2) => Ok(Value::Str(format!("{}/{}", s1, s2))),
+                Value::Stat(_) => error(self, "Cannot divide by command status"),
             },
+            Value::Stat(_) => error(self, "Cannot divide command status"),
         }
     }
 
@@ -1227,16 +1292,20 @@ impl BinExpr {
                 Value::Int(j) => Ok(Value::Int(i - j)),
                 Value::Real(j) => Ok(Value::Real(i as f64 - j)),
                 Value::Str(_) => error(self, "Cannot subtract string from number"),
+                Value::Stat(_) => error(self, "Cannot subtract command status from number"),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i - j as f64)),
                 Value::Real(j) => Ok(Value::Real(i - j)),
                 Value::Str(_) => error(self, "Cannot subtract string from number"),
+                Value::Stat(_) => error(self, "Cannot subtract command status from number"),
             },
             Value::Str(_) => match rhs {
                 Value::Int(_) | Value::Real(_) => error(self, "Cannot subtract number from string"),
                 Value::Str(_) => error(self, "Cannot subtract strings"),
+                Value::Stat(_) => error(self, "Cannot subtract command status from string"),
             },
+            Value::Stat(_) => error(self, "Cannot subtract command statuses"),
         }
     }
 
@@ -1250,16 +1319,20 @@ impl BinExpr {
                 Value::Int(j) => Ok(Value::Int(i * j)),
                 Value::Real(j) => Ok(Value::Real(i as f64 * j)),
                 Value::Str(_) => error(self, "Cannot multiply number by string"),
+                Value::Stat(_) => error(self, "Cannot multiply number by command status"),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i * j as f64)),
                 Value::Real(j) => Ok(Value::Real(i * j)),
                 Value::Str(_) => error(self, "Cannot multiply number by string"),
+                Value::Stat(_) => error(self, "Cannot multiply number by command status"),
             },
             Value::Str(_) => match rhs {
                 Value::Int(_) | Value::Real(_) => error(self, "Cannot multiply string by number"),
                 Value::Str(_) => error(self, "Cannot multiply strings"),
+                Value::Stat(_) => error(self, "Cannot multiply string by command status"),
             },
+            Value::Stat(_) => error(self, "Cannot multiply command statuses"),
         }
     }
 
@@ -1379,13 +1452,16 @@ impl BinExpr {
                 Value::Int(j) => Ok(Value::Int(i + j)),
                 Value::Real(j) => Ok(Value::Real(i as f64 + j)),
                 Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+                Value::Stat(_) => error(self, "Cannot add number and command status"),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i + j as f64)),
                 Value::Real(j) => Ok(Value::Real(i + j)),
                 Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+                Value::Stat(_) => error(self, "Cannot add number and command status"),
             },
             Value::Str(s) => Ok(Value::Str(format!("{}{}", s, rhs))),
+            Value::Stat(_) => error(self, "Cannot add command statuses"),
         }
     }
 
@@ -1463,28 +1539,32 @@ enum Group {
 #[derive(Debug)]
 struct GroupExpr {
     kind: Group,
+    scope: Rc<Scope>,
     group: Vec<Rc<Expression>>,
     loc: Location,
 }
 
 impl GroupExpr {
-    fn new_args(loc: Location) -> Self {
+    fn new_args(loc: Location, scope: &Rc<Scope>) -> Self {
         Self {
             kind: Group::Args,
+            scope: Rc::clone(&scope),
             group: Vec::new(),
             loc,
         }
     }
 
-    fn new_group(loc: Location) -> Self {
+    fn new_group(loc: Location, scope: &Rc<Scope>) -> Self {
         Self {
             kind: Group::Block,
             group: Vec::new(),
             loc,
+            scope: Rc::clone(&scope),
         }
     }
 
     fn lazy_eval(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
+        self.scope.clear();
         self.group.iter().map(|expr| expr.eval())
     }
 }
@@ -1493,10 +1573,14 @@ derive_has_location!(GroupExpr);
 
 impl Eval for GroupExpr {
     fn eval(&self) -> EvalResult<Value> {
+        self.scope.clear();
+
         let mut result = Ok(Value::Int(0));
 
         for e in &self.group {
+            Status::check_result(result)?; // Check the previous result
             result = e.eval();
+
             match &result {
                 Ok(Value::Str(s)) => {
                     let lower = s.to_lowercase();
@@ -1511,7 +1595,8 @@ impl Eval for GroupExpr {
                 _ => {}
             }
         }
-        result // return the last evaluation
+
+        result // Return the last evaluation
     }
 }
 
@@ -1557,15 +1642,17 @@ derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
-        self.scope.reset_interrupted();
-
         let args = self.args.eval_args()?;
-        self.cmd
+
+        let result = self
+            .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError {
                 loc: self.args.loc(),
                 message: e,
-            })
+            });
+
+        Ok(Value::Stat(Status::new(&result, &self.scope)))
     }
 }
 
@@ -1610,6 +1697,7 @@ fn value_as_bool(val: Value) -> bool {
         Value::Int(i) => i != 0,
         Value::Real(r) => r != 0.0,
         Value::Str(s) => !s.is_empty(),
+        Value::Stat(s) => s.borrow_mut().as_bool(),
     }
 }
 
@@ -1623,7 +1711,7 @@ impl ExprNode for BranchExpr {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
             if !child.is_group() {
-                return error(self, "Parentheses are required around IF block");
+                return error(&**child, "Parentheses are required around IF block");
             }
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
@@ -1713,7 +1801,7 @@ derive_has_location!(LoopExpr);
 
 macro_rules! eval_iteration {
     ($self:expr, $result:ident) => {{
-        let temp = $self.body.eval();
+        let temp = Status::check_result($self.body.eval());
         match &temp {
             Ok(Value::Str(s)) => {
                 if s == "break" {
@@ -1723,6 +1811,7 @@ macro_rules! eval_iteration {
                 }
             }
             Err(_) => {
+                $result = temp;
                 break;
             }
             _ => {}
@@ -1796,7 +1885,7 @@ impl Eval for ForExpr {
         match &*self.args {
             Expression::Args(args) => {
                 for v in args.borrow().lazy_eval() {
-                    let val = v?;
+                    let val = Status::check_result(v)?;
                     self.scope.insert(self.var.clone(), val);
                     eval_iteration!(self, result);
                 }
@@ -1848,6 +1937,7 @@ fn eval_unary<T: HasLocation>(loc: &T, op: &Op, val: Value) -> EvalResult<Value>
             Value::Int(i) => Ok(Value::Int(-i)),
             Value::Real(r) => Ok(Value::Real(-r)),
             Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
+            Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
         _ => error(loc, "Unexpected unary operation"),
     }
@@ -1875,15 +1965,19 @@ pub struct Interp {
     scope: Rc<Scope>,
 }
 
-fn new_args(loc: Location) -> Rc<Expression> {
-    Rc::new(Expression::Args(RefCell::new(GroupExpr::new_args(loc))))
+fn new_args(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
+    Rc::new(Expression::Args(RefCell::new(GroupExpr::new_args(
+        loc, &scope,
+    ))))
 }
 
-fn new_group(loc: Location) -> Rc<Expression> {
-    Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(loc))))
+fn new_group(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
+    Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(
+        loc, &scope,
+    ))))
 }
 
-static INTERRUPT: AtomicBool = AtomicBool::new(false);
+static INTERRUPT: AtomicBool = AtomicBool::new(false); // Ctrl+C pressed?
 
 impl Interp {
     pub fn new() -> Self {
@@ -1894,7 +1988,7 @@ impl Interp {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
-                INTERRUPT.store(true, SeqCst); // Set interrupt to true
+                INTERRUPT.store(true, SeqCst);
             })
             .expect("Error setting Ctrl+C handler");
         }
@@ -1904,10 +1998,11 @@ impl Interp {
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
         debug_print!(input);
-        let ast = self.parse(quit, input)?;
 
+        let ast = self.parse(quit, input)?;
         debug_print!(&ast);
-        ast.eval()
+
+        Status::check_result(ast.eval())
     }
 
     fn parse(&self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {

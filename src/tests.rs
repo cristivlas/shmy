@@ -202,4 +202,35 @@ mod tests {
             Value::from_str("${UNDEFINED_VAR/foo/bar}").unwrap()
         );
     }
+
+    #[test]
+    fn test_command_error_handling() {
+        assert_eval_err!("cp", "cp: incorrect number of operands");
+        assert_eval_ok!("if (cp)()", Value::Int(0));
+        assert_eval_ok!("if (cp)() else (-1)", Value::Int(-1));
+        assert_eval_ok!("if ((cp))()", Value::Int(0));
+        assert_eval_ok!("if ((echo Hello; cp x))() else (-1)", Value::Int(-1));
+        assert_eval_err!(
+            "if (cp; echo Ok)() else ()",
+            "cp: incorrect number of operands"
+        );
+        assert_eval_ok!("if (cp)() else (fail)", Value::from_str("fail").unwrap());
+        assert_eval_err!("for i in (cp); ()", "cp: incorrect number of operands");
+        assert_eval_err!(
+            "for i in (cp); (echo $i)",
+            "cp: incorrect number of operands"
+        );
+        assert_eval_err!("for i in (cp); ()", "cp: incorrect number of operands");
+        assert_eval_err!(
+            "for i in (cp; foo); (echo $i)",
+            "cp: incorrect number of operands"
+        );
+        assert_eval_ok!("for i in (if(cp)(); foo); (echo $i)", Value::Int(0));
+        assert_eval_err!(
+            "while (1) (cp x; break)",
+            "cp: incorrect number of operands"
+        );
+        //TODO: implement break correctly
+        //assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
+    }
 }
