@@ -233,4 +233,11 @@ mod tests {
         //TODO: implement break correctly
         //assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
     }
+
+
+    #[test]
+    fn test_mul() {
+        assert_eval_err!("x = 2; y = 3; x * y", "Cannot multiply strings");
+        assert_eval_ok!("x = 2; y = 3; $x * $y", Value::Int(6));
+    }
 }

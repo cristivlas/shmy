@@ -464,13 +464,17 @@ where
                 ')' => token!(self, tok, Token::RightParen),
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
-
-                // Give glob precedence over multiplication. For multiplication, use \*
-                '\\' => token!(self, tok, '*', Token::Operator(Op::Mul)),
-
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::NotEquals)),
+                '*' => {
+                    self.next();
+                    if self.group.is_args() {
+                        literal.push(c);
+                    } else {
+                        tok = Token::Operator(Op::Mul)
+                    }
+                }
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => {
                     self.next();
