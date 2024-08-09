@@ -15,8 +15,8 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::SeqCst;
 
-pub const KEYWORDS: [&str; 9] = [
-    "BREAK", "CONTINUE", "ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE",
+pub const KEYWORDS: [&str; 8] = [
+    "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
 ];
 
 #[macro_export]
@@ -776,7 +776,7 @@ where
                     }
                 }
                 Token::Keyword(word) => {
-                    if ["EXIT", "QUIT"].iter().any(|&cmd| cmd == word) {
+                    if word == "QUIT" {
                         *quit = true;
                         break;
                     }

@@ -16,6 +16,7 @@ mod clear;
 mod cp;
 mod df;
 mod echo;
+mod exit;
 mod ls;
 mod rm;
 mod vars;
