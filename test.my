@@ -10,10 +10,10 @@ while ($i >= 54) (
     echo --- Hello --- ;
 
     # Simple arithmetic (with correct precedence of mul/div over plus/minus)
-    echo ($i - $j + 2 \* $j / 7);
+    echo ($i - $j + 2 * $j / 7);
 
     # Subexpression assignment
-    $i = $i - ($j = $j + 2 \* 2);
+    $i = $i - ($j = $j + 2 * 2);
 
     # continue;
 
@@ -39,5 +39,4 @@ echo "Snake\ version:";
 python --version;
 echo "================";
 
-# TODO: implement more builtins: cd, cwd, df, du, cls, clear, etc.
-# TODO: support setting and reading environment variables.
+# TODO: implement more builtins: grep, cut etc.

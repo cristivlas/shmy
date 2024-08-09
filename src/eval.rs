@@ -254,13 +254,29 @@ impl Value {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+enum Jump {
+    Break(Value),
+    Continue(Value),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct EvalError {
     pub loc: Location,
     pub message: String,
+    jump: Option<Jump>,
 }
 
 impl EvalError {
+    fn new(loc: Location, message: String) -> Self {
+        Self {
+            loc,
+            message,
+            jump: None,
+        }
+    }
+
     pub fn show(&self, input: &String) {
+        // TODO: deal with wrap around
         let line = self.loc.line as usize;
         let col = self.loc.col as usize;
 
@@ -269,7 +285,7 @@ impl EvalError {
         let error_line = lines.get(line - 1).unwrap_or(&"");
 
         // Create the error indicator
-        let indicator = "-".repeat(col) + "^";
+        let indicator = "-".repeat(col - 1) + "^";
 
         eprintln!("Error at line {}, column {}:", line, col);
         eprintln!("{}", error_line);
@@ -291,10 +307,7 @@ trait Eval {
 }
 
 fn error<T: HasLocation, R>(w: &T, message: &str) -> EvalResult<R> {
-    Err(EvalError {
-        loc: w.loc(),
-        message: message.to_string(),
-    })
+    Err(EvalError::new(w.loc(), message.to_string()))
 }
 
 /// Non-terminal AST node.
@@ -751,6 +764,7 @@ where
                 }
                 Token::Literal(ref s) => {
                     // keywords
+                    // TODO: implement exit as command.
                     let word = s.to_lowercase();
                     if ["exit", "quit"].iter().any(|&cmd| cmd == word) {
                         *quit = true;
@@ -1012,10 +1026,8 @@ impl Scope {
 /// "${UNDEFINED_VAR/foo/bar}"     -> "${UNDEFINED_VAR/foo/bar}"
 /// ```
 fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
-    let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)").map_err(|e| EvalError {
-        loc: loc.clone(),
-        message: e.to_string(),
-    })?;
+    let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)")
+        .map_err(|e| EvalError::new(loc, e.to_string()))?;
 
     let result = re.replace_all(s, |caps: &regex::Captures| {
         let var_expr = caps
@@ -1057,10 +1069,9 @@ fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
         }
     });
 
-    result.parse::<Value>().map_err(|e| EvalError {
-        loc,
-        message: e.to_string(),
-    })
+    result
+        .parse::<Value>()
+        .map_err(|e| EvalError::new(loc, e.to_string()))
 }
 
 #[derive(Debug)]
@@ -1363,20 +1374,15 @@ impl BinExpr {
     }
 
     fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
-        let mut redirect = BufferRedirect::stdout().map_err(|e| EvalError {
-            loc: self.loc,
-            message: e.to_string(),
-        })?;
+        let mut redirect =
+            BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
         expr.eval()?;
 
         let mut str_buf = String::new();
         redirect
             .read_to_string(&mut str_buf)
-            .map_err(|e| EvalError {
-                loc: self.loc,
-                message: e.to_string(),
-            })?;
+            .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
         drop(redirect);
         Ok(str_buf.to_string())
@@ -1498,10 +1504,7 @@ impl BinExpr {
             .truncate(!append)
             .open(&filename)
             .and_then(|mut file| file.write_all(output.as_bytes()))
-            .map_err(|e| EvalError {
-                loc: self.loc,
-                message: e.to_string(),
-            })?;
+            .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
         Ok(Value::Str(output))
     }
@@ -1598,21 +1601,31 @@ impl Eval for GroupExpr {
         let mut result = Ok(Value::success());
 
         for e in &self.group {
-            Status::check_result(result)?; // Check the previous result
-            result = e.eval();
+            // Check the previous result for unhandled command errors
+            result = Status::check_result(result);
 
-            match &result {
-                Ok(Value::Str(s)) => {
+            if result.is_ok() {
+                let temp = e.eval();
+
+                if let Ok(Value::Str(s)) = &temp {
                     let lower = s.to_lowercase();
-                    if lower == "break" || lower == "continue" {
-                        result = Ok(Value::Str(lower));
+                    if lower == "break" {
+                        result = Err(EvalError {
+                            loc: e.loc(),
+                            message: "BREAK outside loop".to_string(),
+                            jump: Some(Jump::Break(result.unwrap())),
+                        });
+                        break;
+                    } else if lower == "continue" {
+                        result = Err(EvalError {
+                            loc: e.loc(),
+                            message: "CONTINUE outside loop".to_string(),
+                            jump: Some(Jump::Continue(result.unwrap())),
+                        });
                         break;
                     }
                 }
-                Err(_) => {
-                    break;
-                }
-                _ => {}
+                result = temp;
             }
         }
 
@@ -1667,10 +1680,7 @@ impl Eval for Command {
         let result = self
             .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
-            .map_err(|e| EvalError {
-                loc: self.args.loc(),
-                message: e,
-            });
+            .map_err(|e| EvalError::new(self.args.loc(), e));
 
         Ok(Value::Stat(Status::new(&result, &self.scope)))
     }
@@ -1821,22 +1831,22 @@ derive_has_location!(LoopExpr);
 
 macro_rules! eval_iteration {
     ($self:expr, $result:ident) => {{
-        let temp = Status::check_result($self.body.eval());
-        match &temp {
-            Ok(Value::Str(s)) => {
-                if s == "break" {
+        // Evaluate the loop body, checking for command status
+        $result = Status::check_result($self.body.eval());
+
+        // Check for break, continue
+        if let Err(e) = &$result {
+            match &e.jump {
+                Some(Jump::Break(v)) => {
+                    $result = Ok(v.clone());
                     break;
-                } else if s == "continue" {
-                    continue;
                 }
+                Some(Jump::Continue(v)) => {
+                    $result = Ok(v.clone());
+                }
+                None => { break; }
             }
-            Err(_) => {
-                $result = temp;
-                break;
-            }
-            _ => {}
         }
-        $result = temp;
     }};
 }
 

@@ -232,8 +232,7 @@ mod tests {
             "while (1) (cp x; break)",
             "cp: incorrect number of operands"
         );
-        //TODO: implement break correctly
-        //assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
+        assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
     }
 
     #[test]
