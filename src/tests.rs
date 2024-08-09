@@ -46,6 +46,7 @@ mod tests {
     #[test]
     fn test_equals() {
         assert_eval_ok!("i = 42; $i == 42", Value::Int(1));
+        assert_eval_ok!("i = 42; $i != 13", Value::Int(1));
     }
 
     #[test]
@@ -209,6 +210,7 @@ mod tests {
         assert_eval_ok!("if (cp)()", Value::Int(0));
         assert_eval_ok!("if (cp)() else (-1)", Value::Int(-1));
         assert_eval_ok!("if ((cp))()", Value::Int(0));
+        assert_eval_ok!("if (!(cp))(123)", Value::Int(123));
         assert_eval_ok!("if ((echo Hello; cp x))() else (-1)", Value::Int(-1));
         assert_eval_err!(
             "if (cp; echo Ok)() else ()",
@@ -233,7 +235,6 @@ mod tests {
         //TODO: implement break correctly
         //assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
     }
-
 
     #[test]
     fn test_mul() {
