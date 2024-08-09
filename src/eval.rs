@@ -13,7 +13,7 @@ use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::sync::atomic::Ordering::SeqCst;
 
 #[macro_export]
 macro_rules! debug_print {
@@ -937,7 +937,7 @@ impl Scope {
     }
 
     pub fn is_interrupted(&self) -> bool {
-        INTERRUPT.load(SeqCst)
+        crate::INTERRUPT.load(SeqCst)
     }
 
     pub fn insert(&self, name: String, val: Value) {
@@ -962,7 +962,7 @@ impl Scope {
     }
 
     fn reset_interrupted(&self) {
-        INTERRUPT.store(false, SeqCst);
+        crate::INTERRUPT.store(false, SeqCst);
     }
 
     fn clear(&self) {
@@ -1992,23 +1992,11 @@ fn new_group(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
     ))))
 }
 
-static INTERRUPT: AtomicBool = AtomicBool::new(false); // Ctrl+C pressed?
-
 impl Interp {
     pub fn new() -> Self {
-        let interp = Self {
+        Self {
             scope: Scope::new_from_env(),
-        };
-
-        #[cfg(not(test))]
-        {
-            ctrlc::set_handler(|| {
-                INTERRUPT.store(true, SeqCst);
-            })
-            .expect("Error setting Ctrl+C handler");
         }
-
-        interp
     }
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {

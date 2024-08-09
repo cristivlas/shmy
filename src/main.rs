@@ -11,6 +11,8 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+
 mod cmds;
 #[macro_use]
 mod eval;
@@ -201,6 +203,14 @@ fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Opti
 
 impl Shell {
     fn new(source: Option<Box<dyn BufRead>>, interactive: bool, interp: Interp) -> Self {
+        #[cfg(not(test))]
+        {
+            ctrlc::set_handler(|| {
+                INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
+            .expect("Error setting Ctrl+C handler");
+        }
+
         Self {
             source,
             interactive,
@@ -374,6 +384,8 @@ fn parse_cmd_line() -> Result<Shell, String> {
 
     Ok(shell)
 }
+
+static INTERRUPT: AtomicBool = AtomicBool::new(false); // Ctrl+C pressed?
 
 fn main() -> Result<(), ()> {
     match &mut parse_cmd_line() {

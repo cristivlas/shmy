@@ -208,6 +208,7 @@ impl Exec for Cp {
         self.copy(scope, src, dst, interactive, show_progress, recursive)
             .map_err(|e| format!("cp: {}", e))?;
 
+        println!();
         Ok(Value::Int(0))
     }
 }
