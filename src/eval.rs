@@ -114,7 +114,7 @@ impl Op {
 enum Token {
     End,
     Keyword(String),
-    Literal(String),
+    Literal((String, bool)),
     Operator(Op),
     LeftParen,
     RightParen,
@@ -458,21 +458,21 @@ where
                         .collect();
 
                     if !self.globbed_tokens.is_empty() {
-                        return Ok(Token::Literal(self.globbed_tokens.remove(0)));
+                        return Ok(Token::Literal((self.globbed_tokens.remove(0), false)));
                     }
                 }
                 Err(_) => {} // Ignore glob errors and treat as literal
             }
         }
 
-        Ok(Token::Literal(local_literal))
+        Ok(Token::Literal((local_literal, quoted)))
     }
 
     #[rustfmt::skip]
     pub fn next_token(&mut self) -> EvalResult<Token> {
 
         if !self.globbed_tokens.is_empty() {
-            return Ok(Token::Literal(self.globbed_tokens.remove(0)));
+            return Ok(Token::Literal((self.globbed_tokens.remove(0), false)));
         }
 
         let mut tok = Token::End;
@@ -834,31 +834,30 @@ where
                         self.add_expr(&expr)?;
                     }
                 }
-                Token::Literal(s) => {
-                    if let Some(cmd) = if !self.group.is_args() {
-                        get_command(s)
-                    } else {
-                        None
-                    } {
-                        // Commands
-                        let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
-                            cmd,
-                            args: self.empty(),
-                            loc: self.loc,
-                            scope: Rc::clone(&self.scope),
-                        })));
-                        self.add_expr(&expr)?;
-                        self.current_expr = expr;
-                        self.push(Group::Args)?; // args will be added to command when finalized
-                    } else {
-                        // Identifiers and literals
-                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
-                            tok: s.clone(),
-                            loc: self.loc,
-                            scope: Rc::clone(&self.scope),
-                        })));
-                        self.add_expr(&expr)?;
+                Token::Literal((s, quoted)) => {
+                    if !quoted && !self.group.is_args() {
+                        if let Some(cmd) = get_command(s) {
+                            let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
+                                cmd,
+                                args: self.empty(),
+                                loc: self.loc,
+                                scope: Rc::clone(&self.scope),
+                            })));
+                            self.add_expr(&expr)?;
+
+                            self.current_expr = expr;
+                            self.push(Group::Args)?; // args will be added to command when finalized
+
+                            continue;
+                        }
                     }
+                    // Identifiers and literals
+                    let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                        tok: s.clone(),
+                        loc: self.loc,
+                        scope: Rc::clone(&self.scope),
+                    })));
+                    self.add_expr(&expr)?;
                 }
                 Token::Operator(op) => {
                     if matches!(op, Op::Append | Op::Pipe | Op::Write) && self.group.is_args() {
