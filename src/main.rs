@@ -1,6 +1,6 @@
 use cmds::list_registered_commands;
 use directories::UserDirs;
-use eval::{EvalError, Interp, Scope};
+use eval::{EvalError, Interp, Scope, KEYWORDS};
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
@@ -32,13 +32,7 @@ impl CmdLineHelper {
     fn new(scope: Rc<Scope>) -> Self {
         let mut keywords = list_registered_commands();
 
-        keywords.extend(
-            [
-                "BREAK", "CONTINUE", "ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE",
-            ]
-            .iter()
-            .map(|s| s.to_string()),
-        );
+        keywords.extend(KEYWORDS.iter().map(|s| s.to_string()));
 
         Self {
             completer: FilenameCompleter::new(),

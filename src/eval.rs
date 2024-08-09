@@ -15,6 +15,10 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::SeqCst;
 
+pub const KEYWORDS: [&str; 9] = [
+    "BREAK", "CONTINUE", "ELSE", "EXIT", "FOR", "IF", "IN", "QUIT", "WHILE",
+];
+
 #[macro_export]
 macro_rules! debug_print {
     ($($arg:tt)*) => {
@@ -109,6 +113,7 @@ impl Op {
 #[derive(Clone, Debug, PartialEq)]
 enum Token {
     End,
+    Keyword(String),
     Literal(String),
     Operator(Op),
     LeftParen,
@@ -430,7 +435,15 @@ where
         assert!(self.globbed_tokens.is_empty());
 
         let mut local_literal = literal.clone();
+
         if !quoted {
+            let upper = local_literal.to_uppercase();
+            for &keyword in &KEYWORDS {
+                if keyword == upper {
+                    return Ok(Token::Keyword(upper));
+                }
+            }
+
             if local_literal.starts_with("~") {
                 if let Some(v) = self.scope.lookup("HOME") {
                     local_literal = format!("{}{}", v.value().to_string(), &local_literal[1..]);
@@ -762,15 +775,12 @@ where
                         self.clear_current();
                     }
                 }
-                Token::Literal(ref s) => {
-                    // keywords
-                    // TODO: implement exit as command.
-                    let word = s.to_lowercase();
-                    if ["exit", "quit"].iter().any(|&cmd| cmd == word) {
+                Token::Keyword(word) => {
+                    if ["EXIT", "QUIT"].iter().any(|&cmd| cmd == word) {
                         *quit = true;
                         break;
                     }
-                    if word == "if" {
+                    if word == "IF" {
                         let expr = Rc::new(Expression::Branch(RefCell::new(BranchExpr {
                             cond: self.empty(),
                             if_branch: self.empty(),
@@ -779,7 +789,7 @@ where
                             loc: self.loc,
                         })));
                         self.add_expr(&expr)?;
-                    } else if word == "in" {
+                    } else if word == "IN" {
                         if let Expression::For(f) = &*self.current_expr {
                             if f.borrow().var.is_empty() {
                                 return error(self, "Expecting identifier in FOR expression");
@@ -788,7 +798,7 @@ where
                             return error(self, "IN without FOR");
                         }
                         self.push(Group::Args)?; // args will be added to ForExpr when finalized
-                    } else if word == "else" {
+                    } else if word == "ELSE" {
                         if let Expression::Branch(b) = &*self.current_expr {
                             if !b.borrow_mut().is_else_expected() {
                                 return error(self, "Conditional expression or IF branch missing");
@@ -798,7 +808,7 @@ where
                         } else {
                             return error(self, "ELSE without IF");
                         }
-                    } else if word == "for" {
+                    } else if word == "FOR" {
                         let expr = Rc::new(Expression::For(RefCell::new(ForExpr {
                             var: String::default(),
                             args: self.empty(),
@@ -808,14 +818,24 @@ where
                         })));
                         self.add_expr(&expr)?;
                         self.current_expr = expr;
-                    } else if word == "while" {
+                    } else if word == "WHILE" {
                         let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
                             cond: self.empty(),
                             body: self.empty(),
                             loc: self.loc,
                         })));
                         self.add_expr(&expr)?;
-                    } else if let Some(cmd) = if !self.group.is_args() {
+                    } else if word == "BREAK" || word == "CONTINUE" {
+                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                            tok: word.clone(),
+                            loc: self.loc,
+                            scope: Rc::clone(&self.scope),
+                        })));
+                        self.add_expr(&expr)?;
+                    }
+                }
+                Token::Literal(s) => {
+                    if let Some(cmd) = if !self.group.is_args() {
                         get_command(s)
                     } else {
                         None
@@ -1604,16 +1624,15 @@ impl Eval for GroupExpr {
             if result.is_ok() {
                 let temp = e.eval();
 
-                if let Ok(Value::Str(s)) = &temp {
-                    let lower = s.to_lowercase();
-                    if lower == "break" {
+                if let Ok(Value::Str(word)) = &temp {
+                    if word == "BREAK" {
                         result = Err(EvalError {
                             loc: e.loc(),
                             message: "BREAK outside loop".to_string(),
                             jump: Some(Jump::Break(result.unwrap())),
                         });
                         break;
-                    } else if lower == "continue" {
+                    } else if word == "CONTINUE" {
                         result = Err(EvalError {
                             loc: e.loc(),
                             message: "CONTINUE outside loop".to_string(),
