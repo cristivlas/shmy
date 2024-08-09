@@ -4,8 +4,8 @@ use eval::{EvalError, Interp, Scope, KEYWORDS};
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
-use rustyline::{history::DefaultHistory, history::SearchDirection, Editor};
-use rustyline::{Context, Helper, Highlighter, Hinter, Validator};
+use rustyline::history::{DefaultHistory, SearchDirection};
+use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
@@ -281,6 +281,7 @@ impl Shell {
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         let mut quit = false;
         if self.interactive {
+            // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
             let h = CmdLineHelper::new(self.interp.get_scope());
@@ -288,20 +289,25 @@ impl Shell {
             rl.load_history(&self.get_history_path()?).unwrap();
 
             while !quit {
+                // run interactive read-evaluate loop
                 let readline = rl.readline(self.prompt());
                 match readline {
                     Ok(line) => {
                         if line.starts_with("!") {
-                            if let Some(history_line) = search_history(&rl, &line) {
-                                self.eval(&mut quit, &history_line);
+                            if let Some(history_entry) = search_history(&rl, &line) {
+                                // Make the entry found in history the most recent
+                                rl.add_history_entry(&history_entry)
+                                    .map_err(|e| e.to_string())?;
+                                // Evaluate the line from history
+                                self.eval(&mut quit, &history_entry);
                             } else {
                                 println!("No match.");
                             }
                         } else {
                             rl.add_history_entry(line.as_str())
                                 .map_err(|e| e.to_string())?;
-                            self.save_history(&mut rl)?;
 
+                            self.save_history(&mut rl)?;
                             self.eval(&mut quit, &line);
                         }
                     }
@@ -314,6 +320,7 @@ impl Shell {
                 }
             }
         } else {
+            // Evaluate a script file
             let mut script: String = String::new();
             match reader.read_to_string(&mut script) {
                 Ok(_) => {
