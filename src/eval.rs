@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
@@ -29,6 +29,7 @@ macro_rules! debug_print {
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
+    Append,
     Assign,
     Div,
     Equals,
@@ -51,6 +52,7 @@ impl fmt::Display for Op {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Op::And => write!(f, "&&"),
+            Op::Append => write!(f, "=>>"),
             Op::Assign => write!(f, "="),
             Op::Div => write!(f, "/"),
             Op::Equals => write!(f, "=="),
@@ -66,7 +68,7 @@ impl fmt::Display for Op {
             Op::Or => write!(f, "||"),
             Op::Pipe => write!(f, "|"),
             Op::Plus => write!(f, "+"),
-            Op::Write => write!(f, ">>"),
+            Op::Write => write!(f, "=>"),
         }
     }
 }
@@ -476,23 +478,30 @@ where
                     }
                 }
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
-                '>' => {
+                '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
+                '=' => {
                     self.next();
                     if let Some(&next_c) = self.chars.peek() {
                         if next_c == '=' {
                             self.next();
-                            tok = Token::Operator(Op::Gte); // >=
+                            tok = Token::Operator(Op::Equals);
                             continue;
                         }
                         if next_c == '>' {
                             self.next();
-                            tok = Token::Operator(Op::Write); // >>
+                            if let Some(&next_c) = self.chars.peek() {
+                                if next_c == '>' {
+                                    self.next();
+                                    tok = Token::Operator(Op::Append);
+                                    continue;
+                                }
+                            }
+                            tok = Token::Operator(Op::Write);
                             continue;
                         }
-                        tok = Token::Operator(Op::Gt);
+                        tok = Token::Operator(Op::Assign);
                     }
                 },
-                '=' => token!(self, tok, '=', Token::Operator(Op::Assign), Token::Operator(Op::Equals)),
                 '-' => { if !self.is_delimiter(&literal, c) {
                         literal.push(c);
                     } else {
@@ -809,7 +818,7 @@ where
                     }
                 }
                 Token::Operator(op) => {
-                    if matches!(op, Op::Pipe | Op::Write) && self.group.is_args() {
+                    if matches!(op, Op::Append | Op::Pipe | Op::Write) && self.group.is_args() {
                         // Finish the arguments of the left hand-side command.
                         self.add_current_expr_to_group()?;
                     }
@@ -1361,7 +1370,7 @@ impl BinExpr {
             })?;
 
         drop(redirect);
-        Ok(str_buf.trim().to_string())
+        Ok(str_buf.to_string())
     }
 
     fn eval_pipe_to_var(
@@ -1468,27 +1477,23 @@ impl BinExpr {
             Value::Stat(_) => error(self, "Cannot add command statuses"),
         }
     }
-
-    /// Write output to file
-    fn eval_write(&self) -> EvalResult<Value> {
+    fn eval_write(&self, append: bool) -> EvalResult<Value> {
         // Evaluate the output
         let output = self.eval_redirect(&self.lhs)?;
         let filename = self.rhs.eval()?.to_string();
 
-        // Open or create the file
-        let mut file = File::create(&filename).map_err(|e| EvalError {
-            loc: self.loc,
-            message: e.to_string(),
-        })?;
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .append(append)
+            .truncate(!append)
+            .open(&filename)
+            .and_then(|mut file| file.write_all(output.as_bytes()))
+            .map_err(|e| EvalError {
+                loc: self.loc,
+                message: e.to_string(),
+            })?;
 
-        dbg!(&output);
-        // Write the output to the file
-        file.write_all(output.as_bytes()).map_err(|e| EvalError {
-            loc: self.loc,
-            message: e.to_string(),
-        })?;
-
-        // Return the value indicating success (adjust as needed for your context)
         Ok(Value::Str(output))
     }
 }
@@ -1512,6 +1517,7 @@ impl Eval for BinExpr {
         } else {
             match self.op {
                 Op::And => eval_bin!(self, eval_and),
+                Op::Append => self.eval_write(true),
                 Op::Assign => self.eval_assign(self.rhs.eval()?.clone()),
                 Op::Div => eval_bin!(self, eval_div),
                 Op::Gt => eval_bin!(self, eval_gt),
@@ -1527,7 +1533,7 @@ impl Eval for BinExpr {
                 Op::Or => eval_bin!(self, eval_or),
                 Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
                 Op::Plus => eval_bin!(self, eval_plus),
-                Op::Write => self.eval_write(),
+                Op::Write => self.eval_write(false),
             }
         }
     }
