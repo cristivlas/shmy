@@ -1,35 +1,63 @@
 use super::{register_command, Exec, RegisteredCommand};
 use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use crate::eval::{Scope, Value, Variable};
+use std::collections::HashMap;
 use std::rc::Rc;
 
-struct Environ {
+struct Vars {
     flags: CommandFlags,
 }
 
-impl Environ {
+impl Vars {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message", false);
-        Environ { flags }
+        flags.add_flag(
+            'l',
+            "local",
+            "Display only variables in the current scope",
+            false,
+        );
+        Vars { flags }
+    }
+
+    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> HashMap<String, Variable> {
+        let mut all_vars = HashMap::new();
+        let mut current_scope = Some(Rc::clone(scope));
+
+        while let Some(scope) = current_scope {
+            for (key, value) in scope.vars.borrow().iter() {
+                if !all_vars.contains_key(key) {
+                    all_vars.insert(key.clone(), value.clone());
+                }
+            }
+            if local_only {
+                break;
+            }
+            current_scope = scope.parent.as_ref().map(Rc::clone);
+        }
+
+        all_vars
     }
 }
 
-impl Exec for Environ {
+impl Exec for Vars {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(args)?;
 
         if flags.is_present("help") {
-            println!("Usage: vars");
-            println!("Display variables.");
+            println!("Usage: vars [-l]");
+            println!("Display variables visible in the current scope.");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
         }
 
-        // Borrow the vars from scope
-        let vars = scope.vars.borrow();
+        let local_only = flags.is_present("local");
+
+        // Collect variables
+        let vars = Self::collect_vars(scope, local_only);
 
         // Collect keys and sort them
         let mut keys: Vec<String> = vars.keys().cloned().collect();
@@ -54,6 +82,6 @@ impl Exec for Environ {
 fn register() {
     register_command(RegisteredCommand {
         name: "vars".to_string(),
-        inner: Rc::new(Environ::new()),
+        inner: Rc::new(Vars::new()),
     });
 }

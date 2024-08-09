@@ -381,9 +381,14 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
-    fn new(input: T, scope: &Rc<Scope>) -> Self {
+    fn new(input: T, interp_scope: &Rc<Scope>) -> Self {
         let empty = Rc::new(Expression::Empty);
         let loc = Location::new();
+
+        // Create a child scope of the interpreter scope; the interp scope contains
+        // the environmental vars, which should not be cleared before evaluations.
+        let scope = Scope::new(Some(Rc::clone(&interp_scope)));
+
         Self {
             chars: input.peekable(),
             loc,
@@ -941,7 +946,7 @@ impl fmt::Display for Variable {
 
 #[derive(PartialEq)]
 pub struct Scope {
-    parent: Option<Rc<Scope>>,
+    pub parent: Option<Rc<Scope>>,
     pub vars: RefCell<HashMap<String, Variable>>,
 }
 
