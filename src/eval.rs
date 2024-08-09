@@ -386,7 +386,7 @@ where
         let loc = Location::new();
 
         // Create a child scope of the interpreter scope; the interp scope contains
-        // the environmental vars, which should not be cleared before evaluations.
+        // the environmental vars, which should not be cleared between evaluations.
         let scope = Scope::new(Some(Rc::clone(&interp_scope)));
 
         Self {
@@ -414,7 +414,7 @@ where
     fn is_delimiter(&self, tok: &str, c: char) -> bool {
         // Forward slashes and dashes need special handling, since they occur in
         // paths and command line options; it is unreasonable to require quotes.
-        if "'/-'".contains(c) {
+        if "/-*".contains(c) {
             if tok.is_empty() {
                 return !self.group.is_args()
                     && !self.current_expr.is_cmd()
@@ -511,7 +511,8 @@ where
                 '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
                 '*' => {
                     self.next();
-                    if self.group.is_args() {
+                    //if self.group.is_args() {
+                    if !self.is_delimiter(&literal, c) {
                         literal.push(c);
                     } else {
                         tok = Token::Operator(Op::Mul)
