@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use std::process::Command;
@@ -59,7 +59,7 @@ impl Exec for DiskFree {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "df".to_string(),
         inner: Rc::new(DiskFree::new()),
     });

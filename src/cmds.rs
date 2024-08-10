@@ -28,24 +28,24 @@ pub trait Exec {
 }
 
 #[derive(Clone)]
-pub struct RegisteredCommand {
+pub struct ShellCommand {
     name: String,
     inner: Rc<dyn Exec>,
 }
 
-impl RegisteredCommand {
+impl ShellCommand {
     pub fn name(&self) -> &String {
         &self.name
     }
 }
 
-impl Debug for RegisteredCommand {
+impl Debug for ShellCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "name: {}", &self.name)
     }
 }
 
-impl Exec for RegisteredCommand {
+impl Exec for ShellCommand {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
     }
@@ -54,25 +54,25 @@ impl Exec for RegisteredCommand {
     }
 }
 
-unsafe impl Send for RegisteredCommand {}
+unsafe impl Send for ShellCommand {}
 
 lazy_static! {
-    pub static ref COMMAND_REGISTRY: Mutex<HashMap<String, RegisteredCommand>> =
+    pub static ref COMMAND_REGISTRY: Mutex<HashMap<String, ShellCommand>> =
         Mutex::new(HashMap::new());
 }
 
-pub fn register_command(command: RegisteredCommand) {
+pub fn register_command(command: ShellCommand) {
     COMMAND_REGISTRY
         .lock()
         .unwrap()
         .insert(command.name.clone(), command);
 }
 
-pub fn get_command(name: &str) -> Option<RegisteredCommand> {
+pub fn get_command(name: &str) -> Option<ShellCommand> {
     let mut cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
     if cmd.is_none() {
         if let Some(path) = locate_executable(name) {
-            register_command(RegisteredCommand {
+            register_command(ShellCommand {
                 name: name.to_string(),
                 inner: Rc::new(External { path }),
             });
@@ -191,8 +191,8 @@ impl Exec for Which {
         }
 
         for command in args {
-            if let Some(registered_command) = get_command(command) {
-                if !registered_command.is_external() {
+            if let Some(cmd) = get_command(command) {
+                if !cmd.is_external() {
                     println!("{}: built-in", command);
                 }
             }
@@ -211,7 +211,7 @@ impl Exec for Which {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "which".to_string(),
         inner: Rc::new(Which::new()),
     });

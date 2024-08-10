@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::{
     cmds::flags::CommandFlags,
     current_dir, debug_print,
@@ -136,22 +136,22 @@ impl Exec for PrintWorkingDir {
 fn register() {
     let chdir = Rc::new(ChangeDir::new());
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "cd".to_string(),
         inner: Rc::clone(&chdir) as Rc<dyn Exec>,
     });
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "pushd".to_string(),
         inner: Rc::clone(&chdir) as Rc<dyn Exec>,
     });
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "popd".to_string(),
         inner: Rc::clone(&chdir) as Rc<dyn Exec>,
     });
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "pwd".to_string(),
         inner: Rc::new(PrintWorkingDir::new()),
     });

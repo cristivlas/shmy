@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::eval::{Scope, Value};
 use std::rc::Rc;
 
@@ -17,7 +17,7 @@ impl Exec for Echo {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "echo".to_string(),
         inner: Rc::new(Echo),
     });

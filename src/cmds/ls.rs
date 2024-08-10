@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use chrono::DateTime;
@@ -502,12 +502,12 @@ fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
 fn register() {
     let exec = Rc::new(Dir::new());
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "ls".to_string(),
         inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "dir".to_string(),
         inner: Rc::clone(&exec) as Rc<dyn Exec>,
     });

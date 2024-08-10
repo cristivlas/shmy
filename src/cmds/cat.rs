@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use std::fs::File;
@@ -64,7 +64,7 @@ fn print_file<F: std::io::Read>(file: &mut F, line_numbers: bool) -> Result<(), 
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "cat".to_string(),
         inner: Rc::new(Cat::new()),
     });

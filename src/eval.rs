@@ -1,4 +1,4 @@
-use crate::cmds::{get_command, Exec, RegisteredCommand};
+use crate::cmds::{get_command, Exec, ShellCommand};
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -1719,7 +1719,7 @@ impl fmt::Display for GroupExpr {
 
 #[derive(Debug)]
 struct Command {
-    cmd: RegisteredCommand,
+    cmd: ShellCommand,
     args: Rc<Expression>,
     loc: Location,
     scope: Rc<Scope>,

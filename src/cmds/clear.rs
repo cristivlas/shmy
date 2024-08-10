@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use clearscreen;
@@ -42,12 +42,12 @@ impl Exec for Clear {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "clear".to_string(),
         inner: Rc::new(Clear::new()),
     });
 
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "cls".to_string(),
         inner: Rc::new(Clear::new()),
     });

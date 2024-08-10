@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::cmds::prompt::{confirm, Answer};
 use crate::eval::{Scope, Value};
@@ -100,7 +100,7 @@ impl Exec for Rm {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "rm".to_string(),
         inner: Rc::new(Rm::new()),
     });

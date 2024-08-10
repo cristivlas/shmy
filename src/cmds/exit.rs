@@ -1,4 +1,4 @@
-use super::{register_command, Exec, RegisteredCommand};
+use super::{register_command, Exec, ShellCommand};
 use crate::eval::{Scope, Value};
 use std::process;
 use std::rc::Rc;
@@ -25,7 +25,7 @@ impl Exec for Exit {
 
 #[ctor::ctor]
 fn register() {
-    register_command(RegisteredCommand {
+    register_command(ShellCommand {
         name: "exit".to_string(),
         inner: Rc::new(Exit),
     });
