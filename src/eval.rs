@@ -1161,6 +1161,14 @@ impl Expression {
         matches!(self, Expression::Args(_))
     }
 
+    fn is_no_args(&self) -> bool {
+        if let Expression::Args(g) = self {
+            return g.borrow().group.is_empty();
+        }
+
+        false
+    }
+
     fn is_bin_op(&self, sequence: bool) -> bool {
         if let Expression::Bin(b) = &self {
             sequence || b.borrow().op != Op::Assign
@@ -1756,7 +1764,12 @@ impl RedirStderr {
                 .create(true)
                 .write(true)
                 .open(&path)
-                .map_err(|e| format!("Failed to open file '{}': {}", path, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Failed to open file for stderr redirection '{}': {}",
+                        path, e
+                    )
+                })?;
 
             return Ok(RedirStderr::File(Redirect::stderr(file).map_err(|e| {
                 format!("Failed to redirect stderr to file '{}': {}", path, e)
@@ -1769,9 +1782,15 @@ impl RedirStderr {
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
-        // Redirect stderr if a $__stderr variable found in scope; can be "1", "__stdout", "null", or a filename.
-        let _stderr =
-            RedirStderr::with_scope(&self.scope).map_err(|e| EvalError::new(self.loc, e))?;
+        // Redirect stderr if a $__stderr variable found in scope.
+        // Values can be "1", "__stdout", "null", or a filename.
+        let redir = RedirStderr::with_scope(&self.scope);
+
+        if let Err(message) = &redir {
+            if !message.contains("Redirect already exists") {
+                return Err(EvalError::new(self.loc, message.clone()));
+            }
+        }
 
         // Evaluate command line arguments and convert to strings
         let args = self.args.eval_args()?;
@@ -1796,6 +1815,9 @@ impl ExprNode for Command {
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.args.is_no_args() {
+            return write!(f, "{}", self.cmd.name());
+        }
         write!(f, "{} {}", self.cmd.name(), self.args)
     }
 }
