@@ -30,8 +30,10 @@ impl Exec for Basename {
         }
 
         if args.is_empty() {
-            return Err("No arguments provided.".to_string());
+            return Err("No arguments provided".to_string());
         }
+
+        let mut basenames = Vec::new();
 
         for arg in args {
             let path = Path::new(arg);
@@ -39,9 +41,12 @@ impl Exec for Basename {
                 .file_name()
                 .ok_or_else(|| "Failed to get file name".to_string())?
                 .to_string_lossy();
-            println!("{}", base);
+
+            basenames.push(base);
         }
-        Ok(Value::success())
+
+        Ok(Value::Str(basenames.join(" ")))
+
     }
 
     fn is_external(&self) -> bool {

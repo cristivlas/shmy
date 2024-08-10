@@ -206,23 +206,26 @@ mod tests {
 
     #[test]
     fn test_command_error_handling() {
-        assert_eval_err!("cp", "incorrect number of operands");
+        assert_eval_err!("cp", "Missing source and destination");
         assert_eval_ok!("if (cp)()", Value::Int(0));
         assert_eval_ok!("if (cp)() else (-1)", Value::Int(-1));
         assert_eval_ok!("if ((cp))()", Value::Int(0));
         assert_eval_ok!("if (!(cp))(123)", Value::Int(123));
         assert_eval_ok!("if ((echo Hello; cp x))() else (-1)", Value::Int(-1));
-        assert_eval_err!("if (cp; echo Ok)() else ()", "incorrect number of operands");
+        assert_eval_err!(
+            "if (cp; echo Ok)() else ()",
+            "Missing source and destination"
+        );
         assert_eval_ok!("if (cp)() else (fail)", Value::from_str("fail").unwrap());
-        assert_eval_err!("for i in (cp); ()", "incorrect number of operands");
-        assert_eval_err!("for i in (cp); (echo $i)", "incorrect number of operands");
-        assert_eval_err!("for i in (cp); ()", "incorrect number of operands");
+        assert_eval_err!("for i in (cp); ()", "Missing source and destination");
+        assert_eval_err!("for i in (cp); (echo $i)", "Missing source and destination");
+        assert_eval_err!("for i in (cp); ()", "Missing source and destination");
         assert_eval_err!(
             "for i in (cp; foo); (echo $i)",
-            "incorrect number of operands"
+            "Missing source and destination"
         );
         assert_eval_ok!("for i in (if(cp)(); foo); (echo $i)", Value::Int(0));
-        assert_eval_err!("while (1) (cp x; break)", "incorrect number of operands");
+        assert_eval_err!("while (1) (cp x; break)", "Missing destination");
         assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
     }
 
@@ -236,11 +239,11 @@ mod tests {
     fn test_error() {
         assert_eval_ok!(
             "if (echo Hello && cp x) () else ($__errors)",
-            Value::from_str("cp x: incorrect number of operands").unwrap()
+            Value::from_str("cp x: Missing destination").unwrap()
         );
         assert_eval_ok!(
-            "if (!(0 || cp -x || cp x)) ($__errors)",
-            Value::from_str("cp -x: Unknown flag: -x\ncp x: incorrect number of operands").unwrap()
+            "if (!(0 || cp -x || cp)) ($__errors)",
+            Value::from_str("cp -x: Unknown flag: -x\ncp: Missing source and destination").unwrap()
         );
     }
 }

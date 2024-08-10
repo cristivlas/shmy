@@ -19,6 +19,7 @@ mod df;
 mod echo;
 mod exit;
 mod ls;
+mod mv;
 mod prompt;
 mod rm;
 mod vars;

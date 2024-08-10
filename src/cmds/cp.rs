@@ -194,14 +194,20 @@ impl Exec for Cp {
 
         if flags.is_present("help") {
             println!("Usage: cp [OPTIONS] SOURCE DEST");
-            println!("Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.");
+            println!("Copy SOURCE to DESTination.");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
         }
 
-        if args.len() != 2 {
-            return Err("incorrect number of operands".to_string());
+        if args.is_empty() {
+            return Err("Missing source and destination".to_string());
+        }
+        if args.len() < 2 {
+            return Err("Missing destination".to_string());
+        }
+        if args.len() > 2 {
+            return Err("Extraneous argument".to_string());
         }
 
         let show_progress = flags.is_present("progress");
