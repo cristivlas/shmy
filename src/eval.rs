@@ -1,19 +1,19 @@
 use crate::cmds::{get_command, Exec, RegisteredCommand};
-use gag::{BufferRedirect, Redirect};
+use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::env;
 use std::fmt::{self, Debug};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::iter::Peekable;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::SeqCst;
+use std::{env, io};
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
@@ -171,11 +171,9 @@ pub struct Status {
     cmd: String,
     result: EvalResult<Value>,
     scope: Rc<Scope>,
-    stderr: String,
 }
 
-/// Helper for collecting $__error and $__stderr
-fn consolidate(scope: &Rc<Scope>, var_name: &str, info: String) {
+fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
     match &scope.lookup_local(var_name) {
         Some(v) => {
             v.assign(Value::Str(format!("{}\n{}", v.to_string(), info)));
@@ -187,27 +185,18 @@ fn consolidate(scope: &Rc<Scope>, var_name: &str, info: String) {
 }
 
 impl Status {
-    fn new(
-        cmd: &Command,
-        result: &EvalResult<Value>,
-        scope: &Rc<Scope>,
-        stderr: String,
-    ) -> Rc<RefCell<Self>> {
+    fn new(cmd: &Command, result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
             cmd: cmd.to_string(),
             result: result.clone(),
             scope: Rc::clone(&scope),
-            stderr,
         }))
     }
 
     fn as_bool(&mut self, scope: &Rc<Scope>) -> bool {
         if let Err(e) = &self.result {
-            consolidate(scope, "__errors", format!("{}: {}", self.cmd, e.message));
-        }
-        if !self.stderr.is_empty() {
-            consolidate(scope, "__stderr", format!("{}: {}", self.cmd, self.stderr));
+            collect_var(scope, "__errors", format!("{}: {}", self.cmd, e.message));
         }
 
         self.checked = true;
@@ -1440,6 +1429,7 @@ impl BinExpr {
         ))
     }
 
+    /// Evaluate expr and redirect output into a String
     fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
         let mut redirect =
             BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc, e.to_string()))?;
@@ -1451,7 +1441,6 @@ impl BinExpr {
             .read_to_string(&mut str_buf)
             .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
-        drop(redirect);
         Ok(str_buf.to_string())
     }
 
@@ -1557,6 +1546,7 @@ impl BinExpr {
             Value::Stat(_) => error(self, "Cannot add command statuses"),
         }
     }
+
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         // Evaluate the output
         let output = self.eval_redirect(&self.lhs)?;
@@ -1737,41 +1727,61 @@ struct Command {
 
 derive_has_location!(Command);
 
+enum RedirStderr {
+    #[allow(dead_code)]
+    File(Redirect<File>),
+    #[allow(dead_code)]
+    Stdout(Redirect<io::Stdout>),
+    #[allow(dead_code)]
+    Null(Gag),
+    None,
+}
+
+impl RedirStderr {
+    fn with_scope(scope: &Rc<Scope>) -> Result<Self, String> {
+        if let Some(v) = scope.lookup_value("__stderr") {
+            let path = v.to_string();
+            if path == "1" || path == "__stdout" {
+                return Ok(RedirStderr::Stdout(
+                    Redirect::stderr(io::stdout())
+                        .map_err(|e| format!("Failed to redirect stderr to stdout: {}", e))?,
+                ));
+            }
+            if path.to_ascii_lowercase() == "null" {
+                return Ok(RedirStderr::Null(Gag::stderr().map_err(|e| e.to_string())?));
+            }
+            let file = OpenOptions::new()
+                .truncate(true)
+                .read(true)
+                .create(true)
+                .write(true)
+                .open(&path)
+                .map_err(|e| format!("Failed to open file '{}': {}", path, e))?;
+
+            return Ok(RedirStderr::File(Redirect::stderr(file).map_err(|e| {
+                format!("Failed to redirect stderr to file '{}': {}", path, e)
+            })?));
+        }
+
+        Ok(RedirStderr::None)
+    }
+}
+
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
+        // Redirect stderr if a $__stderr variable found in scope; can be "1", "__stdout", "null", or a filename.
+        let _stderr =
+            RedirStderr::with_scope(&self.scope).map_err(|e| EvalError::new(self.loc, e))?;
+
         // Evaluate command line arguments and convert to strings
         let args = self.args.eval_args()?;
-
-        // Attempt to redirect stderr, to capture it in the Status.
-        // This fails for nested commands ```echo (echo Hello) ```
-        // because stacked redirects are not supported. stderr will
-        // only be captured for the top level command.
-
-        // let mut redirect_stderr = BufferRedirect::stderr();
-
         // Execute command
         let result = self
             .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.args.loc(), e));
 
-        // Wrap the execution result and the stderr output into a Status object
-        // let mut stderr_content = String::new();
-
-        // Capture the stderr content if the redirect succeeded.
-        // if let Ok(stderr) = &mut redirect_stderr {
-        //     stderr
-        //         .read_to_string(&mut stderr_content)
-        //         .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
-        // }
-
-        Ok(Value::Stat(Status::new(
-            &self,
-            &result,
-            &self.scope,
-            //stderr_content,
-            String::default(),
-        )))
+        Ok(Value::Stat(Status::new(&self, &result, &self.scope)))
     }
 }
 
@@ -1829,7 +1839,6 @@ fn value_as_bool(val: Value, scope: &Rc<Scope>) -> bool {
     };
 
     hoist(scope, "__errors");
-    hoist(scope, "__stderr");
 
     result
 }
