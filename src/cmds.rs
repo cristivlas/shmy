@@ -10,6 +10,7 @@ use which::which;
 mod flags;
 use flags::CommandFlags;
 
+mod basename;
 mod cat;
 mod cd;
 mod clear;
