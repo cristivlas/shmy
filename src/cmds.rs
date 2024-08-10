@@ -141,13 +141,14 @@ impl Exec for External {
         }
 
         match command.spawn() {
-            Ok(mut child) => match child.wait() {
+            Ok(mut child) => match &child.wait() {
                 Ok(status) => {
                     if let Some(code) = status.code() {
-                        Ok(Value::Int(code as _))
-                    } else {
-                        Ok(Value::Str("".to_owned()))
+                        if code != 0 {
+                            return Err(format!("exit code: {}", code));
+                        }
                     }
+                    return Ok(Value::success());
                 }
                 Err(e) => Err(format!("Failed to wait on child process: {}", e)),
             },
@@ -192,7 +193,7 @@ impl Exec for Which {
         for command in args {
             if let Some(registered_command) = get_command(command) {
                 if !registered_command.is_external() {
-                    println!("{}: built-in shell command", command);
+                    println!("{}: built-in", command);
                 }
             }
             if let Some(path) = locate_executable(command) {

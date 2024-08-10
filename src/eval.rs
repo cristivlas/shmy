@@ -1746,7 +1746,8 @@ impl Eval for Command {
         // This fails for nested commands ```echo (echo Hello) ```
         // because stacked redirects are not supported. stderr will
         // only be captured for the top level command.
-        let mut redirect_stderr = BufferRedirect::stderr();
+
+        // let mut redirect_stderr = BufferRedirect::stderr();
 
         // Execute command
         let result = self
@@ -1755,20 +1756,21 @@ impl Eval for Command {
             .map_err(|e| EvalError::new(self.args.loc(), e));
 
         // Wrap the execution result and the stderr output into a Status object
-        let mut stderr_content = String::new();
+        // let mut stderr_content = String::new();
 
         // Capture the stderr content if the redirect succeeded.
-        if let Ok(stderr) = &mut redirect_stderr {
-            stderr
-                .read_to_string(&mut stderr_content)
-                .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
-        }
+        // if let Ok(stderr) = &mut redirect_stderr {
+        //     stderr
+        //         .read_to_string(&mut stderr_content)
+        //         .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
+        // }
 
         Ok(Value::Stat(Status::new(
             &self,
             &result,
             &self.scope,
-            stderr_content,
+            //stderr_content,
+            String::default(),
         )))
     }
 }
