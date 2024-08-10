@@ -21,7 +21,7 @@ struct PrintWorkingDir {
 impl ChangeDir {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message", false);
+        flags.add_flag('?', "help", "Display this help message");
         Self {
             stack: RefCell::new(Vec::new()),
             flags,
@@ -105,7 +105,7 @@ impl Exec for ChangeDir {
 impl PrintWorkingDir {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('h', "help", "Display this help message", false);
+        flags.add_flag('h', "help", "Display this help message");
         Self { flags }
     }
 }

@@ -5,7 +5,7 @@ struct Flag {
     short: char,
     long: String,
     help: String,
-    takes_value: bool,
+    takes_value: bool, // Currently not used, for future proofing
 }
 
 #[derive(Clone)]
@@ -22,14 +22,14 @@ impl CommandFlags {
         }
     }
 
-    pub fn add_flag(&mut self, short: char, long: &str, help: &str, takes_value: bool) {
+    pub fn add_flag(&mut self, short: char, long: &str, help: &str) {
         self.flags.insert(
             long.to_string(),
             Flag {
                 short,
                 long: long.to_string(),
                 help: help.to_string(),
-                takes_value,
+                takes_value: false,
             },
         );
     }

@@ -26,15 +26,14 @@ struct CmdArgs {
 impl Dir {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('a', "all", "Do not ignore entries starting with .", false);
-        flags.add_flag('l', "long", "Use a long listing format", false);
+        flags.add_flag('a', "all", "Do not ignore entries starting with .");
+        flags.add_flag('l', "long", "Use a long listing format");
         flags.add_flag(
             'h',
             "human",
             "Print sizes in human readable format (e.g., 1K 234M 2G)",
-            false,
         );
-        flags.add_flag('?', "help", "Display this help and exit", false);
+        flags.add_flag('?', "help", "Display this help and exit");
         Self { flags }
     }
 

@@ -11,13 +11,8 @@ struct Vars {
 impl Vars {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message", false);
-        flags.add_flag(
-            'l',
-            "local",
-            "Display only variables in the current scope",
-            false,
-        );
+        flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('l', "local", "Display only variables in the current scope");
         Vars { flags }
     }
 

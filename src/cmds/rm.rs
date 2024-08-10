@@ -14,19 +14,13 @@ struct Rm {
 impl Rm {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display t;his help message", false);
-        flags.add_flag('f', "force", "Delete without prompting", false);
-        flags.add_flag(
-            'i',
-            "interactive",
-            "Prompt before deletion (default)",
-            false,
-        );
+        flags.add_flag('?', "help", "Display t;his help message");
+        flags.add_flag('f', "force", "Delete without prompting");
+        flags.add_flag('i', "interactive", "Prompt before deletion (default)");
         flags.add_flag(
             'r',
             "recursive",
             "Remove directories and their contents recursively",
-            false,
         );
         Rm { flags }
     }

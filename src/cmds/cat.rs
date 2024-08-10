@@ -12,8 +12,8 @@ struct Cat {
 impl Cat {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('n', "number", "Number all output lines", false);
-        flags.add_flag('?', "help", "Display this help message", false);
+        flags.add_flag('n', "number", "Number all output lines");
+        flags.add_flag('?', "help", "Display this help message");
         Cat { flags }
     }
 }

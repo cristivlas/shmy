@@ -11,7 +11,7 @@ struct DiskFree {
 impl DiskFree {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message", false);
+        flags.add_flag('?', "help", "Display this help message");
         DiskFree { flags }
     }
 

@@ -11,7 +11,7 @@ struct Clear {
 impl Clear {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message", false);
+        flags.add_flag('?', "help", "Display this help message");
         Clear { flags }
     }
 }

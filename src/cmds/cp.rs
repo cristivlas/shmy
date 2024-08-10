@@ -15,16 +15,11 @@ struct Cp {
 impl Cp {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message", false);
-        flags.add_flag('p', "progress", "Show progress bar", false);
-        flags.add_flag('r', "recursive", "Copy directories recursively", false);
-        flags.add_flag('f', "force", "Overwrite without prompting", false);
-        flags.add_flag(
-            'i',
-            "interactive",
-            "Prompt before overwrite (default)",
-            false,
-        );
+        flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('p', "progress", "Show progress bar");
+        flags.add_flag('r', "recursive", "Copy directories recursively");
+        flags.add_flag('f', "force", "Overwrite without prompting");
+        flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
         Cp { flags }
     }
 
@@ -120,7 +115,7 @@ impl Cp {
             }
 
             if *interactive && dst.exists() {
-                match confirm(format!("overwrite '{}'", dst.display()), true)? {
+                match confirm(format!("overwrite '{}'", dst_path.display()), true)? {
                     Answer::No => continue,
                     Answer::Quit => break,
                     Answer::Yes => {}
