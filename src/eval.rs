@@ -121,6 +121,7 @@ enum Token {
     Semicolon,
 }
 
+/// Location information for error reporting
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Location {
     pub line: u32,
@@ -167,15 +168,34 @@ macro_rules! derive_has_location {
 #[derive(Debug, PartialEq)]
 pub struct Status {
     checked: bool,
+    cmd: String,
     result: EvalResult<Value>,
     scope: Rc<Scope>,
     stderr: String,
 }
 
+/// Helper for collecting $__error and $__stderr
+fn consolidate(scope: &Rc<Scope>, var_name: &str, info: String) {
+    match &scope.lookup_local(var_name) {
+        Some(v) => {
+            v.assign(Value::Str(format!("{}\n{}", v.to_string(), info)));
+        }
+        _ => {
+            scope.insert(var_name.to_string(), Value::Str(info));
+        }
+    }
+}
+
 impl Status {
-    fn new(result: &EvalResult<Value>, scope: &Rc<Scope>, stderr: String) -> Rc<RefCell<Self>> {
+    fn new(
+        cmd: &Command,
+        result: &EvalResult<Value>,
+        scope: &Rc<Scope>,
+        stderr: String,
+    ) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
+            cmd: cmd.to_string(),
             result: result.clone(),
             scope: Rc::clone(&scope),
             stderr,
@@ -183,15 +203,12 @@ impl Status {
     }
 
     fn as_bool(&mut self, scope: &Rc<Scope>) -> bool {
-        let parent_scope = match &scope.parent {
-            Some(scope) => scope,
-            None => scope,
-        };
-        // Hoist the error (if any) and the stderr contents as variable into the current scope
         if let Err(e) = &self.result {
-            parent_scope.insert("__error".to_string(), Value::Str(e.message.clone()));
+            consolidate(scope, "__errors", format!("{}: {}", self.cmd, e.message));
         }
-        parent_scope.insert("__stderr".to_string(), Value::Str(self.stderr.clone()));
+        if !self.stderr.is_empty() {
+            consolidate(scope, "__stderr", format!("{}: {}", self.cmd, self.stderr));
+        }
 
         self.checked = true;
         self.result.is_ok()
@@ -523,7 +540,6 @@ where
                 '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
                 '*' => {
                     self.next();
-                    //if self.group.is_args() {
                     if !self.is_delimiter(&literal, c) {
                         literal.push(c);
                     } else {
@@ -886,17 +902,11 @@ where
                     self.add_expr(&expr)?;
                 }
                 Token::Operator(op) => {
-                    // TODO: cleanup
-                    if matches!(
-                        op,
-                        Op::And | Op::Or | Op::Append | Op::NotEquals | Op::Pipe | Op::Write
-                    ) && self.group.is_args()
-                    {
-                        // Finish the arguments of the left hand-side command.
-                        self.add_current_expr_to_group()?;
-                    }
-
                     if op.priority() == Priority::Low {
+                        if self.group.is_args() {
+                            // Finish the arguments of the left hand-side command.
+                            self.add_current_expr_to_group()?;
+                        }
                         self.pop_binary_ops(false)?;
                     }
 
@@ -966,7 +976,7 @@ impl From<&str> for Variable {
 
 impl fmt::Display for Variable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.val.borrow())
+        write!(f, "{}", self.val.borrow())
     }
 }
 
@@ -1022,6 +1032,10 @@ impl Scope {
                 _ => None,
             },
         }
+    }
+
+    pub fn lookup_local(&self, s: &str) -> Option<Variable> {
+        self.vars.borrow().get(s).cloned()
     }
 
     pub fn lookup_value(&self, s: &str) -> Option<Value> {
@@ -1725,9 +1739,14 @@ derive_has_location!(Command);
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
-        let mut redirect_stderr = BufferRedirect::stderr();
         // Evaluate command line arguments and convert to strings
         let args = self.args.eval_args()?;
+
+        // Attempt to redirect stderr, to capture it in the Status.
+        // This fails for nested commands ```echo (echo Hello) ```
+        // because stacked redirects are not supported. stderr will
+        // only be captured for the top level command.
+        let mut redirect_stderr = BufferRedirect::stderr();
 
         // Execute command
         let result = self
@@ -1738,14 +1757,15 @@ impl Eval for Command {
         // Wrap the execution result and the stderr output into a Status object
         let mut stderr_content = String::new();
 
-        // The gag crate supports only one redirect at a time
-        // TODO: investigate stacked redirects
+        // Capture the stderr content if the redirect succeeded.
         if let Ok(stderr) = &mut redirect_stderr {
             stderr
                 .read_to_string(&mut stderr_content)
                 .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
         }
+
         Ok(Value::Stat(Status::new(
+            &self,
             &result,
             &self.scope,
             stderr_content,
@@ -1790,13 +1810,26 @@ impl BranchExpr {
     }
 }
 
+fn hoist(scope: &Rc<Scope>, var_name: &str) {
+    if let Some(v) = scope.lookup_local(var_name) {
+        if let Some(parent) = &scope.parent {
+            parent.insert(var_name.to_string(), v.value());
+        }
+    }
+}
+
 fn value_as_bool(val: Value, scope: &Rc<Scope>) -> bool {
-    match val {
+    let result = match val {
         Value::Int(i) => i != 0,
         Value::Real(r) => r != 0.0,
-        Value::Str(s) => !s.is_empty(), // TODO: probably not a good idea?
+        Value::Str(s) => !s.is_empty(), // TODO: maybe not such a good idea?
         Value::Stat(s) => s.borrow_mut().as_bool(&scope),
-    }
+    };
+
+    hoist(scope, "__errors");
+    hoist(scope, "__stderr");
+
+    result
 }
 
 fn eval_as_bool(expr: &Rc<Expression>, scope: &Rc<Scope>) -> EvalResult<bool> {
@@ -1872,7 +1905,7 @@ impl Eval for Literal {
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\"{}\"", &self.tok)
+        write!(f, "{}", &self.tok)
     }
 }
 

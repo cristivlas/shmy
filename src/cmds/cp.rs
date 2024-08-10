@@ -29,7 +29,7 @@ impl Cp {
         interactive: bool,
     ) -> io::Result<()> {
         if interactive && dst.exists() {
-            print!("cp: overwrite '{}'? ", dst.display());
+            print!("overwrite '{}'? ", dst.display());
             io::stdout().flush()?;
             let mut input = String::new();
             stdin().read_line(&mut input)?;
@@ -143,7 +143,7 @@ impl Cp {
         recursive: bool,
     ) -> io::Result<()> {
         if !recursive && src.is_dir() {
-            eprintln!("cp: omitting directory");
+            eprintln!("omitting directory: {}", src.display());
             return Ok(());
         }
 
@@ -195,7 +195,7 @@ impl Exec for Cp {
         }
 
         if args.len() != 2 {
-            return Err("cp: incorrect number of operands".to_string());
+            return Err("incorrect number of operands".to_string());
         }
 
         let show_progress = flags.is_present("progress");
@@ -206,7 +206,7 @@ impl Exec for Cp {
         let dst = Path::new(&args[1]);
 
         self.copy(scope, src, dst, interactive, show_progress, recursive)
-            .map_err(|e| format!("cp: {}", e))?;
+            .map_err(|e| format!("{}", e))?;
 
         println!();
         Ok(Value::success())
