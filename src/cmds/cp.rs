@@ -154,7 +154,7 @@ impl Cp {
             pb.set_style(ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
                 .unwrap()
-                .progress_chars("#>-"));
+                .progress_chars("=>-"));
             Some(pb)
         } else {
             None

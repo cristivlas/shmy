@@ -1,3 +1,4 @@
+use colored::Colorize;
 use std::io::{self, Write};
 
 #[derive(PartialEq)]
@@ -9,11 +10,19 @@ pub enum Answer {
 }
 
 pub fn confirm(prompt: String, many: bool) -> io::Result<Answer> {
-    if many {
-        print!("{}? ([Y]es/[N]o/[A]ll/[Q]uit) ", prompt);
+    let options = if many {
+        format!(
+            "{}es/{}o/{}ll/{}uit",
+            "y".green().bold(),
+            "N".red().bold(),
+            "a".cyan().bold(),
+            "q".yellow().bold()
+        )
     } else {
-        print!("{}? ([Y]es/[N]o) ", prompt);
-    }
+        format!("{}es/{}o", "y".green().bold(), "N".red().bold())
+    };
+
+    print!("{}? ({}) ", prompt, options);
     io::stdout().flush()?;
 
     let mut input = String::new();

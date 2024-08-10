@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.38"
 clearscreen = "3.0.0"
+colored = "2.0"
 ctor = "0.2.8"
 ctrlc = "3.2"
 directories = "5.0"
