@@ -1735,62 +1735,95 @@ struct Command {
 
 derive_has_location!(Command);
 
-enum RedirStderr {
-    #[allow(dead_code)]
-    File(Redirect<File>),
-    #[allow(dead_code)]
-    Stdout(Redirect<io::Stdout>),
-    #[allow(dead_code)]
-    Null(Gag),
-    None,
-}
-
-impl RedirStderr {
-    fn with_scope(scope: &Rc<Scope>) -> Result<Self, String> {
-        if let Some(v) = scope.lookup_value("__stderr") {
-            let path = v.to_string();
-            if path == "1" || path == "__stdout" {
-                return Ok(RedirStderr::Stdout(
-                    Redirect::stderr(io::stdout())
-                        .map_err(|e| format!("Failed to redirect stderr to stdout: {}", e))?,
-                ));
-            }
-            if path.to_ascii_lowercase() == "null" {
-                return Ok(RedirStderr::Null(Gag::stderr().map_err(|e| e.to_string())?));
-            }
-            let file = OpenOptions::new()
-                .truncate(true)
-                .read(true)
-                .create(true)
-                .write(true)
-                .open(&path)
-                .map_err(|e| {
-                    format!(
-                        "Failed to open file for stderr redirection '{}': {}",
-                        path, e
-                    )
-                })?;
-
-            return Ok(RedirStderr::File(Redirect::stderr(file).map_err(|e| {
-                format!("Failed to redirect stderr to file '{}': {}", path, e)
-            })?));
+macro_rules! define_redir_enum {
+    ($name:ident, $other_stream:ident) => {
+        enum $name {
+            #[allow(dead_code)]
+            File(Redirect<File>),
+            #[allow(dead_code)]
+            $other_stream(Redirect<io::$other_stream>),
+            #[allow(dead_code)]
+            Null(Gag),
+            None,
         }
-
-        Ok(RedirStderr::None)
-    }
+    };
 }
+
+macro_rules! define_redir_impl {
+    ($name:ident, $self_stream:ident, $other_stream:ident, $other:ident, $lookup_key:expr, $other_key:expr) => {
+        impl $name {
+            fn with_scope(scope: &Rc<Scope>) -> Result<Self, String> {
+                if let Some(v) = scope.lookup_value($lookup_key) {
+                    let path = v.to_string();
+                    if path == $other_key || path == concat!("__", $other_key) {
+                        return Ok($name::$other_stream(
+                            Redirect::$self_stream(io::$other()).map_err(|e| {
+                                format!(
+                                    "Failed to redirect {} to {}: {}",
+                                    $lookup_key, $other_key, e
+                                )
+                            })?,
+                        ));
+                    }
+                    if path.to_ascii_lowercase() == "null" {
+                        return Ok($name::Null(Gag::$self_stream().map_err(|e| e.to_string())?));
+                    }
+                    let file = OpenOptions::new()
+                        .truncate(true)
+                        .read(true)
+                        .create(true)
+                        .write(true)
+                        .open(&path)
+                        .map_err(|e| {
+                            format!(
+                                "Failed to open file for {} redirection '{}': {}",
+                                $lookup_key, path, e
+                            )
+                        })?;
+
+                    return Ok($name::File(Redirect::$self_stream(file).map_err(|e| {
+                        format!(
+                            "Failed to redirect {} to file '{}': {}",
+                            $lookup_key, path, e
+                        )
+                    })?));
+                }
+
+                Ok($name::None)
+            }
+        }
+    };
+}
+
+macro_rules! handle_redir_error {
+    ($redir:expr, $loc:expr) => {
+        if let Err(message) = &$redir {
+            if !message.contains("Redirect already exists") {
+                return Err(EvalError::new($loc, message.clone()));
+            }
+        }
+    };
+}
+
+// Define RedirStderr
+define_redir_enum!(RedirStderr, Stdout);
+define_redir_impl!(RedirStderr, stderr, Stdout, stdout, "__stderr", "1");
+
+// Define RedirStdout
+define_redir_enum!(RedirStdout, Stderr);
+define_redir_impl!(RedirStdout, stdout, Stderr, stderr, "__stdout", "2");
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
+        // Redirect stdout if a $__stdout variable found in scope.
+        // Values can be "2", "__stderr", "null", or a filename.
+        let redir_stdout = RedirStdout::with_scope(&self.scope);
+        handle_redir_error!(&redir_stdout, self.loc);
+
         // Redirect stderr if a $__stderr variable found in scope.
         // Values can be "1", "__stdout", "null", or a filename.
-        let redir = RedirStderr::with_scope(&self.scope);
-
-        if let Err(message) = &redir {
-            if !message.contains("Redirect already exists") {
-                return Err(EvalError::new(self.loc, message.clone()));
-            }
-        }
+        let redir_stderr = RedirStderr::with_scope(&self.scope);
+        handle_redir_error!(&redir_stderr, self.loc);
 
         // Evaluate command line arguments and convert to strings
         let args = self.args.eval_args()?;
