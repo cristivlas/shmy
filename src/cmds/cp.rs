@@ -1,9 +1,10 @@
 use super::{register_command, Exec, RegisteredCommand};
 use crate::cmds::flags::CommandFlags;
+use crate::cmds::prompt::{confirm, Answer};
 use crate::eval::{Scope, Value};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs::{self, File};
-use std::io::{self, stdin, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -17,27 +18,17 @@ impl Cp {
         flags.add_flag('?', "help", "Display this help message", false);
         flags.add_flag('p', "progress", "Show progress bar", false);
         flags.add_flag('r', "recursive", "Copy directories recursively", false);
-        flags.add_flag('i', "interactive", "Prompt before overwrite", false);
+        flags.add_flag('f', "force", "Overwrite without prompting", false);
+        flags.add_flag(
+            'i',
+            "interactive",
+            "Prompt before overwrite (default)",
+            false,
+        );
         Cp { flags }
     }
 
-    fn copy_file(
-        &self,
-        src: &Path,
-        dst: &Path,
-        pb: Option<&ProgressBar>,
-        interactive: bool,
-    ) -> io::Result<()> {
-        if interactive && dst.exists() {
-            print!("overwrite '{}'? ", dst.display());
-            io::stdout().flush()?;
-            let mut input = String::new();
-            stdin().read_line(&mut input)?;
-            if !input.trim().eq_ignore_ascii_case("y") {
-                return Ok(());
-            }
-        }
-
+    fn copy_file(&self, src: &Path, dst: &Path, pb: Option<&ProgressBar>) -> io::Result<()> {
         let mut src_file = File::open(src)?;
         let mut dst_file = File::create(dst)?;
 
@@ -115,7 +106,7 @@ impl Cp {
         dst: &Path,
         files: &[PathBuf],
         pb: Option<&ProgressBar>,
-        interactive: bool,
+        interactive: &mut bool,
     ) -> io::Result<()> {
         for file in files {
             if scope.is_interrupted() {
@@ -128,7 +119,19 @@ impl Cp {
                 fs::create_dir_all(parent)?;
             }
 
-            self.copy_file(file, &dst_path, pb, interactive)?;
+            if *interactive && dst.exists() {
+                match confirm(format!("overwrite '{}'", dst.display()), true)? {
+                    Answer::No => continue,
+                    Answer::Quit => break,
+                    Answer::Yes => {}
+                    Answer::All => {
+                        *interactive = false;
+                        continue;
+                    }
+                }
+            }
+
+            self.copy_file(file, &dst_path, pb)?;
         }
         Ok(())
     }
@@ -138,19 +141,21 @@ impl Cp {
         scope: &Rc<Scope>,
         src: &Path,
         dst: &Path,
-        interactive: bool,
+        interactive: &mut bool,
         show_progress: bool,
         recursive: bool,
     ) -> io::Result<()> {
         if !recursive && src.is_dir() {
-            eprintln!("omitting directory: {}", src.display());
-            return Ok(());
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("omitting directory: {}", src.display()),
+            ));
         }
 
         let (files, total_size) = self.get_source_files_and_size(src)?;
 
         let pb = if show_progress {
-            let pb = ProgressBar::new(total_size);
+            let pb = ProgressBar::with_draw_target(Some(total_size), ProgressDrawTarget::stdout());
             pb.set_style(ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}")
                 .unwrap()
@@ -163,7 +168,13 @@ impl Cp {
         if recursive {
             self.copy_files(scope, src, dst, &files, pb.as_ref(), interactive)?;
         } else {
-            self.copy_file(src, dst, pb.as_ref(), interactive)?;
+            if *interactive
+                && dst.exists()
+                && confirm(format!("overwrite '{}'", dst.display()), false)? != Answer::Yes
+            {
+                return Ok(());
+            }
+            self.copy_file(src, dst, pb.as_ref())?;
         }
 
         if let Some(pb) = pb {
@@ -200,12 +211,12 @@ impl Exec for Cp {
 
         let show_progress = flags.is_present("progress");
         let recursive = flags.is_present("recursive");
-        let interactive = flags.is_present("interactive");
+        let mut interactive = !flags.is_present("force") || flags.is_present("interactive");
 
         let src = Path::new(&args[0]);
         let dst = Path::new(&args[1]);
 
-        self.copy(scope, src, dst, interactive, show_progress, recursive)
+        self.copy(scope, src, dst, &mut interactive, show_progress, recursive)
             .map_err(|e| format!("{}", e))?;
 
         println!();

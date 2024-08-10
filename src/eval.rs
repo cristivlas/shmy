@@ -1005,7 +1005,7 @@ impl Scope {
         })
     }
 
-    fn new_from_env() -> Rc<Scope> {
+    fn with_env_vars() -> Rc<Scope> {
         let vars = env::vars()
             .map(|(key, value)| (key, Variable::from(value.as_str())))
             .collect::<HashMap<_, _>>();
@@ -2106,7 +2106,7 @@ fn new_group(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
 impl Interp {
     pub fn new() -> Self {
         Self {
-            scope: Scope::new_from_env(),
+            scope: Scope::with_env_vars(),
         }
     }
 
