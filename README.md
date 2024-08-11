@@ -2,6 +2,8 @@
 
 This is a simple, lightweight command line interpreter with Unix-like built-in commands, created for familiarizing myself with Rust.
 
+The interpreter works in interactive mode, or can consume script files passed in the command line.
+
 ## Command Interpreter Notes
 
 ### 1. Variable Assignment and Evaluation
@@ -16,7 +18,7 @@ Variable scope is limited to the `( )` block. If a variable `$VAR` is not found 
 #### a) Conditional Statements
 Use the following structure for if/else:
 ```shell
-if ( <condition> ) ( <body> ) [ else ( <body> ) ]
+if ( <condition> ) ( <body> ) else ( <body> )
 ```
 ##### Example:
 ```shell
@@ -36,7 +38,7 @@ while ($i > 0) (echo $i; $i = $i - 1)
 
 **For Loop:**
 ```shell
-for VAR in [list]; ( <body> )
+for VAR in <list>; ( <body> )
 ```
 ```
 for f in *.rs; ( echo $f; ls -l $f )
@@ -55,7 +57,7 @@ Supported operations: `||`, `&&`
 
 #### Example Error Handling:
 ```shell
-if (cp source/path dest/path) (echo "Ok") else (echo $__errors)
+if (cp source/path dest/path) (echo Ok) else (echo $__errors)
 ```
 
 ### 4. Redirects
