@@ -1,7 +1,4 @@
 Revisit __stdout and __stderr redirects
-Write README.md
-Implement help
 Revisit =>, =>>
 $__errors propagation across pipes?
-color ls?
-Check interrrupt in GroupExpr eval?
+color ls, grep etc.

@@ -90,6 +90,7 @@ impl Op {
     fn priority(&self) -> Priority {
         match &self {
             Op::And
+            | Op::Append
             | Op::Or
             | Op::Assign
             | Op::Gt
