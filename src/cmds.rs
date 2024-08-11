@@ -18,6 +18,7 @@ mod cp;
 mod df;
 mod echo;
 mod exit;
+mod grep;
 mod ls;
 mod mv;
 mod prompt;

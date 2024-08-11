@@ -1,8 +1,6 @@
 Revisit __stdout and __stderr redirects
 Write README.md
 Implement help
-Implement grep, egrep
-Implement realpath
 Revisit =>, =>>
 $__errors propagation across pipes?
 color ls?
