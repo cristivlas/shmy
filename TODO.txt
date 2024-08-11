@@ -4,5 +4,4 @@ Implement help
 Revisit =>, =>>
 $__errors propagation across pipes?
 color ls?
-handle Ctrl-C during reading input
 Check interrrupt in GroupExpr eval?

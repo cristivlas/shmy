@@ -1034,13 +1034,8 @@ impl Scope {
         }
     }
 
-    fn reset_interrupted(&self) {
-        crate::INTERRUPT.store(false, SeqCst);
-    }
-
     fn clear(&self) {
         self.vars.borrow_mut().clear();
-        self.reset_interrupted();
     }
 }
 
@@ -2001,7 +1996,12 @@ struct LoopExpr {
 derive_has_location!(LoopExpr);
 
 macro_rules! eval_iteration {
-    ($self:expr, $result:ident) => {{
+    ($self:expr, $result:ident) => {
+        if $self.scope.is_interrupted() {
+            eprintln!("^C");
+            break; // Bail on Ctrl+C
+        }
+
         // Evaluate the loop body, checking for command status
         $result = Status::check_result($self.body.eval());
 
@@ -2020,7 +2020,7 @@ macro_rules! eval_iteration {
                 }
             }
         }
-    }};
+    };
 }
 
 impl Eval for LoopExpr {

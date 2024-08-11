@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 
 mod cmds;
 #[macro_use]
@@ -200,7 +200,7 @@ impl Shell {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
-                INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
+                INTERRUPT.store(true, SeqCst);
             })
             .expect("Error setting Ctrl+C handler");
         }
@@ -295,6 +295,7 @@ impl Shell {
                     Ok(line) => {
                         if line.starts_with("!") {
                             if let Some(history_entry) = search_history(&rl, &line) {
+                                eprintln!("{}", &history_entry);
                                 // Make the entry found in history the most recent
                                 rl.add_history_entry(&history_entry)
                                     .map_err(|e| e.to_string())?;
@@ -312,7 +313,7 @@ impl Shell {
                         }
                     }
                     Err(ReadlineError::Interrupted) => {
-                        println!("^C");
+                        eprintln!("^C");
                     }
                     Err(err) => {
                         Err(format!("Readline error: {}", err))?;
@@ -333,6 +334,8 @@ impl Shell {
     }
 
     fn eval(&mut self, quit: &mut bool, input: &String) {
+        INTERRUPT.store(false, SeqCst);
+
         match self.interp.eval(quit, input) {
             Ok(result) => {
                 debug_print!(&result);

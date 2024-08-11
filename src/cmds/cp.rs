@@ -116,6 +116,7 @@ impl Cp {
 
     fn get_source_files_and_size(
         &self,
+        scope: &Rc<Scope>,
         ignore_links: bool,
         src: &Path,
     ) -> io::Result<(Vec<PathBuf>, u64)> {
@@ -124,6 +125,9 @@ impl Cp {
 
         if src.is_dir() {
             for entry in fs::read_dir(src).map_err(|e| wrap_error(src, e))? {
+                if scope.is_interrupted() {
+                    break;
+                }
                 let entry = entry.map_err(|e| wrap_error(src, e))?;
                 let path = entry.path();
 
@@ -135,7 +139,7 @@ impl Cp {
                     files.push(path.clone()); // Ensure dirs are created, even if empty
 
                     let (mut sub_files, size) = self
-                        .get_source_files_and_size(ignore_links, &path)
+                        .get_source_files_and_size(scope, ignore_links, &path)
                         .map_err(|e| wrap_error(&path, e))?;
                     total_size += size;
                     files.append(&mut sub_files);
@@ -168,7 +172,7 @@ impl Cp {
     ) -> io::Result<()> {
         for file in files {
             if scope.is_interrupted() {
-                break;
+                break; // Ctrl+C pressed
             }
             let relative_path = file.strip_prefix(src).unwrap();
             let dst_path = dst.join(relative_path);
@@ -211,7 +215,7 @@ impl Cp {
             ));
         }
 
-        let (files, total_size) = self.get_source_files_and_size(ignore_links, src)?;
+        let (files, total_size) = self.get_source_files_and_size(scope, ignore_links, src)?;
 
         let pb = if show_progress {
             let pb = ProgressBar::with_draw_target(Some(total_size), ProgressDrawTarget::stdout());
