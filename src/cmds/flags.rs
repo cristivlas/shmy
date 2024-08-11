@@ -99,7 +99,7 @@ impl CommandFlags {
         let mut help_text = String::new();
         for flag in self.flags.values() {
             help_text.push_str(&format!(
-                "-{}, --{}\t{}\n",
+                "-{}, --{:16}\t{}\n",
                 flag.short, flag.long, flag.help
             ));
         }

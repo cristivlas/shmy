@@ -14,7 +14,7 @@ struct Rm {
 impl Rm {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display t;his help message");
+        flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('f', "force", "Delete without prompting");
         flags.add_flag('i', "interactive", "Prompt before deletion (default)");
         flags.add_flag(
