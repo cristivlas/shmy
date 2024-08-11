@@ -213,7 +213,7 @@ impl Status {
                     return status.borrow().result.clone();
                 }
             }
-            _ => {}
+            _ => {} // Propagate the error
         }
         result
     }
@@ -1153,7 +1153,7 @@ impl Expression {
         match &self {
             Expression::Args(args) => {
                 for v in args.borrow().lazy_eval() {
-                    let value = v?;
+                    let value = Status::check_result(v)?;
                     cmd_args.push(value.to_string())
                 }
             }

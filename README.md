@@ -2,7 +2,7 @@
 
 This is a simple, lightweight command line interpreter with Unix-like built-in commands, created for familiarizing myself with Rust.
 
-The interpreter works in interactive mode, or can consume script files passed in the command line.
+The interpreter works in interactive mode or can consume script files passed in the command line.
 
 ## Command Interpreter Notes
 
@@ -40,12 +40,16 @@ while ($i > 0) (echo $i; $i = $i - 1)
 ```shell
 for VAR in <list>; ( <body> )
 ```
-```
+```shell
 for f in *.rs; ( echo $f; ls -l $f )
 ```
 
 #### c) Arithmetic Operations
 Supported operations: `+`, `-`, `/`, `*`
+
+**Important Note on Arithmetic:**
+`2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time.
+$x * $y works as expected.
 
 #### d) Logical Operations
 Supported operations: `||`, `&&`
@@ -74,9 +78,9 @@ Pipe output between commands:
 ```shell
 ls -al | (echo "\t\tHEADER"; cat; echo "\t\tFOOTER")
 ```
-Example for variable assignment:
+Example for using pipe operator for variable assignment:
 ```shell
-realpath .. | x; echo $x
+realpath .. | x; basename $x
 ```
 
 ### 6. Special Variables
@@ -91,6 +95,7 @@ __stderr=log.txt; ls -al;
 __stderr=$__stdout; ls -al /
 __stdout=some/path/file.txt ls -al;
 ```
+**Note:** Redirects via `$__stdout` and `$__stderr` are effective only in the scope where those variables are defined, and stacked redirects are not supported.
 
 ### 7. Gotchas and Pitfalls
 - **Variable Expansion in Arithmetic:**
@@ -124,6 +129,3 @@ This section details the parsing and expanding of shell-like variable expression
     "${UNDEFINED_VAR}"             -> ""
     "${UNDEFINED_VAR/foo/bar}"     -> ""
     ```
-
-## Additional Information
-For more detailed information, use the `help` command or refer to the documentation.
