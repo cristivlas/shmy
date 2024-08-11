@@ -7,8 +7,7 @@ This is a simple, lightweight command line interpreter with Unix-like built-in c
 ### 1. Variable Assignment and Evaluation
 You can assign variables and use them in commands:
 ```shell
-i = 5
-echo $i
+i = 5; echo $i
 ```
 #### Variable Scope
 Variable scope is limited to the `( )` block. If a variable `$VAR` is not found in the current scope, the interpreter searches the parent (enclosing) scope and continues up to the top.
@@ -21,8 +20,7 @@ if ( <condition> ) ( <body> ) [ else ( <body> ) ]
 ```
 ##### Example:
 ```shell
-i = 3;
-if ($i > 0) (echo "i is positive") else (echo "i is not positive")
+i = 3; if ($i > 0) (echo "i is positive") else (echo "i is not positive")
 ```
 
 #### b) Loops
@@ -39,6 +37,9 @@ while ($i > 0) (echo $i; $i = $i - 1)
 **For Loop:**
 ```shell
 for VAR in [list]; ( <body> )
+```
+```
+for f in *.rs; ( echo $f; ls -l $f )
 ```
 
 #### c) Arithmetic Operations
