@@ -1,0 +1,8 @@
+Revisit __stdout and __stderr redirects
+Write README.md
+Implement help
+Implement grep, egrep
+Handle symlinks in cp (rm?, mv?)
+Implement abspath, realpath
+Revisit =>, =>>
+$__errors propagation across pipes?

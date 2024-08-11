@@ -1075,8 +1075,8 @@ impl Scope {
 ///
 /// Handling non-existent variables:
 /// ```
-/// "${UNDEFINED_VAR}"             -> "${UNDEFINED_VAR}"
-/// "${UNDEFINED_VAR/foo/bar}"     -> "${UNDEFINED_VAR/foo/bar}"
+/// "${UNDEFINED_VAR}"             -> ""
+/// "${UNDEFINED_VAR/foo/bar}"     -> ""
 /// ```
 fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
     let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)")
@@ -1098,10 +1098,13 @@ fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
 
                 if parts.len() == 3 {
                     let search = parts[1];
-                    let replace = parts[2];
+                    // Recursively expand variables in the replacement pattern.
+                    let replace = parse_value(parts[2], loc, scope)
+                        .unwrap_or(Value::default())
+                        .to_string();
 
                     if let Ok(re) = Regex::new(search) {
-                        // Implement shell-like substitution with capture groups
+                        // Implement bash-like substitution with capture groups
                         value = re
                             .replace_all(&value, |caps: &regex::Captures| {
                                 let mut result = replace.to_string();
@@ -1118,7 +1121,7 @@ fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
 
                 value
             }
-            None => caps[0].to_string(), // Leave unchanged if VAR not found
+            None => String::default(), // Return empty string if VAR not found
         }
     });
 

@@ -194,13 +194,12 @@ mod tests {
             "GREETING=\"Hello, World!\"; \"${GREETING/(Hello), (World)!/\\\\2 says \\\\1}\"",
             Value::from_str("World says Hello").unwrap()
         );
+        assert_eval_ok!("\"${UNDEFINED_VAR}\"", Value::from_str("").unwrap());
+        assert_eval_ok!("\"${UNDEFINED_VAR/foo/bar}\"", Value::from_str("").unwrap());
+
         assert_eval_ok!(
-            "\"${UNDEFINED_VAR}\"",
-            Value::from_str("${UNDEFINED_VAR}").unwrap()
-        );
-        assert_eval_ok!(
-            "\"${UNDEFINED_VAR/foo/bar}\"",
-            Value::from_str("${UNDEFINED_VAR/foo/bar}").unwrap()
+            "foo=\"blah blah\"; bar = hu; ${foo/bla/$bar}",
+            Value::from_str("huh huh").unwrap()
         );
     }
 
