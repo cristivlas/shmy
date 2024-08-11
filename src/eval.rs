@@ -709,6 +709,14 @@ where
     }
 
     fn add_current_expr_to_group(&mut self) -> EvalResult {
+        // Handle eraseing variables, e.g. $VAR = ;
+        if self.current_expr.is_empty() {
+            if let Some(top) = self.expr_stack.last() {
+                if top.is_assignment() {
+                    self.current_expr = self.expr_stack.pop().unwrap();
+                }
+            }
+        }
         let group = Rc::clone(&self.group);
 
         if let Expression::Args(g) = &*group {
@@ -1017,26 +1025,26 @@ impl Scope {
         crate::INTERRUPT.load(SeqCst)
     }
 
-    pub fn insert(&self, name: String, val: Value) {
-        self.vars.borrow_mut().insert(name, Variable::new(val));
+    pub fn insert(&self, var_name: String, val: Value) {
+        self.vars.borrow_mut().insert(var_name, Variable::new(val));
     }
 
-    pub fn lookup(&self, s: &str) -> Option<Variable> {
-        match self.vars.borrow().get(s) {
+    pub fn lookup(&self, var_name: &str) -> Option<Variable> {
+        match self.vars.borrow().get(var_name) {
             Some(v) => Some(v.clone()),
             None => match &self.parent {
-                Some(scope) => scope.lookup(s),
+                Some(scope) => scope.lookup(var_name),
                 _ => None,
             },
         }
     }
 
-    pub fn lookup_local(&self, s: &str) -> Option<Variable> {
-        self.vars.borrow().get(s).cloned()
+    pub fn lookup_local(&self, var_name: &str) -> Option<Variable> {
+        self.vars.borrow().get(var_name).cloned()
     }
 
-    pub fn lookup_value(&self, s: &str) -> Option<Value> {
-        match self.lookup(s) {
+    pub fn lookup_value(&self, var_name: &str) -> Option<Value> {
+        match self.lookup(var_name) {
             Some(v) => Some(v.value()),
             None => None,
         }
@@ -1044,6 +1052,17 @@ impl Scope {
 
     fn clear(&self) {
         self.vars.borrow_mut().clear();
+    }
+
+    /// Lookup and erase a variable
+    pub fn erase(&self, var_name: &str) -> Option<Variable> {
+        match self.vars.borrow_mut().remove(var_name) {
+            Some(var) => Some(var),
+            None => match &self.parent {
+                Some(scope) => scope.lookup(var_name),
+                _ => None,
+            },
+        }
     }
 }
 
@@ -1172,6 +1191,13 @@ impl Expression {
             return g.borrow().group.is_empty();
         }
 
+        false
+    }
+
+    fn is_assignment(&self) -> bool {
+        if let Expression::Bin(bin_expr) = &self {
+            return bin_expr.borrow().op == Op::Assign;
+        }
         false
     }
 
@@ -1316,27 +1342,28 @@ impl BinExpr {
     }
 
     fn eval_assign(&self, rhs_in: Value) -> EvalResult<Value> {
+        // Does the right hand-side value wrap a command Status?
         let rhs = if let Value::Stat(status) = &rhs_in {
-            // Assign the result of a command execution to a variable
+            // Assign the command execution result (success or fail?) to a variable
             Value::Int(status.borrow_mut().as_bool(&self.scope) as _)
         } else {
             rhs_in
         };
 
         if let Expression::Lit(lit) = &*self.lhs {
-            let name = &lit.tok;
+            let var_name = &lit.tok;
 
-            if name.starts_with('$') {
+            if var_name.starts_with('$') {
                 // Assigning to an already-defined variable, as in: $i = $i + 1?
-                if let Some(var) = lit.scope.lookup(&name[1..]) {
+                if let Some(var) = lit.scope.lookup(&var_name[1..]) {
                     var.assign(rhs);
                     return Ok(var.value());
                 } else {
-                    return error(self, &format!("Variable not found: {}", name));
+                    return error(self, &format!("Variable not found: {}", var_name));
                 }
             } else {
                 // Create new variable in the current scope
-                self.scope.insert(name.to_owned(), rhs.clone());
+                self.scope.insert(var_name.to_owned(), rhs.clone());
                 return Ok(rhs);
             }
         }
@@ -1579,6 +1606,23 @@ impl BinExpr {
         }
     }
 
+    /// Lookup and erase the variable named by the left hand-side expression
+    fn eval_erase(&self) -> EvalResult<Value> {
+        if let Expression::Lit(lit) = &*self.lhs {
+            let var_name = &lit.tok;
+
+            if var_name.starts_with('$') {
+                if let Some(var) = lit.scope.erase(&var_name[1..]) {
+                    return Ok(var.value()); // Return the erased value
+                } else {
+                    return error(self, &format!("Variable not found: {}", var_name));
+                }
+            }
+        }
+        error(self, "Variable expected on left hand-side of assignment")
+    }
+
+    /// Redirect standard output to file
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         // Evaluate the output
         let output = self.eval_redirect(&self.lhs)?;
@@ -1606,6 +1650,9 @@ macro_rules! eval_bin {
 impl Eval for BinExpr {
     fn eval(&self) -> EvalResult<Value> {
         if self.rhs.is_empty() {
+            if self.op == Op::Assign {
+                return self.eval_erase(); // Assign empty, erase variable
+            }
             error(self, "Expecting right hand-side operand")
         } else if self.lhs.is_empty() {
             if self.op.is_unary_ok() {

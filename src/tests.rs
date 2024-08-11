@@ -245,4 +245,10 @@ mod tests {
             Value::from_str("cp -x: Unknown flag: -x\ncp: Missing source and destination").unwrap()
         );
     }
+
+    #[test]
+    fn test_erase() {
+        assert_eval_ok!("x = 123; $x = ", Value::Int(123));
+        assert_eval_err!("x = 123; $x = ; $x = 0", "Variable not found: $x");
+    }
 }
