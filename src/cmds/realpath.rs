@@ -4,26 +4,26 @@ use crate::eval::{Scope, Value};
 use std::path::Path;
 use std::rc::Rc;
 
-struct Basename {
+struct Realpath {
     flags: CommandFlags,
 }
 
-impl Basename {
+impl Realpath {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        Basename { flags }
+        Realpath { flags }
     }
 }
 
-impl Exec for Basename {
+impl Exec for Realpath {
     fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(args)?;
 
         if flags.is_present("help") {
-            println!("Usage: basename [OPTION]... [NAME]...");
-            println!("Print the base name of each FILE.");
+            println!("Usage: realpath [OPTION]... [FILE]...");
+            println!("Print the canonicalized absolute path of each FILE.");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
@@ -35,14 +35,15 @@ impl Exec for Basename {
 
         for arg in args {
             let path = Path::new(arg);
-            let base = path
-                .file_name()
-                .ok_or_else(|| "Failed to get file name".to_string())?;
+            let canonical_path = path
+                .canonicalize()
+                .map_err(|e| format!("Failed to canonicalize path '{}': {}", arg, e))?;
 
-            println!("{}", base.to_string_lossy());
+            println!("{}", canonical_path.display());
         }
 
         Ok(Value::success())
+
     }
 
     fn is_external(&self) -> bool {
@@ -53,7 +54,7 @@ impl Exec for Basename {
 #[ctor::ctor]
 fn register() {
     register_command(ShellCommand {
-        name: "basename".to_string(),
-        inner: Rc::new(Basename::new()),
+        name: "realpath".to_string(),
+        inner: Rc::new(Realpath::new()),
     });
 }

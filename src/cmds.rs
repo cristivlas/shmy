@@ -21,6 +21,7 @@ mod exit;
 mod ls;
 mod mv;
 mod prompt;
+mod realpath;
 mod rm;
 mod vars;
 
@@ -144,8 +145,12 @@ impl Exec for External {
             }
             // Walk up the enclosing scope
             match &current_scope.parent {
-                None => { break; }
-                Some(scope) => { current_scope = scope; }
+                None => {
+                    break;
+                }
+                Some(scope) => {
+                    current_scope = scope;
+                }
             }
         }
 

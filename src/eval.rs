@@ -1312,10 +1312,19 @@ impl BinExpr {
         ))
     }
 
-    fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
+    fn eval_assign(&self, rhs_in: Value) -> EvalResult<Value> {
+        let rhs = if let Value::Stat(status) = &rhs_in {
+            // Assign the result of a command execution to a variable
+            Value::Int(status.borrow_mut().as_bool(&self.scope) as _)
+        } else {
+            rhs_in
+        };
+
         if let Expression::Lit(lit) = &*self.lhs {
             let name = &lit.tok;
+
             if name.starts_with('$') {
+                // Assigning to an already-defined variable, as in: $i = $i + 1?
                 if let Some(var) = lit.scope.lookup(&name[1..]) {
                     var.assign(rhs);
                     return Ok(var.value());
@@ -1323,6 +1332,7 @@ impl BinExpr {
                     return error(self, &format!("Variable not found: {}", name));
                 }
             } else {
+                // Create new variable in the current scope
                 self.scope.insert(name.to_owned(), rhs.clone());
                 return Ok(rhs);
             }
@@ -1462,8 +1472,10 @@ impl BinExpr {
     ) -> EvalResult<Option<Value>> {
         // Piping into a literal? assign standard output capture to string variable.
         if let Expression::Lit(lit) = &**rhs {
-            let val = Value::Str(self.eval_redirect(lhs)?);
+            let out = self.eval_redirect(lhs)?;
+            let val = Value::Str(out.trim().to_string());
             self.scope.insert(lit.tok.clone(), val.clone());
+
             return Ok(Some(val));
         }
         Ok(None)
