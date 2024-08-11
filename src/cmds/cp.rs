@@ -197,7 +197,7 @@ impl Cp {
         }
 
         if let Some(pb) = pb {
-            pb.finish_with_message("Size collection complete");
+            pb.finish_with_message("Done");
         }
 
         Ok((files, total_size))
@@ -343,7 +343,6 @@ impl Exec for Cp {
         )
         .map_err(|e| format!("{}", e))?;
 
-        println!();
         Ok(Value::success())
     }
 }

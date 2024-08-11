@@ -15,9 +15,7 @@ impl Help {
     }
 
     fn print_interpreter_help() {
-        println!("Simple Command Line Interpreter");
-        println!("===============================");
-        println!("This is a basic Unix-like command line interpreter.");
+        println!("\nThis is a lightweight Unix-like command line interpreter.");
         println!("It supports various built-in commands and can execute external programs.");
         println!("\nUsage:");
         println!("  command [arguments]");
@@ -58,7 +56,7 @@ impl Exec for Help {
             println!("\nUse 'help COMMAND' for more information about a specific command.");
         } else {
             for command in args {
-                println!("\n-------------------------------------------------------------");
+                println!("\n");
                 Self::print_command_help(&command, scope)?;
             }
         }

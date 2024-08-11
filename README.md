@@ -3,6 +3,7 @@
 This is a simple, lightweight command line interpreter with Unix-like built-in commands, created for familiarizing myself with Rust.
 
 The interpreter works in interactive mode or can consume script files passed in the command line.
+In interactive mode history and TAB expansion are supported via rustyline.
 
 ## Command Interpreter Notes
 
