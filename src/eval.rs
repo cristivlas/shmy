@@ -1394,7 +1394,10 @@ impl BinExpr {
     }
 
     fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
-        todo!()
+        Err(EvalError::new(
+            self.loc,
+            "Integer division not implemented".to_string(),
+        ))
     }
 
     fn eval_minus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
@@ -1421,7 +1424,10 @@ impl BinExpr {
     }
 
     fn eval_mod(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
-        todo!()
+        Err(EvalError::new(
+            self.loc,
+            "Modulo operation not implemented".to_string(),
+        ))
     }
 
     fn eval_mul(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
