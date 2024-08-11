@@ -8,6 +8,59 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+// Add the path to the error reported to the caller
+fn wrap_error<E: std::fmt::Display>(path: &Path, error: E) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Other,
+        format!("{}: {}", path.display(), error),
+    )
+}
+
+fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs as unix_fs;
+        let target = fs::read_link(src)?;
+        unix_fs::symlink(target, dst)
+    }
+    #[cfg(windows)]
+    {
+        // use std::os::windows::fs as windows_fs;
+        // let target = fs::read_link(src)?;
+        // if src.is_dir() {
+        //     windows_fs::symlink_dir(target, dst)
+        // } else {
+        //     windows_fs::symlink_file(target, dst)
+        // }
+        //
+        // ...fails with reparse errors, use Windows APIs instead (Admin required)
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateSymbolicLinkW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
+            SYMBOLIC_LINK_FLAG_DIRECTORY,
+        };
+
+        let target = src;
+
+        let dst_wstr: Vec<u16> = dst.as_os_str().encode_wide().chain(Some(0)).collect();
+        let target_wstr: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+
+        let flags = if src.is_dir() {
+            SYMBOLIC_LINK_FLAG_DIRECTORY
+        } else {
+            0
+        } | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+
+        let result = unsafe { CreateSymbolicLinkW(dst_wstr.as_ptr(), target_wstr.as_ptr(), flags) };
+
+        if result == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 struct Cp {
     flags: CommandFlags,
 }
@@ -16,14 +69,24 @@ impl Cp {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('p', "progress", "Show progress bar");
+        flags.add_flag('v', "progress", "Show progress bar");
         flags.add_flag('r', "recursive", "Copy directories recursively");
         flags.add_flag('f', "force", "Overwrite without prompting");
         flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
+        flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
+
         Cp { flags }
     }
 
     fn copy_file(&self, src: &Path, dst: &Path, pb: Option<&ProgressBar>) -> io::Result<()> {
+        if src.is_symlink() {
+            return copy_symlink(src, dst).map_err(|e| wrap_error(src, e));
+        }
+        if src.is_dir() {
+            // Re-create dirs even if empty
+            return fs::create_dir_all(dst).map_err(|e| wrap_error(src, e));
+        }
+
         let mut src_file = File::open(src)?;
         let mut dst_file = File::create(dst)?;
 
@@ -51,19 +114,13 @@ impl Cp {
         Ok(())
     }
 
-    fn get_source_files_and_size(&self, src: &Path) -> io::Result<(Vec<PathBuf>, u64)> {
+    fn get_source_files_and_size(
+        &self,
+        ignore_links: bool,
+        src: &Path,
+    ) -> io::Result<(Vec<PathBuf>, u64)> {
         let mut total_size = 0;
         let mut files = Vec::new();
-
-        fn wrap_error<E>(path: &Path, error: E) -> io::Error
-        where
-            E: std::fmt::Display,
-        {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}: {}", path.display(), error),
-            )
-        }
 
         if src.is_dir() {
             for entry in fs::read_dir(src).map_err(|e| wrap_error(src, e))? {
@@ -71,12 +128,14 @@ impl Cp {
                 let path = entry.path();
 
                 if path.is_symlink() {
-                    continue; // TODO
-                }
+                    if !ignore_links {
+                        files.push(path);
+                    }
+                } else if path.is_dir() {
+                    files.push(path.clone()); // Ensure dirs are created, even if empty
 
-                if path.is_dir() {
                     let (mut sub_files, size) = self
-                        .get_source_files_and_size(&path)
+                        .get_source_files_and_size(ignore_links, &path)
                         .map_err(|e| wrap_error(&path, e))?;
                     total_size += size;
                     files.append(&mut sub_files);
@@ -85,6 +144,10 @@ impl Cp {
                     total_size += size;
                     files.push(path);
                 }
+            }
+        } else if src.is_symlink() {
+            if !ignore_links {
+                files.push(src.to_path_buf());
             }
         } else {
             total_size = fs::metadata(src).map_err(|e| wrap_error(src, e))?.len();
@@ -136,6 +199,7 @@ impl Cp {
         scope: &Rc<Scope>,
         src: &Path,
         dst: &Path,
+        ignore_links: bool,
         interactive: &mut bool,
         show_progress: bool,
         recursive: bool,
@@ -147,7 +211,7 @@ impl Cp {
             ));
         }
 
-        let (files, total_size) = self.get_source_files_and_size(src)?;
+        let (files, total_size) = self.get_source_files_and_size(ignore_links, src)?;
 
         let pb = if show_progress {
             let pb = ProgressBar::with_draw_target(Some(total_size), ProgressDrawTarget::stdout());
@@ -210,15 +274,24 @@ impl Exec for Cp {
             return Err("Extraneous argument".to_string());
         }
 
-        let show_progress = flags.is_present("progress");
-        let recursive = flags.is_present("recursive");
+        let ignore_links = flags.is_present("no-dereference");
         let mut interactive = !flags.is_present("force") || flags.is_present("interactive");
+        let recursive = flags.is_present("recursive");
+        let show_progress = flags.is_present("progress");
 
         let src = Path::new(&args[0]);
         let dst = Path::new(&args[1]);
 
-        self.copy(scope, src, dst, &mut interactive, show_progress, recursive)
-            .map_err(|e| format!("{}", e))?;
+        self.copy(
+            scope,
+            src,
+            dst,
+            ignore_links,
+            &mut interactive,
+            show_progress,
+            recursive,
+        )
+        .map_err(|e| format!("{}", e))?;
 
         println!();
         Ok(Value::success())
