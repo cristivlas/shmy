@@ -9,6 +9,7 @@ use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::iter::Peekable;
+use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -995,9 +996,15 @@ impl Scope {
     }
 
     fn with_env_vars() -> Rc<Scope> {
-        let vars = env::vars()
+        let mut vars = env::vars()
             .map(|(key, value)| (key, Variable::from(value.as_str())))
             .collect::<HashMap<_, _>>();
+
+        let shell = env::current_exe().unwrap_or(PathBuf::from("mysh"));
+        vars.insert(
+            "SHELL".to_string(),
+            Variable::from(shell.to_string_lossy().to_string().as_str()),
+        );
 
         Rc::new(Scope {
             parent: None,

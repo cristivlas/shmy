@@ -7,6 +7,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 
 // Add the path to the error reported to the caller
 fn wrap_error<E: std::fmt::Display>(path: &Path, error: E) -> io::Error {
@@ -78,6 +79,15 @@ impl Cp {
         Cp { flags }
     }
 
+    fn truncate_filename(filename: &str, max_length: usize) -> String {
+        if filename.len() <= max_length {
+            filename.to_string()
+        } else {
+            let truncated = &filename[..max_length - 3];
+            format!("{}...", truncated)
+        }
+    }
+
     fn copy_file(&self, src: &Path, dst: &Path, pb: Option<&ProgressBar>) -> io::Result<()> {
         if src.is_symlink() {
             return copy_symlink(src, dst).map_err(|e| wrap_error(src, e));
@@ -91,12 +101,14 @@ impl Cp {
         let mut dst_file = File::create(dst)?;
 
         if let Some(pb) = pb {
-            pb.set_message(
+            pb.set_message(Self::truncate_filename(
                 src.file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
-                    .to_string(),
-            );
+                    .to_string()
+                    .as_str(),
+                30,
+            ));
         }
 
         let mut buffer = [0; 8192];
@@ -119,9 +131,34 @@ impl Cp {
         scope: &Rc<Scope>,
         ignore_links: bool,
         src: &Path,
+        show_progress: bool,
     ) -> io::Result<(Vec<PathBuf>, u64)> {
         let mut total_size = 0;
         let mut files = Vec::new();
+
+        let pb = if show_progress {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} Collecting files: {total_bytes} {wide_msg}")
+                    .unwrap(),
+            );
+            pb.enable_steady_tick(Duration::from_millis(100));
+            Some(pb)
+        } else {
+            None
+        };
+
+        let mut collect_size = |path: &Path, size: u64| {
+            total_size += size;
+            if let Some(pb) = &pb {
+                pb.set_message(format!(
+                    "{}",
+                    Self::truncate_filename(path.to_str().unwrap_or(""), 30)
+                ));
+                pb.set_position(total_size);
+            }
+        };
 
         if src.is_dir() {
             for entry in fs::read_dir(src).map_err(|e| wrap_error(src, e))? {
@@ -139,13 +176,13 @@ impl Cp {
                     files.push(path.clone()); // Ensure dirs are created, even if empty
 
                     let (mut sub_files, size) = self
-                        .get_source_files_and_size(scope, ignore_links, &path)
+                        .get_source_files_and_size(scope, ignore_links, &path, false)
                         .map_err(|e| wrap_error(&path, e))?;
-                    total_size += size;
+                    collect_size(&path, size);
                     files.append(&mut sub_files);
                 } else {
                     let size = fs::metadata(&path).map_err(|e| wrap_error(&path, e))?.len();
-                    total_size += size;
+                    collect_size(&path, size);
                     files.push(path);
                 }
             }
@@ -154,8 +191,13 @@ impl Cp {
                 files.push(src.to_path_buf());
             }
         } else {
-            total_size = fs::metadata(src).map_err(|e| wrap_error(src, e))?.len();
+            let size = fs::metadata(src).map_err(|e| wrap_error(src, e))?.len();
+            collect_size(src, size);
             files.push(src.to_path_buf());
+        }
+
+        if let Some(pb) = pb {
+            pb.finish_with_message("Size collection complete");
         }
 
         Ok((files, total_size))
@@ -169,7 +211,7 @@ impl Cp {
         files: &[PathBuf],
         pb: Option<&ProgressBar>,
         interactive: &mut bool,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         for file in files {
             if scope.is_interrupted() {
                 break; // Ctrl+C pressed
@@ -184,7 +226,7 @@ impl Cp {
             if *interactive && dst.exists() {
                 match confirm(format!("overwrite '{}'", dst_path.display()), true)? {
                     Answer::No => continue,
-                    Answer::Quit => break,
+                    Answer::Quit => return Ok(false),
                     Answer::Yes => {}
                     Answer::All => {
                         *interactive = false;
@@ -195,7 +237,7 @@ impl Cp {
 
             self.copy_file(file, &dst_path, pb)?;
         }
-        Ok(())
+        Ok(true)
     }
 
     fn copy(
@@ -215,7 +257,8 @@ impl Cp {
             ));
         }
 
-        let (files, total_size) = self.get_source_files_and_size(scope, ignore_links, src)?;
+        let (files, total_size) =
+            self.get_source_files_and_size(scope, ignore_links, src, show_progress)?;
 
         let pb = if show_progress {
             let pb = ProgressBar::with_draw_target(Some(total_size), ProgressDrawTarget::stdout());
@@ -228,8 +271,10 @@ impl Cp {
             None
         };
 
+        let mut complete = false;
+
         if recursive {
-            self.copy_files(scope, src, dst, &files, pb.as_ref(), interactive)?;
+            complete = self.copy_files(scope, src, dst, &files, pb.as_ref(), interactive)?;
         } else {
             if *interactive
                 && dst.exists()
@@ -240,13 +285,14 @@ impl Cp {
             self.copy_file(src, dst, pb.as_ref())?;
         }
 
-        if let Some(pb) = pb {
-            pb.finish_with_message(if scope.is_interrupted() {
-                "interrupted"
-            } else {
-                "done"
-            });
+        complete &= !scope.is_interrupted();
+
+        if complete {
+            if let Some(pb) = pb {
+                pb.finish_with_message("done");
+            }
         }
+
         Ok(())
     }
 }
