@@ -23,13 +23,21 @@ impl Help {
     }
 
     fn print_command_help(command: &str, scope: &Rc<Scope>) -> Result<(), String> {
-        match get_command(command) {
-            Some(cmd) => {
-                let help_args = vec!["-?".to_string()];
-                cmd.exec(command, &help_args, scope)?;
-                Ok(())
+        if command == "exit" {
+            println!("exit [<exit code>]\n");
+            Ok(())
+        } else if command == "echo" {
+            println!("echo [argument]...\n");
+            Ok(())
+        } else {
+            match get_command(command) {
+                Some(cmd) => {
+                    let help_args = vec!["-?".to_string()];
+                    cmd.exec(command, &help_args, scope)?;
+                    Ok(())
+                }
+                None => Err(format!("Unknown command: '{}'", command)),
             }
-            None => Err(format!("Unknown command: '{}'", command)),
         }
     }
 }
