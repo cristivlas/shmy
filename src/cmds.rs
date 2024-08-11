@@ -19,6 +19,7 @@ mod df;
 mod echo;
 mod exit;
 mod grep;
+mod help;
 mod ls;
 mod mv;
 mod prompt;
@@ -88,7 +89,9 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
 
 pub fn list_registered_commands() -> Vec<String> {
     let registry = COMMAND_REGISTRY.lock().unwrap();
-    registry.keys().cloned().collect()
+    let mut commands: Vec<String> = registry.keys().cloned().collect();
+    commands.sort();
+    commands
 }
 
 fn locate_executable(name: &str) -> Option<String> {
