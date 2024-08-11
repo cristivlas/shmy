@@ -134,12 +134,19 @@ impl Exec for External {
         let mut command = Command::new(&self.path);
         command.args(args);
 
-        // Clear existing environment variables
+        // Override existing environment variables
         command.env_clear();
 
-        // Set environment variables from the scope
-        for (key, variable) in scope.vars.borrow().iter() {
-            command.env(key, variable.value().to_string());
+        let mut current_scope = scope;
+        loop {
+            for (key, variable) in current_scope.vars.borrow().iter() {
+                command.env(key, variable.value().to_string());
+            }
+            // Walk up the enclosing scope
+            match &current_scope.parent {
+                None => { break; }
+                Some(scope) => { current_scope = scope; }
+            }
         }
 
         match command.spawn() {
