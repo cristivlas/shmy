@@ -677,6 +677,17 @@ where
         }
 
         let ref current = *self.current_expr;
+
+        if current.is_complete() {
+            if let Expression::Args(a) = &*self.group {
+                a.borrow_mut().add_child(&self.current_expr)?;
+                self.current_expr = Rc::clone(&expr);
+                return Ok(());
+            } else {
+                return error(self, &format!("Unexpected '{}' after: '{}'", expr, current));
+            }
+        }
+
         match current {
             Expression::Args(e) => e.borrow_mut().add_child(expr),
             Expression::Bin(e) => e.borrow_mut().add_child(expr),
@@ -696,15 +707,7 @@ where
                 }
                 Ok(())
             }
-            Expression::Lit(_) => {
-                if let Expression::Args(a) = &*self.group {
-                    a.borrow_mut().add_child(&self.current_expr)?;
-                    self.current_expr = Rc::clone(&expr);
-                    Ok(())
-                } else {
-                    error(self, "Dangling expression after literal")
-                }
-            }
+            Expression::Lit(_) => error(self, "Dangling expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
     }
@@ -731,7 +734,7 @@ where
     }
 
     fn add_current_expr_to_group(&mut self) -> EvalResult {
-        // Handle eraseing variables, e.g. $VAR = ;
+        // Handle the use case of erasing variables, e.g. $VAR = ;
         if self.current_expr.is_empty() {
             if let Some(top) = self.expr_stack.last() {
                 if top.is_assignment() {
@@ -799,9 +802,9 @@ where
     }
 
     fn pop_group(&mut self) -> EvalResult {
-        if !self.expr_stack.is_empty() {
-            self.current_expr = self.expr_stack.pop().unwrap();
-            self.add_expr(&Rc::clone(&self.group))?;
+        // Closed parentheses? mark the group as closed
+        if let Expression::Group(g) = &*self.group {
+            g.borrow_mut().closed = true;
         }
 
         if self.group_stack.is_empty() {
@@ -810,8 +813,17 @@ where
                 "Unbalanced parentheses?".to_string(),
             ));
         }
+
+        let group = Rc::clone(&self.group);
+
         self.group = self.group_stack.pop().unwrap(); // Restore group
         self.scope = self.scope_stack.pop().unwrap(); // Restore scope
+
+        // Add the group itself to the expression previously saved on the stack
+        if !self.expr_stack.is_empty() {
+            self.current_expr = self.expr_stack.pop().unwrap();
+            self.add_expr(&group)?;
+        }
 
         Ok(())
     }
@@ -1247,6 +1259,28 @@ impl Expression {
         }
     }
 
+    /// Is the expression completely constructed (parsed)?
+    fn is_complete(&self) -> bool {
+        match self {
+            Expression::Args(group) => group.borrow().closed,
+            Expression::Bin(bin_expr) => !&bin_expr.borrow().rhs.is_empty(),
+            Expression::Cmd(cmd) => !&cmd.borrow().args.is_empty(),
+            Expression::Branch(branch) => {
+                let b = branch.borrow();
+                if b.expect_else && b.else_branch.is_empty() {
+                    return false;
+                }
+                !&b.if_branch.is_empty()
+            }
+            Expression::Group(group) => group.borrow().closed,
+            Expression::For(for_expr) => !&for_expr.borrow().body.is_empty(),
+            Expression::Empty => false,
+            Expression::Lit(_) => true,
+            Expression::Loop(loop_expr) => !&loop_expr.borrow().body.is_empty(),
+        }
+    }
+
+    /// Argument evaluation
     fn to_values(&self) -> EvalResult<Vec<Value>> {
         let mut values = Vec::new();
 
@@ -1744,6 +1778,7 @@ struct GroupExpr {
     scope: Rc<Scope>,
     group: Vec<Rc<Expression>>,
     loc: Location,
+    closed: bool,
 }
 
 impl GroupExpr {
@@ -1753,6 +1788,7 @@ impl GroupExpr {
             scope: Rc::clone(&scope),
             group: Vec::new(),
             loc,
+            closed: false,
         }
     }
 
@@ -1762,6 +1798,7 @@ impl GroupExpr {
             group: Vec::new(),
             loc,
             scope: Rc::clone(&scope),
+            closed: false,
         }
     }
 
@@ -1812,11 +1849,6 @@ impl Eval for GroupExpr {
 
 impl ExprNode for GroupExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
-        if self.kind == Group::Args && matches!(&**child, Expression::For(_) | Expression::Loop(_))
-        {
-            // Just to keep things simple...
-            return error(&**child, "Loops are not allowed in argument list");
-        }
         self.group.push(Rc::clone(child));
         Ok(())
     }

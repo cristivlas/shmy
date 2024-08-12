@@ -121,6 +121,14 @@ mod tests {
     }
 
     #[test]
+    fn test_for_with_expr_args() {
+        assert_eval_ok!(
+            "acc = \"\"; x = 3; for i in x ($x + 2) (2 - $x * 2) y; ($acc = $acc + _ + $i)",
+            "_x_5_-4_y".parse::<Value>().unwrap()
+        );
+    }
+
+    #[test]
     fn test_while() {
         assert_eval_ok!(
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
