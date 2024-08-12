@@ -2,13 +2,17 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use chrono::DateTime;
+use colored::*;
 use std::fs::{self, DirEntry, Metadata};
-use std::path::Path;
-#[cfg(unix)]
-use std::path::PathBuf;
+use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
+
+fn supports_color() -> bool {
+    std::io::stdout().is_terminal()
+}
 
 struct Dir {
     flags: CommandFlags,
@@ -30,7 +34,7 @@ impl Dir {
         flags.add_flag('l', "long", "Use a long listing format");
         flags.add_flag(
             'h',
-            "human",
+            "human-readable",
             "Print sizes in human readable format (e.g., 1K 234M 2G)",
         );
         flags.add_flag('?', "help", "Display this help and exit");
@@ -65,7 +69,7 @@ impl Dir {
 }
 
 impl Exec for Dir {
-    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
         let cmd_args = self.parse_args(args)?;
         if cmd_args.help {
             self.print_help();
@@ -330,16 +334,16 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
             fs::metadata(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
 
         if metadata.is_dir() {
-            process_directory(path, &args)?;
+            print_dir(path, &args)?;
         } else {
-            process_file(path, &metadata, &args)?;
+            print_file(path, &metadata, &args)?;
         }
     }
 
     Ok(Value::success())
 }
 
-fn process_directory(path: &str, args: &CmdArgs) -> Result<(), String> {
+fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
     let entries = fs::read_dir(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
     let mut entries: Vec<_> = entries
         .collect::<Result<_, _>>()
@@ -359,11 +363,15 @@ fn process_directory(path: &str, args: &CmdArgs) -> Result<(), String> {
     Ok(())
 }
 
-fn process_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
+fn print_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
     if args.show_details {
-        print_detailed_file(path, metadata, args)?;
-    } else {
-        println!("{}", path);
+        print_details(&PathBuf::from(path), metadata, args)?;
+    } else if args.all_files || !path.starts_with(".") {
+        if supports_color() {
+            println!("{}", colorize_file_name(path, metadata));
+        } else {
+            println!("{}", path);
+        }
     }
 
     Ok(())
@@ -374,25 +382,30 @@ fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(),
     for entry in entries {
         match entry.metadata() {
             Ok(metadata) => {
-                let file_name = format_file_name(entry, &metadata, args)?;
-                if file_name.is_empty() {
-                    continue;
-                }
-                let size = format_file_size(&metadata, args);
-                let file_type = format_file_type(&metadata);
-                let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
-                let (owner, group) = get_owner_and_group(entry.path(), &metadata);
-                let permissions = get_permissions(&metadata);
-                println!(
-                    "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-                    file_type, permissions, owner, group, size, modified_time, file_name
-                );
+                print_details(&entry.path(), &metadata, args)?;
             }
             Err(e) => {
-                eprintln!(
-                    "Failed to get metadata for {}: {}",
-                    entry.file_name().to_string_lossy(),
-                    e
+                // TODO: revisit and refactor error handling
+                if supports_color() {
+                    eprintln!(
+                        "cannot access {}: {}",
+                        entry.file_name().to_string_lossy(),
+                        e.to_string().red()
+                    );
+                } else {
+                    eprintln!(
+                        "cannot access {}: {}",
+                        entry.file_name().to_string_lossy(),
+                        e
+                    );
+                }
+                println!(
+                    "?---------  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {:>12}  {}",
+                    "?",
+                    "?",
+                    "?",
+                    "?",
+                    entry.file_name().to_string_lossy().to_string()
                 );
             }
         }
@@ -424,14 +437,31 @@ fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), S
             current_column = 0;
         }
 
-        if current_column == 0 {
-            print!("{:<width$}", file_name, width = column_width);
+        // TODO: Fix code duplication
+        if supports_color() {
+            // TODO: customize colors via environment vars
+            let metadata = entry.metadata().map_err(|e| e.to_string())?;
+            let file_name = colorize_file_name(file_name.as_str(), &metadata);
+
+            if current_column == 0 {
+                print!("{:<width$}", file_name, width = column_width);
+            } else {
+                print!(
+                    " {:<width$}",
+                    file_name,
+                    width = column_width.saturating_sub(1)
+                );
+            }
         } else {
-            print!(
-                " {:<width$}",
-                file_name,
-                width = column_width.saturating_sub(1)
-            );
+            if current_column == 0 {
+                print!("{:<width$}", file_name, width = column_width);
+            } else {
+                print!(
+                    " {:<width$}",
+                    file_name,
+                    width = column_width.saturating_sub(1)
+                );
+            }
         }
 
         current_column += 1;
@@ -444,41 +474,57 @@ fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), S
     Ok(())
 }
 
-fn print_detailed_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
-    let mut file_name = path.to_string();
-    let size = format_file_size(&metadata, args);
-    if metadata.is_symlink() {
-        if let Ok(link_path) = fs::read_link(path) {
-            file_name = format!("{} -> {}", file_name, link_path.to_string_lossy());
+/// Print details for one file entry
+fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
+    let base_name = path
+        .file_name()
+        .or(Some(path.as_os_str()))
+        .unwrap()
+        .to_string_lossy();
+
+    if args.all_files || !base_name.starts_with(".") {
+        let file_name = if metadata.is_symlink() {
+            let link_path = fs::read_link(path).map_err(|e| e.to_string())?;
+            format!("{} -> {}", base_name, link_path.display())
+        } else {
+            base_name.to_string()
+        };
+
+        let file_type = format_file_type(&metadata);
+        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
+        let (owner, group) = get_owner_and_group(Path::new(path).to_path_buf(), &metadata);
+        let permissions = get_permissions(&metadata);
+        let size = format_file_size(&metadata, args);
+
+        if supports_color() {
+            println!(
+                "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
+                file_type.to_string().blue(),
+                permissions.cyan(),
+                owner,
+                group,
+                size.green(),
+                modified_time.purple(),
+                colorize_file_name(&file_name, &metadata)
+            );
+        } else {
+            println!(
+                "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
+                file_type, permissions, owner, group, size, modified_time, file_name
+            );
         }
     }
-    let file_type = format_file_type(&metadata);
-    let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
-    let (owner, group) = get_owner_and_group(Path::new(path).to_path_buf(), &metadata);
-    let permissions = get_permissions(&metadata);
-    println!(
-        "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-        file_type, permissions, owner, group, size, modified_time, file_name
-    );
-
     Ok(())
 }
 
-fn format_file_name(
-    entry: &DirEntry,
-    metadata: &Metadata,
-    args: &CmdArgs,
-) -> Result<String, String> {
-    let mut file_name = entry.file_name().to_string_lossy().to_string();
-    if file_name.starts_with(".") && !args.all_files {
-        return Ok(String::default());
+fn colorize_file_name(file_name: &str, metadata: &Metadata) -> ColoredString {
+    if metadata.is_dir() {
+        file_name.blue().bold()
+    } else if metadata.is_symlink() {
+        file_name.cyan().bold()
+    } else {
+        file_name.normal()
     }
-    if metadata.is_symlink() {
-        if let Ok(path) = fs::read_link(entry.path()) {
-            file_name = format!("{} -> {}", file_name, path.to_string_lossy());
-        }
-    }
-    Ok(file_name)
 }
 
 fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
