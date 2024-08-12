@@ -1,13 +1,15 @@
 #[cfg(test)]
 mod tests {
     use crate::eval::*;
-    use std::str::FromStr;
+    use std::{io, str::FromStr};
 
     fn eval(input: &str) -> EvalResult<Value> {
+        let __stdout = io::stdout().lock();
+
         let interp = Interp::new();
         let mut quit = false;
         let result = interp.eval(&mut quit, input);
-        dbg!(&result);
+        my_dbg!(&result);
         result
     }
 
@@ -254,9 +256,9 @@ mod tests {
 
     #[test]
     fn test_logical_or_error() {
-        // assert_eval_ok!(
-        //     "(basename . || echo $__errors) | x; $x",
-        //     Value::from_str("basename .: Failed to get file name").unwrap()
-        // );
+        assert_eval_ok!(
+            "(basename . || echo $__errors) | x; $x",
+            Value::from_str("basename .: Failed to get file name").unwrap()
+        );
     }
 }

@@ -1,6 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
+use crate::my_println;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -39,7 +40,7 @@ impl Exec for Basename {
                 .file_name()
                 .ok_or_else(|| "Failed to get file name".to_string())?;
 
-            println!("{}", base.to_string_lossy());
+            my_println!("{}", base.to_string_lossy())?;
         }
 
         Ok(Value::success())

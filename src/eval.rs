@@ -1594,7 +1594,7 @@ impl BinExpr {
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
 
-        my_dbg!(&program, &rhs_str);
+        // my_dbg!(&program, &rhs_str);
 
         // Start a copy of the running program with the arguments "-c" rhs_str
         let child = match StdCommand::new(&program)
@@ -2298,10 +2298,10 @@ impl Interp {
     }
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
-        my_dbg!(input);
+        // my_dbg!(input);
 
         let ast = self.parse(quit, input)?;
-        my_dbg!(&ast);
+        // my_dbg!(&ast);
 
         Status::check_result(ast.eval())
     }
