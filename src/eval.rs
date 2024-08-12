@@ -5,23 +5,23 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::env;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::iter::Peekable;
 use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::atomic::Ordering::SeqCst;
-use std::{env, io};
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
 ];
 
 #[macro_export]
-macro_rules! debug_print {
+macro_rules! my_dbg {
     ($($arg:tt)*) => {
         if cfg!(debug_assertions) {
             dbg!($($arg)*)
@@ -29,6 +29,24 @@ macro_rules! debug_print {
             ($($arg)*)
         }
     };
+}
+
+/// Write to stdout without panic
+#[macro_export]
+macro_rules! my_println {
+    ($($arg:tt)*) => {{
+        use std::io::Write;
+
+        // Create a formatted string
+        let output = format!($($arg)*);
+        // Attempt to write to stdout
+        std::io::stdout().lock()
+            .write_all(output.as_bytes())
+            .and_then(|_| std::io::stdout().write_all(b"\n"))
+            .map_err(|e| e.to_string())?;
+
+        Ok(()) as Result<(), String>
+    }};
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1176,22 +1194,6 @@ enum Expression {
 }
 
 impl Expression {
-    fn eval_args(&self) -> EvalResult<Vec<String>> {
-        let mut cmd_args = Vec::new();
-
-        match &self {
-            Expression::Args(args) => {
-                for v in args.borrow().lazy_eval() {
-                    let value = Status::check_result(v)?;
-                    cmd_args.push(value.to_string())
-                }
-            }
-            _ => error(self, "Expecting argument list")?,
-        }
-
-        Ok(cmd_args)
-    }
-
     fn is_args(&self) -> bool {
         matches!(self, Expression::Args(_))
     }
@@ -1243,6 +1245,37 @@ impl Expression {
             Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
             _ => false,
         }
+    }
+
+    fn to_values(&self) -> EvalResult<Vec<Value>> {
+        let mut values = Vec::new();
+
+        match &self {
+            Expression::Args(args) => {
+                for v in args.borrow().iter() {
+                    let value = Status::check_result(v)?;
+
+                    match &value {
+                        Value::Str(string) => {
+                            for s in string.split_ascii_whitespace() {
+                                values.push(s.parse::<Value>()?);
+                            }
+                        }
+                        _ => {
+                            values.push(value);
+                        }
+                    }
+                }
+            }
+            _ => error(self, "Expecting argument list")?,
+        }
+
+        Ok(values)
+    }
+
+    fn to_strings(&self) -> EvalResult<Vec<String>> {
+        let values = self.to_values()?;
+        Ok(values.into_iter().map(|v| v.to_string()).collect())
     }
 }
 
@@ -1561,7 +1594,7 @@ impl BinExpr {
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
 
-        debug_print!(&program, &rhs_str);
+        my_dbg!(&program, &rhs_str);
 
         // Start a copy of the running program with the arguments "-c" rhs_str
         let child = match StdCommand::new(&program)
@@ -1732,7 +1765,7 @@ impl GroupExpr {
         }
     }
 
-    fn lazy_eval(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
+    fn iter(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
         self.group.iter().map(|expr| expr.eval())
     }
 }
@@ -1908,7 +1941,7 @@ impl Eval for Command {
         handle_redir_error!(&redir_stderr, self.loc);
 
         // Evaluate command line arguments and convert to strings
-        let args = self.args.eval_args()?;
+        let args = self.args.to_strings()?;
         // Execute command
         let result = self
             .cmd
@@ -2163,15 +2196,10 @@ impl Eval for ForExpr {
 
         let mut result = Ok(Value::success());
 
-        match &*self.args {
-            Expression::Args(args) => {
-                for v in args.borrow().lazy_eval() {
-                    let val = Status::check_result(v)?;
-                    self.scope.insert(self.var.clone(), val);
-                    eval_iteration!(self, result);
-                }
-            }
-            _ => error(self, "Expecting argument list")?,
+        let args = self.args.to_strings()?;
+        for arg in &args {
+            self.scope.insert(self.var.clone(), arg.parse::<Value>()?);
+            eval_iteration!(self, result);
         }
 
         result
@@ -2270,10 +2298,10 @@ impl Interp {
     }
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
-        debug_print!(input);
+        my_dbg!(input);
 
         let ast = self.parse(quit, input)?;
-        debug_print!(&ast);
+        my_dbg!(&ast);
 
         Status::check_result(ast.eval())
     }

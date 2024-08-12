@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::{
     cmds::flags::CommandFlags,
-    current_dir, debug_print,
+    current_dir, my_dbg,
     eval::{Scope, Value},
 };
 
@@ -63,7 +63,7 @@ impl ChangeDir {
                 } else {
                     parsed_args.join(" ")
                 };
-                debug_print!(&new_dir);
+                my_dbg!(&new_dir);
                 env::set_current_dir(&new_dir)
                     .map_err(|e| format!("Change dir to \"{}\": {}", &new_dir, e))?;
             }

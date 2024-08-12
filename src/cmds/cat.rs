@@ -1,6 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
+use crate::my_println;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::rc::Rc;
@@ -54,9 +55,9 @@ fn print_file<F: std::io::Read>(file: &mut F, line_numbers: bool) -> Result<(), 
     for (i, line) in reader.lines().enumerate() {
         let line = line.map_err(|e| e.to_string())?;
         if line_numbers {
-            println!("{:>6}: {}", i + 1, line);
+            my_println!("{:>6}: {}", i + 1, line)?;
         } else {
-            println!("{}", line);
+            my_println!("{}", line)?;
         }
     }
     Ok(())

@@ -338,7 +338,7 @@ impl Shell {
 
         match self.interp.eval(quit, input) {
             Ok(result) => {
-                debug_print!(&result);
+                my_dbg!(&result);
             }
             Err(e) => {
                 self.show_error(input, &e);

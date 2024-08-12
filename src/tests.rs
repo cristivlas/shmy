@@ -254,10 +254,9 @@ mod tests {
 
     #[test]
     fn test_logical_or_error() {
-        // Can't use pipes because cargo test redirect stdout. TODO: workaround?
-        // assert_eval_ok!(
-        //     "(basename . || echo $__errors) | x; $x",
-        //     Value::from_str("basename .: Failed to get file name").unwrap()
-        // );
+        assert_eval_ok!(
+            "(basename . || echo $__errors) | x; $x",
+            Value::from_str("basename .: Failed to get file name").unwrap()
+        );
     }
 }
