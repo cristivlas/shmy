@@ -349,8 +349,8 @@ trait Eval {
     fn eval(&self) -> EvalResult<Value>;
 }
 
-fn error<T: HasLocation, R>(w: &T, message: &str) -> EvalResult<R> {
-    Err(EvalError::new(w.loc(), message.to_string()))
+fn error<S: HasLocation, R>(source: &S, message: &str) -> EvalResult<R> {
+    Err(EvalError::new(source.loc(), message.to_string()))
 }
 
 /// Non-terminal AST node.
@@ -684,7 +684,7 @@ where
                 self.current_expr = Rc::clone(&expr);
                 return Ok(());
             } else {
-                return error(self, &format!("Unexpected '{}' after: '{}'", expr, current));
+                return error(&**expr, "Unexpected expression");
             }
         }
 
@@ -707,7 +707,7 @@ where
                 }
                 Ok(())
             }
-            Expression::Lit(_) => error(self, "Dangling expression after literal"),
+            Expression::Lit(_) => error(self, "Unexpected expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
     }
@@ -1363,8 +1363,7 @@ impl ExprNode for BinExpr {
             self.rhs = Rc::clone(child);
             Ok(())
         } else {
-            dbg!(&self.rhs, &child);
-            error(self, "Dangling expression")
+            error(&**child, "Unexpected expression")
         }
     }
 }
@@ -1628,7 +1627,7 @@ impl BinExpr {
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
 
-        // my_dbg!(&program, &rhs_str);
+        my_dbg!(&program, &rhs_str);
 
         // Start a copy of the running program with the arguments "-c" rhs_str
         let child = match StdCommand::new(&program)
@@ -2063,14 +2062,14 @@ impl ExprNode for BranchExpr {
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
             if !self.expect_else {
-                return error(self, "Expecting ELSE keyword");
+                return error(&**child, "Expecting ELSE keyword");
             }
             if !child.is_group() {
                 return error(&**child, "Parentheses are required around ELSE block");
             }
             self.else_branch = Rc::clone(child);
         } else {
-            return error(self, "Dangling expression after ELSE block");
+            return error(&**child, "Unexpected expression after ELSE block");
         }
         Ok(())
     }
@@ -2199,7 +2198,7 @@ impl ExprNode for LoopExpr {
 
 impl fmt::Display for LoopExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "while ({}) {}", self.cond, self.body)
+        write!(f, "while {} {}", self.cond, self.body)
     }
 }
 
