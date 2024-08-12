@@ -343,6 +343,7 @@ trait ExprNode {
 struct Parser<I: Iterator<Item = char>> {
     chars: Peekable<I>,
     loc: Location,
+    prev_loc: Location,
     comment: bool,
     escaped: bool,
     in_quotes: bool,
@@ -412,6 +413,7 @@ where
         Self {
             chars: input.peekable(),
             loc,
+            prev_loc: loc,
             comment: false,
             escaped: false,
             in_quotes: false,
@@ -649,6 +651,8 @@ where
     fn add_expr(&mut self, expr: &Rc<Expression>) -> EvalResult {
         assert!(!expr.is_empty());
 
+        self.prev_loc = self.loc;
+
         if self.expect_else_expr {
             self.current_expr = self.expr_stack.pop().unwrap();
             self.expect_else_expr = false;
@@ -758,9 +762,11 @@ where
             self.group_stack.push(Rc::clone(&self.group));
 
             if group == Group::Args {
-                self.group = new_args(self.loc, &self.scope);
+                self.group = new_args(self.prev_loc, &self.scope);
+                self.prev_loc = self.loc;
             } else {
-                self.group = new_group(self.loc, &self.scope);
+                self.group = new_group(self.prev_loc, &self.scope);
+                self.prev_loc = self.loc;
             }
         }
         self.expr_stack.push(Rc::clone(&self.current_expr));
@@ -825,7 +831,7 @@ where
                             if_branch: self.empty(),
                             else_branch: self.empty(),
                             expect_else: false, // becomes true once "else" keyword is seen
-                            loc: self.loc,
+                            loc: self.prev_loc,
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -834,6 +840,7 @@ where
                             if f.borrow().var.is_empty() {
                                 return error(self, "Expecting identifier in FOR expression");
                             }
+                            self.prev_loc = self.loc;
                         } else {
                             return error(self, "IN without FOR");
                         }
@@ -843,6 +850,7 @@ where
                             if !b.borrow_mut().is_else_expected() {
                                 return error(self, "Conditional expression or IF branch missing");
                             }
+                            self.prev_loc = self.loc;
                             self.expect_else_expr = true;
                             self.push(Group::None)?;
                         } else {
@@ -853,7 +861,7 @@ where
                             var: String::default(),
                             args: self.empty(),
                             body: self.empty(),
-                            loc: self.loc,
+                            loc: self.prev_loc,
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -862,14 +870,14 @@ where
                         let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
                             cond: self.empty(),
                             body: self.empty(),
-                            loc: self.loc,
+                            loc: self.prev_loc,
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "BREAK" || word == "CONTINUE" {
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                             tok: word.clone(),
-                            loc: self.loc,
+                            loc: self.prev_loc,
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -881,7 +889,7 @@ where
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
                                 args: self.empty(),
-                                loc: self.loc,
+                                loc: self.prev_loc,
                                 scope: Rc::clone(&self.scope),
                             })));
                             self.add_expr(&expr)?;
@@ -895,7 +903,7 @@ where
                     // Identifiers and literals
                     let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                         tok: s.clone(),
-                        loc: self.loc,
+                        loc: self.prev_loc,
                         scope: Rc::clone(&self.scope),
                     })));
                     self.add_expr(&expr)?;
@@ -913,9 +921,11 @@ where
                         op: op.clone(),
                         lhs: Rc::clone(&self.current_expr),
                         rhs: self.empty(),
-                        loc: self.loc,
+                        loc: self.prev_loc,
                         scope: Rc::clone(&self.scope),
                     })));
+
+                    self.prev_loc = self.loc;
 
                     if op.priority() == Priority::Low {
                         self.expr_stack.push(Rc::clone(&expr));
@@ -2143,6 +2153,9 @@ impl Eval for ForExpr {
     fn eval(&self) -> EvalResult<Value> {
         if self.var.is_empty() {
             return error(self, "Expecting FOR variable");
+        }
+        if self.args.is_empty() || self.args.is_no_args() {
+            return error(self, "Expecting FOR arguments");
         }
         if self.body.is_empty() {
             return error(self, "Expecting FOR body");
