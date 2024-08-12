@@ -1335,9 +1335,10 @@ macro_rules! eval_cmp_fn {
 }
 
 impl BinExpr {
-    fn eval_and(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
+    fn eval_and(&self) -> EvalResult<Value> {
         Ok(Value::Int(
-            (value_as_bool(lhs, &self.scope) && value_as_bool(rhs, &self.scope)) as _,
+            (value_as_bool(self.lhs.eval()?, &self.scope)
+                && value_as_bool(self.rhs.eval()?, &self.scope)) as _,
         ))
     }
 
@@ -1480,9 +1481,10 @@ impl BinExpr {
         }
     }
 
-    fn eval_or(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
+    fn eval_or(&self) -> EvalResult<Value> {
         Ok(Value::Int(
-            (value_as_bool(lhs, &self.scope) || value_as_bool(rhs, &self.scope)) as _,
+            (value_as_bool(self.lhs.eval()?, &self.scope)
+                || value_as_bool(self.rhs.eval()?, &self.scope)) as _,
         ))
     }
 
@@ -1662,7 +1664,7 @@ impl Eval for BinExpr {
             }
         } else {
             match self.op {
-                Op::And => eval_bin!(self, eval_and),
+                Op::And => self.eval_and(),
                 Op::Append => self.eval_write(true),
                 Op::Assign => self.eval_assign(self.rhs.eval()?.clone()),
                 Op::Div => eval_bin!(self, eval_div),
@@ -1677,7 +1679,7 @@ impl Eval for BinExpr {
                 Op::Mul => eval_bin!(self, eval_mul),
                 Op::Not => error(self, "Unexpected logical negation operator"),
                 Op::NotEquals => eval_bin!(self, eval_not_equals),
-                Op::Or => eval_bin!(self, eval_or),
+                Op::Or => self.eval_or(),
                 Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
                 Op::Plus => eval_bin!(self, eval_plus),
                 Op::Write => self.eval_write(false),
@@ -1721,7 +1723,6 @@ impl GroupExpr {
     }
 
     fn lazy_eval(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
-        self.scope.clear();
         self.group.iter().map(|expr| expr.eval())
     }
 }
@@ -1951,7 +1952,10 @@ impl BranchExpr {
 fn hoist(scope: &Rc<Scope>, var_name: &str) {
     if let Some(v) = scope.lookup_local(var_name) {
         if let Some(parent) = &scope.parent {
-            parent.insert(var_name.to_string(), v.value());
+            // topmost scope is for environment vars
+            if parent.parent.is_some() {
+                parent.insert(var_name.to_string(), v.value());
+            }
         }
     }
 }
