@@ -13,8 +13,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 
-mod cmds;
 #[macro_use]
+mod macros;
+
+mod cmds;
 mod eval;
 mod tests;
 

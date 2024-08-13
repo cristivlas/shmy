@@ -1,8 +1,10 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
+use crate::my_println;
 use chrono::DateTime;
 use colored::*;
+use core::fmt;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -10,8 +12,67 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
 
-fn supports_color() -> bool {
-    std::io::stdout().is_terminal()
+struct ColorScheme {
+    use_colors: bool,
+}
+
+impl ColorScheme {
+    fn new() -> Self {
+        Self {
+            use_colors: std::io::stdout().is_terminal(),
+        }
+    }
+
+    fn render_error<E: fmt::Display>(&self, e: &E) -> ColoredString {
+        if self.use_colors {
+            e.to_string().red()
+        } else {
+            e.to_string().normal()
+        }
+    }
+
+    fn render_file_name(&self, file_name: &str, metadata: &Metadata) -> ColoredString {
+        if self.use_colors {
+            if metadata.is_dir() {
+                return file_name.blue().bold();
+            } else if metadata.is_symlink() {
+                return file_name.cyan().bold();
+            }
+        }
+        return file_name.normal();
+    }
+
+    fn render_file_type(&self, file_type: &str) -> ColoredString {
+        if self.use_colors {
+            file_type.blue()
+        } else {
+            file_type.normal()
+        }
+    }
+
+    fn render_permissions(&self, perm: String) -> ColoredString {
+        if self.use_colors {
+            perm.cyan()
+        } else {
+            perm.normal()
+        }
+    }
+
+    fn render_size(&self, size: String) -> ColoredString {
+        if self.use_colors {
+            size.green()
+        } else {
+            size.normal()
+        }
+    }
+
+    fn render_mod_time(&self, time: String) -> ColoredString {
+        if self.use_colors {
+            time.purple()
+        } else {
+            time.normal()
+        }
+    }
 }
 
 struct Dir {
@@ -25,6 +86,13 @@ struct CmdArgs {
     human_readable: bool,
     help: bool,
     paths: Vec<String>,
+    colors: ColorScheme,
+}
+
+impl CmdArgs {
+    fn cannot_access<P: fmt::Display, E: fmt::Display>(&self, path: &P, e: &E) {
+        eprintln!("cannot access '{}: {}", path, self.colors.render_error(e));
+    }
 }
 
 impl Dir {
@@ -55,6 +123,7 @@ impl Dir {
             } else {
                 parsed_args
             },
+            colors: ColorScheme::new(),
         };
 
         Ok(cmd_args)
@@ -75,40 +144,12 @@ impl Exec for Dir {
             self.print_help();
             return Ok(Value::success());
         }
+
         list_entries(&cmd_args)
     }
 
     fn is_external(&self) -> bool {
         false
-    }
-}
-
-fn make_abspath(path: &str) -> Result<String, String> {
-    let path = Path::new(path);
-    match fs::canonicalize(path) {
-        Ok(abs_path) => Ok(abs_path.to_string_lossy().to_string()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn format_file_type(metadata: &fs::Metadata) -> char {
-    if metadata.is_dir() {
-        'd'
-    } else if metadata.is_file() {
-        '-'
-    } else if metadata.is_symlink() {
-        'l'
-    } else {
-        '?'
-    }
-}
-
-fn format_time(time: SystemTime) -> String {
-    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
-    if let Some(datetime) = DateTime::from_timestamp(duration.as_secs() as i64, 0) {
-        datetime.format("%b %d %H:%M").to_string()
-    } else {
-        "?".to_owned()
     }
 }
 
@@ -330,17 +371,29 @@ use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(args: &CmdArgs) -> Result<Value, String> {
     for path in &args.paths {
-        let metadata =
-            fs::metadata(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
-
-        if metadata.is_dir() {
-            print_dir(path, &args)?;
-        } else {
-            print_file(path, &metadata, &args)?;
+        match fs::metadata(path) {
+            Ok(metadata) => {
+                if metadata.is_dir() {
+                    print_dir(path, &args)?;
+                } else {
+                    print_file(path, &metadata, &args)?;
+                }
+            }
+            Err(e) => {
+                args.cannot_access(path, &e);
+            }
         }
     }
 
     Ok(Value::success())
+}
+
+fn make_abspath(path: &str) -> Result<String, String> {
+    let path = Path::new(path);
+    match fs::canonicalize(path) {
+        Ok(abs_path) => Ok(abs_path.to_string_lossy().to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
@@ -351,7 +404,7 @@ fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
     entries.sort_by_key(|e| e.file_name());
 
     if args.paths.len() > 1 {
-        println!("\n{}:", make_abspath(path)?);
+        my_println!("\n{}:", make_abspath(path)?)?;
     }
 
     if args.show_details {
@@ -359,7 +412,6 @@ fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
     } else {
         print_simple_entries(&entries, &args)?;
     }
-
     Ok(())
 }
 
@@ -367,48 +419,7 @@ fn print_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), Str
     if args.show_details {
         print_details(&PathBuf::from(path), metadata, args)?;
     } else if args.all_files || !path.starts_with(".") {
-        if supports_color() {
-            println!("{}", colorize_file_name(path, metadata));
-        } else {
-            println!("{}", path);
-        }
-    }
-
-    Ok(())
-}
-
-fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
-    println!("total {}", entries.len());
-    for entry in entries {
-        match entry.metadata() {
-            Ok(metadata) => {
-                print_details(&entry.path(), &metadata, args)?;
-            }
-            Err(e) => {
-                // TODO: revisit and refactor error handling
-                if supports_color() {
-                    eprintln!(
-                        "cannot access {}: {}",
-                        entry.file_name().to_string_lossy(),
-                        e.to_string().red()
-                    );
-                } else {
-                    eprintln!(
-                        "cannot access {}: {}",
-                        entry.file_name().to_string_lossy(),
-                        e
-                    );
-                }
-                println!(
-                    "?---------  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {:>12}  {}",
-                    "?",
-                    "?",
-                    "?",
-                    "?",
-                    entry.file_name().to_string_lossy().to_string()
-                );
-            }
-        }
+        my_println!("{}", args.colors.render_file_name(path, metadata))?;
     }
     Ok(())
 }
@@ -428,49 +439,62 @@ fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), S
 
     for entry in entries.iter() {
         let file_name = entry.file_name().to_string_lossy().to_string();
+
         if !args.all_files && file_name.starts_with('.') {
             continue;
         }
 
         if current_column >= columns {
-            println!();
+            my_println!("{}", "")?;
             current_column = 0;
         }
 
-        // TODO: Fix code duplication
-        if supports_color() {
-            // TODO: customize colors via environment vars
-            let metadata = entry.metadata().map_err(|e| e.to_string())?;
-            let file_name = colorize_file_name(file_name.as_str(), &metadata);
+        let file_name = match entry.metadata() {
+            Ok(metadata) => args.colors.render_file_name(&file_name, &metadata),
+            Err(_) => args.colors.render_error(&file_name),
+        };
 
-            if current_column == 0 {
-                print!("{:<width$}", file_name, width = column_width);
-            } else {
-                print!(
-                    " {:<width$}",
-                    file_name,
-                    width = column_width.saturating_sub(1)
-                );
-            }
+        if current_column == 0 {
+            my_print!("{:<width$}", file_name, width = column_width)?;
         } else {
-            if current_column == 0 {
-                print!("{:<width$}", file_name, width = column_width);
-            } else {
-                print!(
-                    " {:<width$}",
-                    file_name,
-                    width = column_width.saturating_sub(1)
-                );
-            }
+            my_print!(
+                " {:<width$}",
+                file_name,
+                width = column_width.saturating_sub(1)
+            )?;
         }
 
         current_column += 1;
     }
 
     if current_column != 0 {
-        println!();
+        my_println!("{}", "")?;
     }
 
+    Ok(())
+}
+
+fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
+    my_println!("total {}", entries.len())?;
+    for entry in entries {
+        match entry.metadata() {
+            Ok(metadata) => {
+                print_details(&entry.path(), &metadata, args)?;
+            }
+            Err(e) => {
+                args.cannot_access(&entry.file_name().to_string_lossy(), &e);
+                my_println!(
+                    "?---------  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {:>12}  {}",
+                    "?",
+                    "?",
+                    "?",
+                    "?",
+                    args.colors
+                        .render_error(&entry.file_name().to_string_lossy())
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -490,41 +514,21 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<
             base_name.to_string()
         };
 
-        let file_type = format_file_type(&metadata);
         let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
         let (owner, group) = get_owner_and_group(Path::new(path).to_path_buf(), &metadata);
-        let permissions = get_permissions(&metadata);
-        let size = format_file_size(&metadata, args);
 
-        if supports_color() {
-            println!(
-                "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-                file_type.to_string().blue(),
-                permissions.cyan(),
-                owner,
-                group,
-                size.green(),
-                modified_time.purple(),
-                colorize_file_name(&file_name, &metadata)
-            );
-        } else {
-            println!(
-                "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-                file_type, permissions, owner, group, size, modified_time, file_name
-            );
-        }
+        my_println!(
+            "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
+            args.colors.render_file_type(format_file_type(&metadata)),
+            args.colors.render_permissions(get_permissions(&metadata)),
+            owner,
+            group,
+            args.colors.render_size(format_file_size(&metadata, args)),
+            args.colors.render_mod_time(modified_time),
+            args.colors.render_file_name(&file_name, metadata)
+        )?;
     }
     Ok(())
-}
-
-fn colorize_file_name(file_name: &str, metadata: &Metadata) -> ColoredString {
-    if metadata.is_dir() {
-        file_name.blue().bold()
-    } else if metadata.is_symlink() {
-        file_name.cyan().bold()
-    } else {
-        file_name.normal()
-    }
 }
 
 fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
@@ -541,6 +545,27 @@ fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
         }
     } else {
         metadata.len().to_string()
+    }
+}
+
+fn format_file_type(metadata: &fs::Metadata) -> &'static str {
+    if metadata.is_dir() {
+        "d"
+    } else if metadata.is_file() {
+        "-"
+    } else if metadata.is_symlink() {
+        "l"
+    } else {
+        "?"
+    }
+}
+
+fn format_time(time: SystemTime) -> String {
+    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    if let Some(datetime) = DateTime::from_timestamp(duration.as_secs() as i64, 0) {
+        datetime.format("%b %d %H:%M").to_string()
+    } else {
+        "?".to_owned()
     }
 }
 

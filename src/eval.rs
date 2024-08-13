@@ -20,35 +20,6 @@ pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
 ];
 
-#[macro_export]
-macro_rules! my_dbg {
-    ($($arg:tt)*) => {
-        if cfg!(debug_assertions) {
-            dbg!($($arg)*)
-        } else {
-            ($($arg)*)
-        }
-    };
-}
-
-/// Write to stdout without panic
-#[macro_export]
-macro_rules! my_println {
-    ($($arg:tt)*) => {{
-        use std::io::Write;
-
-        // Create a formatted string
-        let output = format!($($arg)*);
-        // Attempt to write to stdout
-        std::io::stdout().lock()
-            .write_all(output.as_bytes())
-            .and_then(|_| std::io::stdout().write_all(b"\n"))
-            .map_err(|e| e.to_string())?;
-
-        Ok(()) as Result<(), String>
-    }};
-}
-
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
