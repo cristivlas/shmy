@@ -766,8 +766,19 @@ where
     }
 
     fn finalize_groups(&mut self) -> EvalResult {
-        if self.group.is_args() {
-            self.add_current_expr_to_group()?; // Finalize pending cmd line args
+        // Closed parentheses? mark the group as closed
+        if let Expression::Group(g) = &*self.group {
+            g.borrow_mut().closed = true;
+        } else {
+            assert!(self.group.is_args());
+            self.add_current_expr_to_group()?;
+
+            if self.group.is_args() && !self.current_expr.is_cmd() {
+                return error(
+                    &*self.current_expr,
+                    "Missing parentheses around FOR expression",
+                );
+            }
         }
         self.add_current_expr_to_group()
     }
@@ -802,11 +813,6 @@ where
     }
 
     fn pop_group(&mut self) -> EvalResult {
-        // Closed parentheses? mark the group as closed
-        if let Expression::Group(g) = &*self.group {
-            g.borrow_mut().closed = true;
-        }
-
         if self.group_stack.is_empty() {
             return Err(EvalError::new(
                 self.loc,
@@ -967,14 +973,17 @@ where
             }
         }
 
+        self.finalize_parse()
+    }
+
+    fn finalize_parse(&mut self) -> EvalResult<Rc<Expression>> {
         self.finalize_groups()?;
 
         if !self.expr_stack.is_empty() {
             let msg = if self.expect_else_expr {
                 "Dangling ELSE"
             } else {
-                dbg!(&self.expr_stack);
-                "Unbalanced expression"
+                "Missing closed parenthesis"
             };
             return error(self, msg);
         }
