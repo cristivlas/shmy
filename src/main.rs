@@ -124,28 +124,9 @@ impl completion::Completer for CmdLineHelper {
             }
         }
 
-        // Try the file completer next ...
-        let completions = self.completer.complete(line, pos, ctx);
-
-        if let Ok((start, v)) = completions {
-            if !v.is_empty() {
-                // Replace unescaped \ with \\ in each completion's replacement
-                let escaped_completions: Vec<Self::Candidate> = v
-                    .into_iter()
-                    .map(|mut candidate| {
-                        if line.contains('"') || candidate.replacement.starts_with('"') {
-                            candidate.replacement = escape_backslashes(&candidate.replacement);
-                        }
-                        candidate
-                    })
-                    .collect();
-                return Ok((start, escaped_completions));
-            }
-        }
-
-        // If no file completion, expand keywords and builtin commands.
+        // Expand keywords and builtin commands.
         let mut keywords = vec![];
-        let mut ret_pos = pos;
+        let mut kw_pos = pos;
 
         if line.ends_with("~") {
             // TODO: revisit; this may conflict with the rustyline built-in TAB completion, which
@@ -155,24 +136,55 @@ impl completion::Completer for CmdLineHelper {
                     display: String::default(),
                     replacement: v.to_string(),
                 });
-                ret_pos -= 1;
+                kw_pos -= 1;
             }
         } else {
-            ret_pos = 0;
-
             let (head, tail) = split_delim(line);
-            for kw in &self.keywords {
-                if kw.to_lowercase().starts_with(&tail) {
-                    let repl = format!("{}{} ", head, kw);
-                    keywords.push(completion::Pair {
+            if tail.starts_with("$") {
+                kw_pos -= tail.len();
+                keywords.extend(self.scope.lookup_partial(&tail[1..]).iter().map(|k| {
+                    Self::Candidate {
+                        replacement: format!("${}", k),
                         display: String::default(),
-                        replacement: repl,
-                    });
+                    }
+                }));
+            } else {
+                kw_pos = 0;
+
+                for kw in &self.keywords {
+                    if kw.to_lowercase().starts_with(&tail) {
+                        let repl = format!("{}{} ", head, kw);
+                        keywords.push(completion::Pair {
+                            display: String::default(),
+                            replacement: repl,
+                        });
+                    }
                 }
             }
         }
 
-        Ok((ret_pos, keywords))
+        if keywords.is_empty() {
+            // Try the file completer next ...
+            let completions = self.completer.complete(line, pos, ctx);
+
+            if let Ok((start, v)) = completions {
+                if !v.is_empty() {
+                    // Replace unescaped \ with \\ in each completion's replacement
+                    let escaped_completions: Vec<Self::Candidate> = v
+                        .into_iter()
+                        .map(|mut candidate| {
+                            if line.contains('"') || candidate.replacement.starts_with('"') {
+                                candidate.replacement = escape_backslashes(&candidate.replacement);
+                            }
+                            candidate
+                        })
+                        .collect();
+                    return Ok((start, escaped_completions));
+                }
+            }
+        }
+
+        Ok((kw_pos, keywords))
     }
 }
 

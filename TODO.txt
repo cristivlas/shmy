@@ -3,5 +3,4 @@ Revisit =>, =>>
 $__errors propagation across pipes?
 implement a simple command for reading user input
 add argument to cp to specify buffer size
-TAB-expand variables
 multi-threaded cp?

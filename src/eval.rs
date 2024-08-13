@@ -892,7 +892,13 @@ where
                 }
                 Token::Literal((s, quoted)) => {
                     if !quoted && !self.group.is_args() {
-                        if let Some(cmd) = get_command(s) {
+                        let mut name = s.to_string();
+                        if s.starts_with("$") {
+                            if let Some(val) = self.scope.lookup_value(&s[1..]) {
+                                name = val.to_string();
+                            }
+                        }
+                        if let Some(cmd) = get_command(name.as_str()) {
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
                                 args: self.empty(),
@@ -1061,6 +1067,17 @@ impl Scope {
 
     pub fn lookup_local(&self, var_name: &str) -> Option<Variable> {
         self.vars.borrow().get(var_name).cloned()
+    }
+
+    pub fn lookup_partial(&self, var_name: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+
+        for key in self.vars.borrow().keys() {
+            if key.to_lowercase().starts_with(var_name) {
+                keys.push(key.clone())
+            }
+        }
+        keys
     }
 
     pub fn lookup_value(&self, var_name: &str) -> Option<Value> {

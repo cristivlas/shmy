@@ -81,6 +81,7 @@ struct Dir {
 }
 
 const OWNER_MAX_LEN: usize = 16;
+
 struct CmdArgs {
     all_files: bool,
     show_details: bool,
@@ -533,7 +534,9 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<
 }
 
 fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
-    if args.human_readable {
+    if metadata.is_dir() {
+        String::default()
+    } else if args.human_readable {
         let size = metadata.len();
         if size < 1024 {
             format!("{}B", size)

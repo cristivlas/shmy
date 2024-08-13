@@ -75,8 +75,15 @@ impl Exec for Vars {
 
 #[ctor::ctor]
 fn register() {
+    let vars = Rc::new(Vars::new());
+
+    register_command(ShellCommand {
+        name: "env".to_string(),
+        inner: Rc::clone(&vars) as Rc<dyn Exec>,
+    });
+
     register_command(ShellCommand {
         name: "vars".to_string(),
-        inner: Rc::new(Vars::new()),
+        inner: Rc::clone(&vars) as Rc<dyn Exec>,
     });
 }
