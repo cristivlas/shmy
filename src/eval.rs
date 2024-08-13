@@ -892,14 +892,7 @@ where
                 }
                 Token::Literal((s, quoted)) => {
                     if !quoted && !self.group.is_args() {
-                        let mut name = s.to_string();
-                        if s.starts_with("$") {
-                            // TODO: parse arguments
-                            if let Some(val) = self.scope.lookup_value(&s[1..]) {
-                                name = val.to_string();
-                            }
-                        }
-                        if let Some(cmd) = get_command(name.as_str()) {
+                        if let Some(cmd) = get_command(s) {
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
                                 args: self.empty(),
@@ -1297,9 +1290,7 @@ impl Expression {
         let mut tokens = Vec::new();
 
         for val in &self.to_values()? {
-            for tok in val.to_string().split_ascii_whitespace() {
-                tokens.push(tok.to_string());
-            }
+            tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
         }
 
         Ok(tokens)

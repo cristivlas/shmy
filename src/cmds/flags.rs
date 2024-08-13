@@ -22,6 +22,7 @@ impl CommandFlags {
         }
     }
 
+    /// Add boolean flag
     pub fn add_flag(&mut self, short: char, long: &str, help: &str) {
         self.flags.insert(
             long.to_string(),
@@ -34,15 +35,28 @@ impl CommandFlags {
         );
     }
 
+    /// Add flag that takes value(s)
+    pub fn add_value_flag(&mut self, short: char, long: &str, help: &str) {
+        self.flags.insert(
+            long.to_string(),
+            Flag {
+                short,
+                long: long.to_string(),
+                help: help.to_string(),
+                takes_value: true,
+            },
+        );
+    }
+
     pub fn parse(&mut self, args: &[String]) -> Result<Vec<String>, String> {
         let mut args_iter = args.iter().peekable();
         let mut non_flag_args = Vec::new();
 
         while let Some(arg) = args_iter.next() {
-            if arg.starts_with("--") {
+            if arg.starts_with("--") && arg != "--" {
                 self.handle_long_flag(arg, &mut args_iter)?;
             } else if arg.starts_with('-') && arg != "-" {
-                self.handle_short_flags(arg)?;
+                self.handle_short_flags(arg, &mut args_iter)?;
             } else {
                 non_flag_args.push(arg.clone());
             }
@@ -73,14 +87,33 @@ impl CommandFlags {
         Ok(())
     }
 
-    fn handle_short_flags(&mut self, arg: &str) -> Result<(), String> {
-        for c in arg[1..].chars() {
+    fn handle_short_flags(
+        &mut self,
+        arg: &str,
+        args_iter: &mut std::iter::Peekable<std::slice::Iter<String>>,
+    ) -> Result<(), String> {
+        for (pos, c) in arg[1..].chars().enumerate() {
             if let Some(flag) = self.flags.values().find(|f| f.short == c) {
                 if flag.takes_value {
-                    return Err(format!(
-                        "Short flag -{} that requires a value should be last in group",
-                        c
-                    ));
+                    if pos + 2 < arg.len() {
+                        return Err(format!(
+                            "Short flag -{} that requires a value should be last in group",
+                            c
+                        ));
+                    } else if let Some(value) = args_iter.next() {
+                        // Special case -- consumes all flags
+                        let next = if c == '-' {
+                            std::iter::once(value.clone())
+                                .chain(args_iter.cloned())
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        } else {
+                            value.clone()
+                        };
+                        self.values.insert(flag.long.clone(), next);
+                    } else {
+                        return Err(format!("Flag -{} requires a value", flag.short));
+                    }
                 } else {
                     self.values.insert(flag.long.clone(), "true".to_string());
                 }
@@ -97,6 +130,10 @@ impl CommandFlags {
 
     pub fn is_present(&self, name: &str) -> bool {
         self.values.contains_key(name)
+    }
+
+    pub fn get_value(&self, name: &str) -> Option<String> {
+        self.values.get(name).cloned()
     }
 
     pub fn help(&self) -> String {

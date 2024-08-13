@@ -26,6 +26,7 @@ mod mv;
 mod prompt;
 mod realpath;
 mod rm;
+mod run;
 mod vars;
 mod wc;
 
@@ -92,11 +93,12 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
 pub fn list_registered_commands(internal: bool) -> Vec<String> {
     let registry = COMMAND_REGISTRY.lock().unwrap();
 
-    let mut commands: Vec<String> = if internal { registry
-        .keys()
-        .cloned()
-        .filter(|k| registry.get(k).map_or(true, |c| !c.is_external()))
-        .collect()
+    let mut commands: Vec<String> = if internal {
+        registry
+            .keys()
+            .cloned()
+            .filter(|k| registry.get(k).map_or(true, |c| !c.is_external()))
+            .collect()
     } else {
         registry.keys().cloned().collect()
     };

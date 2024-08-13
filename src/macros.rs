@@ -10,7 +10,8 @@ macro_rules! my_dbg {
     };
 }
 
-/// Write to stdout without panic
+/// Write to stdout without panic.
+/// More robust than built-in when redirect stdout to pipe.
 #[macro_export]
 macro_rules! my_println {
     // Version with arguments
@@ -29,7 +30,8 @@ macro_rules! my_println {
     }};
 }
 
-/// Write to stdout without newline and without panic
+/// Write to stdout without newline and without panic.
+/// More robust than built-in when redirect stdout to pipe.
 #[macro_export]
 macro_rules! my_print {
     // Version with arguments

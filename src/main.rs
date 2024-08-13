@@ -128,18 +128,19 @@ impl completion::Completer for CmdLineHelper {
         let mut keywords = vec![];
         let mut kw_pos = pos;
 
-        if line.ends_with("~") {
+        let (head, tail) = split_delim(line);
+
+        if tail.starts_with("~") {
             // TODO: revisit; this may conflict with the rustyline built-in TAB completion, which
             // uses home_dir, while here the value of $HOME is used (and the user can change it).
             if let Some(v) = self.scope.lookup_value("HOME") {
                 keywords.push(completion::Pair {
                     display: String::default(),
-                    replacement: v.to_string(),
+                    replacement: format!("{}{}{}", head, v, &tail[1..])
                 });
-                kw_pos -= 1;
+                kw_pos = 0;
             }
         } else {
-            let (head, tail) = split_delim(line);
             if tail.starts_with("$") {
                 kw_pos -= tail.len();
                 keywords.extend(self.scope.lookup_partial(&tail[1..]).iter().map(|k| {
@@ -173,7 +174,7 @@ impl completion::Completer for CmdLineHelper {
                     let escaped_completions: Vec<Self::Candidate> = v
                         .into_iter()
                         .map(|mut candidate| {
-                            if line.contains('"') || candidate.replacement.starts_with('"') {
+                            if tail.contains('"') || candidate.replacement.starts_with('"') {
                                 candidate.replacement = escape_backslashes(&candidate.replacement);
                             }
                             candidate
