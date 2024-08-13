@@ -89,9 +89,17 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
     cmd
 }
 
-pub fn list_registered_commands() -> Vec<String> {
+pub fn list_registered_commands(internal: bool) -> Vec<String> {
     let registry = COMMAND_REGISTRY.lock().unwrap();
-    let mut commands: Vec<String> = registry.keys().cloned().collect();
+
+    let mut commands: Vec<String> = if internal { registry
+        .keys()
+        .cloned()
+        .filter(|k| registry.get(k).map_or(true, |c| !c.is_external()))
+        .collect()
+    } else {
+        registry.keys().cloned().collect()
+    };
     commands.sort();
     commands
 }
@@ -214,7 +222,7 @@ impl Exec for Which {
 
         for command in args {
             if let Some(cmd) = get_command(command) {
-                if !cmd.is_external() && !flags.is_present("external"){
+                if !cmd.is_external() && !flags.is_present("external") {
                     my_println!("{}: built-in", command)?;
                 }
             }

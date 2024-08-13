@@ -32,7 +32,7 @@ struct CmdLineHelper {
 
 impl CmdLineHelper {
     fn new(scope: Rc<Scope>) -> Self {
-        let mut keywords = list_registered_commands();
+        let mut keywords = list_registered_commands(false);
 
         keywords.extend(KEYWORDS.iter().map(|s| s.to_string()));
 

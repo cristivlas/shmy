@@ -58,7 +58,7 @@ impl Exec for Help {
         if args.is_empty() {
             Self::print_interpreter_help();
             println!("\nAvailable commands:");
-            for cmd in list_registered_commands() {
+            for cmd in list_registered_commands(true) {
                 println!("  {}", cmd);
             }
             println!("\nUse 'help COMMAND' for more information about a specific command.");

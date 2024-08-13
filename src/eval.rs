@@ -894,6 +894,7 @@ where
                     if !quoted && !self.group.is_args() {
                         let mut name = s.to_string();
                         if s.starts_with("$") {
+                            // TODO: parse arguments
                             if let Some(val) = self.scope.lookup_value(&s[1..]) {
                                 name = val.to_string();
                             }
