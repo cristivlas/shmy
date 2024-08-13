@@ -1262,34 +1262,29 @@ impl Expression {
 
     /// Argument evaluation
     fn to_values(&self) -> EvalResult<Vec<Value>> {
-        let mut values = Vec::new();
-
         match &self {
             Expression::Args(args) => {
+                let mut values = Vec::new();
+
                 for v in args.borrow().iter() {
-                    let value = Status::check_result(v)?;
-
-                    match &value {
-                        Value::Str(string) => {
-                            for s in string.split_ascii_whitespace() {
-                                values.push(s.parse::<Value>()?);
-                            }
-                        }
-                        _ => {
-                            values.push(value);
-                        }
-                    }
+                    values.push(Status::check_result(v)?);
                 }
+                Ok(values)
             }
-            _ => error(self, "Expecting argument list")?,
+            _ => error(self, "Expecting argument list"),
         }
-
-        Ok(values)
     }
 
-    fn to_strings(&self) -> EvalResult<Vec<String>> {
-        let values = self.to_values()?;
-        Ok(values.into_iter().map(|v| v.to_string()).collect())
+    fn tokenize_args(&self) -> EvalResult<Vec<String>> {
+        let mut tokens = Vec::new();
+
+        for val in &self.to_values()? {
+            for tok in val.to_string().split_ascii_whitespace() {
+                tokens.push(tok.to_string());
+            }
+        }
+
+        Ok(tokens)
     }
 }
 
@@ -1952,7 +1947,12 @@ impl Eval for Command {
         handle_redir_error!(&redir_stderr, self.loc);
 
         // Evaluate command line arguments and convert to strings
-        let args = self.args.to_strings()?;
+        let args = self
+            .args
+            .to_values()?
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect();
         // Execute command
         let result = self
             .cmd
@@ -2207,7 +2207,7 @@ impl Eval for ForExpr {
 
         let mut result = Ok(Value::success());
 
-        let args = self.args.to_strings()?;
+        let args = self.args.tokenize_args()?;
         for arg in &args {
             self.scope.insert(self.var.clone(), arg.parse::<Value>()?);
             eval_iteration!(self, result);
