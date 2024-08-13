@@ -79,8 +79,15 @@ impl Exec for Help {
 
 #[ctor::ctor]
 fn register() {
+    let help = Rc::new(Help::new());
+
     register_command(ShellCommand {
         name: "help".to_string(),
-        inner: Rc::new(Help::new()),
+        inner: Rc::clone(&help) as Rc<dyn Exec>,
+    });
+
+    register_command(ShellCommand {
+        name: "man".to_string(),
+        inner: Rc::clone(&help) as Rc<dyn Exec>,
     });
 }

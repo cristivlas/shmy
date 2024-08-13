@@ -39,7 +39,7 @@ impl Exec for Realpath {
                 .canonicalize()
                 .map_err(|e| format!("Failed to canonicalize path '{}': {}", arg, e))?;
 
-            println!("{}", canonical_path.display());
+            my_println!("{}", canonical_path.display())?;
         }
 
         Ok(Value::success())

@@ -27,6 +27,7 @@ mod prompt;
 mod realpath;
 mod rm;
 mod vars;
+mod wc;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;

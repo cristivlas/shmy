@@ -91,6 +91,10 @@ impl CommandFlags {
         Ok(())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn is_present(&self, name: &str) -> bool {
         self.values.contains_key(name)
     }
