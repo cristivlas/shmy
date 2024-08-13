@@ -1,9 +1,10 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
+use colored::*;
 use regex::Regex;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, IsTerminal};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -46,6 +47,7 @@ impl Grep {
         line_number_flag: bool,
         ignore_case: bool,
         show_filename: bool,
+        use_color: bool,
     ) {
         let line_to_check = if ignore_case {
             line.to_lowercase()
@@ -63,7 +65,16 @@ impl Grep {
             if line_number_flag {
                 output.push_str(&format!("{}:", line_number + 1));
             }
-            output.push_str(line);
+
+            if use_color {
+                let colored_line = regex.replace_all(line, |caps: &regex::Captures| {
+                    caps[0].red().bold().to_string()
+                });
+                output.push_str(&colored_line);
+            } else {
+                output.push_str(line);
+            }
+
             println!("{}", output);
         }
     }
@@ -74,7 +85,7 @@ impl Exec for Grep {
         false
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
 
@@ -95,9 +106,10 @@ impl Exec for Grep {
         let line_number_flag = flags.is_present("line-number");
         let no_filename = flags.is_present("no-filename");
         let with_filename = flags.is_present("with-filename");
+        let use_color = scope.lookup("NO_COLOR").is_none() && std::io::stdout().is_terminal();
 
         let regex = if ignore_case {
-            Regex::new(&pattern.to_lowercase()).map_err(|e| e.to_string())?
+            Regex::new(&format!("(?i){}", pattern)).map_err(|e| e.to_string())?
         } else {
             Regex::new(pattern).map_err(|e| e.to_string())?
         };
@@ -125,6 +137,7 @@ impl Exec for Grep {
                     line_number_flag,
                     ignore_case,
                     false,
+                    use_color,
                 );
             }
         } else {
@@ -140,6 +153,7 @@ impl Exec for Grep {
                         line_number_flag,
                         ignore_case,
                         show_filename,
+                        use_color,
                     );
                 }
             }

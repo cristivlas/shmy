@@ -17,9 +17,10 @@ struct ColorScheme {
 }
 
 impl ColorScheme {
-    fn new() -> Self {
+    fn with_scope(scope: &Rc<Scope>) -> Self {
+        let color = scope.lookup("NO_COLOR").is_none();
         Self {
-            use_colors: std::io::stdout().is_terminal(),
+            use_colors: color && std::io::stdout().is_terminal(),
         }
     }
 
@@ -109,7 +110,7 @@ impl Dir {
         Self { flags }
     }
 
-    fn parse_args(&self, args: &[String]) -> Result<CmdArgs, String> {
+    fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<CmdArgs, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(args)?;
 
@@ -123,7 +124,7 @@ impl Dir {
             } else {
                 parsed_args
             },
-            colors: ColorScheme::new(),
+            colors: ColorScheme::with_scope(&scope),
         };
 
         Ok(cmd_args)
@@ -138,8 +139,8 @@ impl Dir {
 }
 
 impl Exec for Dir {
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
-        let cmd_args = self.parse_args(args)?;
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+        let cmd_args = self.parse_args(scope, args)?;
         if cmd_args.help {
             self.print_help();
             return Ok(Value::success());

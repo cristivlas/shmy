@@ -138,9 +138,7 @@ struct External {
 impl Exec for External {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut command = Command::new(&self.path);
-        for a in args {
-            println!("{}", &a);
-        }
+
         command.args(args);
 
         // Override existing environment variables
