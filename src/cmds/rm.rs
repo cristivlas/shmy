@@ -28,7 +28,7 @@ impl Rm {
     fn remove_file(&self, path: &Path, interactive: bool) -> io::Result<()> {
         if interactive
             && path.exists()
-            && confirm(format!("remove {}", path.display()), false)? != Answer::Yes
+            && confirm(format!("Remove {}", path.display()), false)? != Answer::Yes
         {
             return Ok(());
         }
@@ -39,7 +39,7 @@ impl Rm {
     fn remove_dir(&self, path: &Path, interactive: bool) -> io::Result<()> {
         if interactive
             && path.exists()
-            && confirm(format!("remove directory {}", path.display()), false)? != Answer::Yes
+            && confirm(format!("Remove directory {}", path.display()), false)? != Answer::Yes
         {
             return Ok(());
         }
@@ -54,7 +54,7 @@ impl Rm {
             } else {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
-                    format!("cannot remove '{}': Is a directory", path.display()),
+                    format!("Cannot remove '{}': Is a directory", path.display()),
                 ));
             }
         } else {

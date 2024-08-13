@@ -224,7 +224,7 @@ impl Cp {
             }
 
             if *interactive && dst.exists() {
-                match confirm(format!("overwrite '{}'", dst_path.display()), true)? {
+                match confirm(format!("Overwrite '{}'", dst_path.display()), true)? {
                     Answer::No => continue,
                     Answer::Quit => return Ok(false),
                     Answer::Yes => {}
@@ -253,7 +253,7 @@ impl Cp {
         if !recursive && src.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("omitting directory: {}", src.display()),
+                format!("Omitting directory: {}", src.display()),
             ));
         }
 
@@ -278,7 +278,7 @@ impl Cp {
         } else {
             if *interactive
                 && dst.exists()
-                && confirm(format!("overwrite '{}'", dst.display()), false)? != Answer::Yes
+                && confirm(format!("Overwrite '{}'", dst.display()), false)? != Answer::Yes
             {
                 return Ok(());
             }

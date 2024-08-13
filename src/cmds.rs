@@ -190,6 +190,7 @@ impl Which {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('e', "external", "Show external commands only");
         Which { flags }
     }
 }
@@ -213,12 +214,12 @@ impl Exec for Which {
 
         for command in args {
             if let Some(cmd) = get_command(command) {
-                if !cmd.is_external() {
-                    println!("{}: built-in", command);
+                if !cmd.is_external() && !flags.is_present("external"){
+                    my_println!("{}: built-in", command)?;
                 }
             }
             if let Some(path) = locate_executable(command) {
-                println!("{}", path);
+                my_println!("{}", path)?;
             }
         }
 
