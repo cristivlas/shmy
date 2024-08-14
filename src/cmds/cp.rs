@@ -223,8 +223,8 @@ impl Cp {
                 fs::create_dir_all(parent)?;
             }
 
-            if *interactive && dst.exists() {
-                match confirm(format!("Overwrite '{}'", dst_path.display()), true)? {
+            if *interactive && dst_path.exists() {
+                match confirm(format!("Overwrite '{}'", dst_path.display()), scope, true)? {
                     Answer::No => continue,
                     Answer::Quit => return Ok(false),
                     Answer::Yes => {}
@@ -278,7 +278,7 @@ impl Cp {
         } else {
             if *interactive
                 && dst.exists()
-                && confirm(format!("Overwrite '{}'", dst.display()), false)? != Answer::Yes
+                && confirm(format!("Overwrite '{}'", dst.display()), scope, false)? != Answer::Yes
             {
                 return Ok(());
             }

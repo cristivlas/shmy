@@ -93,7 +93,7 @@ struct CmdArgs {
 
 impl CmdArgs {
     fn cannot_access<P: fmt::Display, E: fmt::Display>(&self, path: &P, e: &E) {
-        eprintln!("cannot access '{}: {}", path, self.colors.render_error(e));
+        eprintln!("Cannot access '{}: {}", path, self.colors.render_error(e));
     }
 }
 
@@ -381,9 +381,7 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
                     print_file(path, &metadata, &args)?;
                 }
             }
-            Err(e) => {
-                args.cannot_access(path, &e);
-            }
+            Err(e) => return Err(e.to_string()),
         }
     }
 
@@ -399,7 +397,7 @@ fn make_abspath(path: &str) -> Result<String, String> {
 }
 
 fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
-    let entries = fs::read_dir(path).map_err(|e| format!("cannot access '{}': {}", path, e))?;
+    let entries = fs::read_dir(path).map_err(|e| format!("Cannot access '{}': {}", path, e))?;
     let mut entries: Vec<_> = entries
         .collect::<Result<_, _>>()
         .map_err(|e| format!("Error reading entries: {}", e))?;

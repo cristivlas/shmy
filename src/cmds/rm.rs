@@ -1,11 +1,40 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
-use crate::cmds::prompt::{confirm, Answer};
+use crate::cmds::prompt::Answer;
 use crate::eval::{Scope, Value};
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::rc::Rc;
+
+struct Context {
+    interactive: bool,
+    recursive: bool,
+    many: bool,
+    quit: bool,
+    scope: Rc<Scope>,
+}
+
+impl Context {
+    fn confirm(&mut self, path: &Path, prompt: String) -> io::Result<Answer> {
+        if self.interactive && path.exists() {
+            match super::prompt::confirm(prompt, &self.scope, self.many)? {
+                Answer::All => {
+                    self.interactive = false;
+                    return Ok(Answer::Yes);
+                }
+                Answer::Quit => {
+                    self.quit = true;
+                    return Ok(Answer::No);
+                }
+                Answer::No => return Ok(Answer::No),
+                Answer::Yes => return Ok(Answer::Yes),
+            }
+        }
+
+        Ok(Answer::Yes)
+    }
+}
 
 struct Rm {
     flags: CommandFlags,
@@ -25,42 +54,35 @@ impl Rm {
         Rm { flags }
     }
 
-    fn remove_file(&self, path: &Path, interactive: bool) -> io::Result<()> {
-        if interactive
-            && path.exists()
-            && confirm(format!("Remove {}", path.display()), false)? != Answer::Yes
-        {
-            return Ok(());
+    fn remove_file(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
+        if ctx.confirm(&path, format!("Remove {}", path.display()))? == Answer::Yes {
+            fs::remove_file(path)
+        } else {
+            Ok(())
         }
-
-        fs::remove_file(path)
     }
 
-    fn remove_dir(&self, path: &Path, interactive: bool) -> io::Result<()> {
-        if interactive
-            && path.exists()
-            && confirm(format!("Remove directory {}", path.display()), false)? != Answer::Yes
-        {
-            return Ok(());
+    fn remove_dir(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
+        if ctx.confirm(&path, format!("Remove directory {}", path.display()))? == Answer::Yes {
+            fs::remove_dir_all(path)
+        } else {
+            Ok(())
         }
-
-        fs::remove_dir_all(path)
     }
 
-    fn remove(&self, path: &Path, interactive: bool, recursive: bool) -> io::Result<()> {
+    fn remove(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
         if path.is_dir() {
-            if recursive {
-                self.remove_dir(path, interactive)?
+            if ctx.recursive {
+                self.remove_dir(path, ctx)
             } else {
-                return Err(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("Cannot remove '{}': Is a directory", path.display()),
-                ));
+                ))
             }
         } else {
-            self.remove_file(path, interactive)?
+            self.remove_file(path, ctx)
         }
-        Ok(())
     }
 }
 
@@ -69,7 +91,7 @@ impl Exec for Rm {
         false
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
 
@@ -85,13 +107,20 @@ impl Exec for Rm {
             return Err("missing operand".to_string());
         }
 
-        let interactive = !flags.is_present("force") || flags.is_present("interactive");
-        let recursive = flags.is_present("recursive");
+        let mut ctx = Context {
+            interactive: !flags.is_present("force") || flags.is_present("interactive"),
+            recursive: flags.is_present("recursive"),
+            many: args.len() > 1,
+            quit: false,
+            scope: Rc::clone(&scope),
+        };
 
         for arg in args {
             let path = Path::new(&arg);
-            self.remove(&path, interactive, recursive)
-                .map_err(|e| e.to_string())?;
+            self.remove(&path, &mut ctx).map_err(|e| e.to_string())?;
+            if ctx.quit {
+                break;
+            }
         }
 
         Ok(Value::success())

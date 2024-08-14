@@ -1,4 +1,4 @@
-use cmds::list_registered_commands;
+use cmds::{get_command, list_registered_commands};
 use directories::UserDirs;
 use eval::{EvalError, Interp, Scope, KEYWORDS};
 use rustyline::completion::{self, FilenameCompleter};
@@ -136,20 +136,24 @@ impl completion::Completer for CmdLineHelper {
             if let Some(v) = self.scope.lookup_value("HOME") {
                 keywords.push(completion::Pair {
                     display: String::default(),
-                    replacement: format!("{}{}{}", head, v, &tail[1..])
+                    replacement: format!("{}{}{}", head, v, &tail[1..]),
                 });
                 kw_pos = 0;
             }
+        } else if tail.starts_with("$") {
+            // Expand variables
+            kw_pos -= tail.len();
+            keywords.extend(self.scope.lookup_partial(&tail[1..]).iter().map(|k| {
+                Self::Candidate {
+                    replacement: format!("${}", k),
+                    display: String::default(),
+                }
+            }));
         } else {
-            if tail.starts_with("$") {
-                kw_pos -= tail.len();
-                keywords.extend(self.scope.lookup_partial(&tail[1..]).iter().map(|k| {
-                    Self::Candidate {
-                        replacement: format!("${}", k),
-                        display: String::default(),
-                    }
-                }));
-            } else {
+            let tok = head.split_ascii_whitespace().next();
+
+            if tok.is_none() || tok.is_some_and(|tok| get_command(&tok).is_none()) {
+                // Expand keywords and commands if the line does not start with a command
                 kw_pos = 0;
 
                 for kw in &self.keywords {

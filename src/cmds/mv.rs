@@ -25,7 +25,7 @@ impl Exec for Mv {
         false
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
 
@@ -54,7 +54,7 @@ impl Exec for Mv {
 
         if dest.exists()
             && interactive
-            && confirm(format!("overwrite '{}'", dest.display()), false)
+            && confirm(format!("overwrite '{}'", dest.display()), scope, false)
                 .map_err(|e| e.to_string())?
                 != Answer::Yes
         {

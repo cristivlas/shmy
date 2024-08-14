@@ -1,5 +1,7 @@
+use crate::eval::Scope;
 use colored::Colorize;
 use std::io::{self, Write};
+use std::rc::Rc;
 
 #[derive(PartialEq)]
 pub enum Answer {
@@ -9,19 +11,26 @@ pub enum Answer {
     Quit,
 }
 
-pub fn confirm(prompt: String, many: bool) -> io::Result<Answer> {
-    let options = if many {
-        format!(
-            "{}es/{}o/{}ll/{}uit",
-            "y".green().bold(),
-            "N".red().bold(),
-            "a".cyan().bold(),
-            "q".yellow().bold()
-        )
+pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answer> {
+    let options = if scope.lookup("NO_COLOR").is_some() {
+        if many {
+            "[Y]es/[N]o/[A]ll/[Q]uit".to_string()
+        } else {
+            "[Y]es/[N]o".to_string()
+        }
     } else {
-        format!("{}es/{}o", "y".green().bold(), "N".red().bold())
+        if many {
+            format!(
+                "{}es/{}o/{}ll/{}uit",
+                "y".green().bold(),
+                "N".red().bold(),
+                "a".cyan().bold(),
+                "q".yellow().bold()
+            )
+        } else {
+            format!("{}es/{}o", "y".green().bold(), "N".red().bold())
+        }
     };
-
     print!("{}? ({}) ", prompt, options);
     io::stdout().flush()?;
 
