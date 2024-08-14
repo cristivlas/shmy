@@ -692,7 +692,8 @@ where
                 e.borrow_mut().add_child(expr)?;
                 if !e.borrow().body.is_empty() {
                     // Prevent the For Expression from being added to the
-                    // current group twice when the group is finalized.
+                    // current group twice when the group is finalized;
+                    // the clearing was postponed when the argument list ended.
                     self.clear_current();
                 }
                 Ok(())
@@ -855,6 +856,9 @@ where
                 Token::Semicolon => {
                     self.finalize_groups()?;
                     if !self.current_expr.is_for() {
+                        // The argument list ends with semicolon but the expression
+                        // is still being parsed; do not clear it; postpone clearing
+                        // it until it is complete (has a body); see add_expr.
                         self.clear_current();
                     }
                 }
@@ -949,7 +953,7 @@ where
                 Token::Operator(op) => {
                     if op.priority() == Priority::Low {
                         if self.group.is_args() {
-                            // Finish the arguments of the left hand-side command.
+                            // Finish the arguments of the right hand-side expression
                             self.add_current_expr_to_group()?;
                         }
                         self.pop_binary_ops(false)?;
@@ -1324,6 +1328,15 @@ impl Expression {
 
         for val in &self.to_values()? {
             tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
+        }
+
+        // Read from stdin if args consist of a single dash
+        if tokens.len() == 1 && tokens[0] == "-" {
+            let mut buffer = String::new();
+            io::stdin()
+                .read_to_string(&mut buffer)
+                .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+            tokens = buffer.split_ascii_whitespace().map(String::from).collect();
         }
 
         Ok(tokens)
@@ -2287,7 +2300,7 @@ impl ExprNode for ForExpr {
 
 impl fmt::Display for ForExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "for {} in {} ({})", &self.var, self.args, self.body)
+        write!(f, "for {} in {}; {}", &self.var, self.args, self.body)
     }
 }
 
