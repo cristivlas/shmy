@@ -919,6 +919,7 @@ where
                     } else if word == "BREAK" || word == "CONTINUE" {
                         let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                             tok: word.clone(),
+                            quoted: false,
                             loc: self.prev_loc,
                             scope: Rc::clone(&self.scope),
                         })));
@@ -945,6 +946,7 @@ where
                     // Identifiers and literals
                     let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                         tok: s.clone(),
+                        quoted: *quoted,
                         loc: self.prev_loc,
                         scope: Rc::clone(&self.scope),
                     })));
@@ -2164,6 +2166,7 @@ impl fmt::Display for BranchExpr {
 #[derive(Debug)]
 struct Literal {
     tok: String,
+    quoted: bool,
     loc: Location,
     scope: Rc<Scope>,
 }
@@ -2178,7 +2181,11 @@ impl Eval for Literal {
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.tok)
+        if self.quoted {
+            write!(f, "\"{}\"", &self.tok)
+        } else {
+            write!(f, "{}", &self.tok)
+        }
     }
 }
 
