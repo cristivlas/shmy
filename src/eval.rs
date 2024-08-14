@@ -670,6 +670,7 @@ where
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::For(e) => {
+                assert!(expr.is_complete());
                 e.borrow_mut().add_child(expr)?;
                 if !e.borrow().body.is_empty() {
                     // Prevent the For Expression from being added to the
@@ -680,6 +681,21 @@ where
             }
             Expression::Lit(_) => error(self, "Unexpected expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
+        }
+    }
+
+    fn close_group(group: &Rc<Expression>) {
+        match &**group {
+            Expression::Args(g) => {
+                g.borrow_mut().closed = true;
+            }
+            Expression::Group(g) => {
+                g.borrow_mut().closed = true;
+            }
+            _ => {
+                dbg!(&group);
+                panic!("Expecting group expression");
+            }
         }
     }
 
@@ -737,11 +753,7 @@ where
     }
 
     fn finalize_groups(&mut self) -> EvalResult {
-        // Closed parentheses? mark the group as closed
-        if let Expression::Group(g) = &*self.group {
-            g.borrow_mut().closed = true;
-        } else {
-            assert!(self.group.is_args());
+        if self.group.is_args() {
             self.add_current_expr_to_group()?;
 
             if self.group.is_args() && !self.current_expr.is_cmd() {
@@ -791,6 +803,7 @@ where
             ));
         }
 
+        Self::close_group(&self.group);
         let group = Rc::clone(&self.group);
 
         self.group = self.group_stack.pop().unwrap(); // Restore group
@@ -960,6 +973,7 @@ where
         }
         assert!(self.group_stack.is_empty()); // because the expr_stack is empty
 
+        Self::close_group(&self.group);
         Ok(Rc::clone(&self.group))
     }
 }
@@ -1203,7 +1217,7 @@ impl Expression {
 
     fn is_no_args(&self) -> bool {
         if let Expression::Args(g) = self {
-            return g.borrow().group.is_empty();
+            return g.borrow().content.is_empty();
         }
 
         false
@@ -1758,10 +1772,10 @@ enum Group {
 #[derive(Debug)]
 struct GroupExpr {
     kind: Group,
-    scope: Rc<Scope>,
-    group: Vec<Rc<Expression>>,
-    loc: Location,
     closed: bool,
+    scope: Rc<Scope>,
+    content: Vec<Rc<Expression>>,
+    loc: Location,
 }
 
 impl GroupExpr {
@@ -1769,7 +1783,7 @@ impl GroupExpr {
         Self {
             kind: Group::Args,
             scope: Rc::clone(&scope),
-            group: Vec::new(),
+            content: Vec::new(),
             loc,
             closed: false,
         }
@@ -1778,7 +1792,7 @@ impl GroupExpr {
     fn new_group(loc: Location, scope: &Rc<Scope>) -> Self {
         Self {
             kind: Group::Block,
-            group: Vec::new(),
+            content: Vec::new(),
             loc,
             scope: Rc::clone(&scope),
             closed: false,
@@ -1786,7 +1800,7 @@ impl GroupExpr {
     }
 
     fn iter(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
-        self.group.iter().map(|expr| expr.eval())
+        self.content.iter().map(|expr| expr.eval())
     }
 }
 
@@ -1798,7 +1812,7 @@ impl Eval for GroupExpr {
 
         let mut result = Ok(Value::success());
 
-        for e in &self.group {
+        for e in &self.content {
             // Check the previous result for unhandled command errors
             result = Status::check_result(result);
 
@@ -1832,7 +1846,7 @@ impl Eval for GroupExpr {
 
 impl ExprNode for GroupExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
-        self.group.push(Rc::clone(child));
+        self.content.push(Rc::clone(child));
         Ok(())
     }
 }
@@ -1848,9 +1862,9 @@ fn join_expr(expressions: &[Rc<Expression>], separator: &str) -> String {
 impl fmt::Display for GroupExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.kind == Group::Args {
-            write!(f, "{}", join_expr(&self.group, " "))
+            write!(f, "{}", join_expr(&self.content, " "))
         } else {
-            write!(f, "( {} )", join_expr(&self.group, "; "))
+            write!(f, "( {} )", join_expr(&self.content, "; "))
         }
     }
 }
@@ -2321,7 +2335,10 @@ impl Interp {
         // my_dbg!(input);
 
         let ast = self.parse(quit, input)?;
-        // my_dbg!(&ast);
+
+        if self.scope.lookup("DUMP_AST").is_some() {
+            dbg!(&ast);
+        }
 
         Status::check_result(ast.eval())
     }
