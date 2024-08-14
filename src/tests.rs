@@ -4,6 +4,7 @@ mod tests {
     use std::{io, str::FromStr};
 
     fn eval(input: &str) -> EvalResult<Value> {
+        // Workaround for cargo test using stdout redirection
         let __stdout = io::stdout().lock();
 
         let interp = Interp::new();

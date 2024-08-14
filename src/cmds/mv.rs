@@ -54,7 +54,7 @@ impl Exec for Mv {
 
         if dest.exists()
             && interactive
-            && confirm(format!("overwrite '{}'", dest.display()), scope, false)
+            && confirm(format!("Overwrite '{}'", dest.display()), scope, false)
                 .map_err(|e| e.to_string())?
                 != Answer::Yes
         {

@@ -22,6 +22,7 @@ mod find;
 mod grep;
 mod help;
 mod ls;
+mod mkdir;
 mod mv;
 mod prompt;
 mod realpath;
