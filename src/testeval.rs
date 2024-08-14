@@ -256,6 +256,11 @@ mod tests {
     }
 
     #[test]
+    fn test_arithmetic() {
+        assert_eval_ok!("1 - 2 * 2 + 3", Value::Int(0));
+    }
+
+    #[test]
     fn test_error() {
         assert_eval_ok!(
             "if (echo Hello && cp x) () else ($__errors)",
