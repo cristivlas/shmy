@@ -69,8 +69,9 @@ impl fmt::Display for Op {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd)]
 enum Priority {
+    VeryLow,
     Low,
     High,
 }
@@ -78,10 +79,10 @@ enum Priority {
 impl Op {
     fn priority(&self) -> Priority {
         match &self {
+            Op::Assign | Op::Pipe => Priority::VeryLow,
             Op::And
             | Op::Append
             | Op::Or
-            | Op::Assign
             | Op::Gt
             | Op::Gte
             | Op::Lt
@@ -89,7 +90,6 @@ impl Op {
             | Op::Not
             | Op::NotEquals
             | Op::Minus
-            | Op::Pipe
             | Op::Plus
             | Op::Write => Priority::Low,
             _ => Priority::High,
@@ -709,14 +709,15 @@ where
         }
     }
 
-    fn pop_binary_ops(&mut self, statement: bool) -> EvalResult {
+    fn pop_binary_ops(&mut self, end_statement: bool) -> EvalResult {
         while let Some(stack_top) = self.expr_stack.last() {
             // If the expression on the top of the expression stack is a binary
-            // expression, pop it, make it the new current expression, and add
-            // old current as a child.
-            // If this operation does not occur at the end of a statement, do
-            // not pop the stack past assignments.
-            if stack_top.is_bin_op(statement) {
+            // expression, pop it; add current expression to it; then make it the
+            // new current expression.
+
+            // If not at the end of a statement, do not pop the stack past VeryLow priority ops.
+
+            if stack_top.is_bin() && (end_statement || stack_top.priority() > Priority::VeryLow) {
                 let expr = Rc::clone(&self.current_expr);
                 self.current_expr = self.expr_stack.pop().unwrap();
 
@@ -950,7 +951,9 @@ where
                     self.add_expr(&expr)?;
                 }
                 Token::Operator(op) => {
-                    if op.priority() == Priority::Low {
+                    let is_low_priority = op.priority() <= Priority::Low;
+
+                    if is_low_priority {
                         if self.group.is_args() {
                             // Finish the arguments of the left hand-side expression
                             self.add_current_expr_to_group()?;
@@ -968,7 +971,7 @@ where
 
                     self.prev_loc = self.loc;
 
-                    if op.priority() == Priority::Low {
+                    if is_low_priority {
                         self.expr_stack.push(Rc::clone(&expr));
                         self.clear_current();
                     } else {
@@ -1241,7 +1244,6 @@ impl Expression {
         if let Expression::Args(g) = self {
             return g.borrow().content.is_empty();
         }
-
         false
     }
 
@@ -1252,12 +1254,8 @@ impl Expression {
         false
     }
 
-    fn is_bin_op(&self, sequence: bool) -> bool {
-        if let Expression::Bin(b) = &self {
-            sequence || b.borrow().op != Op::Assign
-        } else {
-            false
-        }
+    fn is_bin(&self) -> bool {
+        matches!(self, Expression::Bin(_))
     }
 
     fn is_cmd(&self) -> bool {
@@ -1322,6 +1320,7 @@ impl Expression {
         }
     }
 
+    /// Evaluate and tokenize arguments
     fn tokenize_args(&self) -> EvalResult<Vec<String>> {
         let mut tokens = Vec::new();
 
@@ -1339,6 +1338,20 @@ impl Expression {
         }
 
         Ok(tokens)
+    }
+
+    fn priority(&self) -> Priority {
+        match self {
+            Expression::Args(_) => Priority::High,
+            Expression::Bin(bin_expr) => bin_expr.borrow().op.priority(),
+            Expression::Cmd(_) => Priority::High,
+            Expression::Branch(_) => Priority::High,
+            Expression::Group(_) => Priority::High,
+            Expression::For(_) => Priority::High,
+            Expression::Empty => Priority::High,
+            Expression::Lit(_) => Priority::High,
+            Expression::Loop(_) => Priority::High,
+        }
     }
 }
 
