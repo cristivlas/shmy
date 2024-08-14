@@ -135,6 +135,11 @@ mod tests {
     }
 
     #[test]
+    fn test_for_pipe() {
+        assert_eval_ok!("echo 123 | for x in -; (exit $x)", Value::Int(123));
+    }
+
+    #[test]
     fn test_while() {
         assert_eval_ok!(
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",

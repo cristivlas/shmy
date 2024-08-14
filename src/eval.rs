@@ -688,16 +688,7 @@ where
                 Ok(())
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
-            Expression::For(e) => {
-                e.borrow_mut().add_child(expr)?;
-                if !e.borrow().body.is_empty() {
-                    // Prevent the For Expression from being added to the
-                    // current group twice when the group is finalized;
-                    // the clearing was postponed when the argument list ended.
-                    self.clear_current();
-                }
-                Ok(())
-            }
+            Expression::For(e) => e.borrow_mut().add_child(expr),
             Expression::Lit(_) => error(self, "Unexpected expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
@@ -740,6 +731,12 @@ where
     }
 
     fn add_current_expr_to_group(&mut self) -> EvalResult {
+        if self.current_expr.is_for() {
+            if !self.current_expr.is_complete() {
+                return Ok(()); // Wait for the FOR body
+            }
+        }
+
         // Handle the use case of erasing variables, e.g. $VAR = ;
         if self.current_expr.is_empty() {
             if let Some(top) = self.expr_stack.last() {
@@ -855,10 +852,12 @@ where
                 }
                 Token::Semicolon => {
                     self.finalize_groups()?;
+
+                    // Semicolons end both statements and FOR argument lists;
+                    // Do not clear the current expression in the latter case,
+                    // since the expression is still being parsed (the body is
+                    // expected after the argument list).
                     if !self.current_expr.is_for() {
-                        // The argument list ends with semicolon but the expression
-                        // is still being parsed; do not clear it; postpone clearing
-                        // it until it is complete (has a body); see add_expr.
                         self.clear_current();
                     }
                 }
@@ -1648,7 +1647,18 @@ impl BinExpr {
 
         // Get our own program name
         let program = match env::current_exe() {
-            Ok(p) => p,
+            Ok(p) => {
+                #[cfg(test)]
+                {
+                    let path_str = p.to_string_lossy();
+                    let re = Regex::new(r"\\deps\\.*?(\..*)?$").unwrap();
+                    PathBuf::from(re.replace(&path_str, "\\mysh$1").to_string())
+                }
+                #[cfg(not(test))]
+                {
+                    p
+                }
+            }
             Err(e) => {
                 return error(self, &format!("Failed to get executable name: {}", e));
             }
