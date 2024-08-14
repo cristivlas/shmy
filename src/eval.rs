@@ -345,6 +345,8 @@ struct Parser<I: Iterator<Item = char>> {
     group: Rc<Expression>,
     group_stack: Vec<Rc<Expression>>,
     globbed_tokens: Vec<String>,
+    text: String,
+    quoted: bool,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -353,16 +355,26 @@ impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
     }
 }
 
-/// Tokenizer helper.
+/// Tokenizer helpers
+macro_rules! check_text {
+    ($self:expr, $tok:expr) => {
+        if !$self.text.is_empty() {
+            $tok = $self.glob_literal()?;
+            break;
+        }
+    };
+}
 macro_rules! token {
     // Single character token
     ($self:expr, $tok:expr, $single_token:expr) => {{
+        check_text!($self, $tok);
         $self.next();
         $tok = $single_token;
     }};
 
     // Double character token only
     ($self:expr, $tok:expr, $second:expr, $double_token:expr) => {{
+        check_text!($self, $tok);
         $self.next();
         if let Some(&next_c) = $self.chars.peek() {
             if next_c == $second {
@@ -375,6 +387,7 @@ macro_rules! token {
 
     // Single or double character token
     ($self:expr, $tok:expr,$second:expr, $single_token:expr, $double_token:expr) => {{
+        check_text!($self, $tok);
         $self.next();
         if let Some(&next_c) = $self.chars.peek() {
             if next_c == $second {
@@ -415,6 +428,8 @@ where
             group: new_group(loc, &scope),
             group_stack: Vec::new(),
             globbed_tokens: Vec::new(),
+            text: String::new(),
+            quoted: false,
         }
     }
 
@@ -446,27 +461,25 @@ where
         self.chars.next();
     }
 
-    fn glob_literal(&mut self, literal: &String, quoted: bool) -> EvalResult<Token> {
+    fn glob_literal(&mut self) -> EvalResult<Token> {
         // This function should not be called if globbed_tokens are not depleted.
         assert!(self.globbed_tokens.is_empty());
 
-        let mut local_literal = literal.clone();
-
-        if !quoted {
-            let upper = local_literal.to_uppercase();
+        if !self.quoted {
+            let upper = self.text.to_uppercase();
             for &keyword in &KEYWORDS {
                 if keyword == upper {
                     return Ok(Token::Keyword(upper));
                 }
             }
 
-            if local_literal.starts_with("~") {
+            if self.text.starts_with("~") {
                 if let Some(v) = self.scope.lookup("HOME") {
-                    local_literal = format!("{}{}", v.value().to_string(), &local_literal[1..]);
+                    self.text = format!("{}{}", v.value().to_string(), &self.text[1..]);
                 }
             }
 
-            match glob(&local_literal) {
+            match glob(&self.text) {
                 Ok(paths) => {
                     self.globbed_tokens = paths
                         .filter_map(Result::ok)
@@ -480,8 +493,7 @@ where
                 Err(_) => {} // Ignore glob errors and treat as literal
             }
         }
-
-        Ok(Token::Literal((local_literal, quoted)))
+        Ok(Token::Literal((self.text.clone(), self.quoted)))
     }
 
     #[rustfmt::skip]
@@ -492,8 +504,8 @@ where
         }
 
         let mut tok = Token::End;
-        let mut literal = String::new();
-        let mut quoted = false;
+        self.quoted = false;
+        self.text.clear();
 
         while let Some(c) = self.chars.peek().cloned() {
             if tok != Token::End {
@@ -521,9 +533,10 @@ where
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
                 '*' => {
+                    check_text!(self, tok);
                     self.next();
-                    if !self.is_delimiter(&literal, c) {
-                        literal.push(c);
+                    if !self.is_delimiter(&self.text, c) {
+                        self.text.push(c);
                     } else {
                         tok = Token::Operator(Op::Mul)
                     }
@@ -531,6 +544,7 @@ where
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
                 '=' => {
+                    check_text!(self, tok);
                     self.next();
                     if let Some(&next_c) = self.chars.peek() {
                         if next_c == '=' {
@@ -553,24 +567,29 @@ where
                         tok = Token::Operator(Op::Assign);
                     }
                 },
-                '-' => { if !self.is_delimiter(&literal, c) {
-                        literal.push(c);
+                '-' => {
+                    check_text!(self, tok);
+                    if !self.is_delimiter(&self.text, c) {
+                        self.text.push(c);
                     } else {
                         tok = Token::Operator(Op::Minus);
                     }
                     self.next();
                 }
-                '/' => if !self.is_delimiter(&literal, c) {
-                    // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
-                        literal.push(c);
-                        self.next();
-                    } else {
-                        token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
+                '/' => {
+                    check_text!(self, tok);
+                    if !self.is_delimiter(&self.text, c) {
+                        // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
+                            self.text.push(c);
+                            self.next();
+                        } else {
+                            token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
+                    }
                 }
                 _ => {
                     if c.is_whitespace() {
                         self.next();
-                        if !literal.is_empty() {
+                        if !self.text.is_empty() {
                             break;
                         }
                         continue;
@@ -579,10 +598,10 @@ where
                     while let Some(&next_c) = self.chars.peek() {
                         if self.escaped {
                             match next_c {
-                                'n' => literal.push('\n'),
-                                't' => literal.push('\t'),
-                                'r' => literal.push('\r'),
-                                _ => literal.push(next_c),
+                                'n' => self.text.push('\n'),
+                                't' => self.text.push('\t'),
+                                'r' => self.text.push('\r'),
+                                _ => self.text.push(next_c),
                             }
                             self.next();
                             self.escaped = false;
@@ -593,15 +612,15 @@ where
                                 // issues with path delimiters under Windows
                                 self.escaped = true;
                             } else {
-                                literal.push('\\');
+                                self.text.push('\\');
                             }
                         } else if next_c == '"' {
-                            quoted = true;
+                            self.quoted = true;
                             self.in_quotes ^= true;
                             self.next();
                         } else {
-                            if self.in_quotes || !self.is_delimiter(&literal, next_c) {
-                                literal.push(next_c);
+                            if self.in_quotes || !self.is_delimiter(&self.text, next_c) {
+                                self.text.push(next_c);
                                 self.next();
                             } else {
                                 break;
@@ -609,11 +628,11 @@ where
                         }
                     }
 
-                    if !literal.is_empty() || quoted {
-                        assert!(literal != "-" && literal != "/");
+                    if !self.text.is_empty() || self.quoted {
+                        assert!(self.text != "-" && self.text != "/");
 
-                        tok = self.glob_literal(&literal, quoted)?;
-                        literal.clear();
+                        tok = self.glob_literal()?;
+                        self.text.clear();
                     }
                 }
             }
@@ -623,13 +642,13 @@ where
         }
 
         // Check for partial token, handle special cases such as single fwd slash.
-        if tok == Token::End && !literal.is_empty() {
-            if literal == "-" && self.current_expr.is_number() {
+        if tok == Token::End && !self.text.is_empty() {
+            if self.text == "-" && self.current_expr.is_number() {
                 tok = Token::Operator(Op::Minus);
-            } else if literal == "/" && self.current_expr.is_number() {
+            } else if self.text == "/" && self.current_expr.is_number() {
                 tok = Token::Operator(Op::Div);
             } else {
-                tok = self.glob_literal(&literal, quoted)?;
+                tok = self.glob_literal()?;
             }
         }
 
@@ -670,7 +689,6 @@ where
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::For(e) => {
-                assert!(expr.is_complete());
                 e.borrow_mut().add_child(expr)?;
                 if !e.borrow().body.is_empty() {
                     // Prevent the For Expression from being added to the
@@ -967,7 +985,8 @@ where
             let msg = if self.expect_else_expr {
                 "Dangling ELSE"
             } else {
-                "Missing closed parenthesis"
+                my_dbg!(&self.expr_stack);
+                "Missing closed parenthesis or expression operand"
             };
             return error(self, msg);
         }

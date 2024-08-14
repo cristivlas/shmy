@@ -18,7 +18,7 @@ mod macros;
 
 mod cmds;
 mod eval;
-mod tests;
+mod testeval;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]
 struct CmdLineHelper {

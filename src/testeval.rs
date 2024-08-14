@@ -130,6 +130,11 @@ mod tests {
     }
 
     #[test]
+    fn test_for_slash() {
+        assert_eval_ok!("for i in /; ($i)", "/".parse::<Value>().unwrap());
+    }
+
+    #[test]
     fn test_while() {
         assert_eval_ok!(
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
