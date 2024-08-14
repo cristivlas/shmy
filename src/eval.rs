@@ -953,7 +953,7 @@ where
                 Token::Operator(op) => {
                     if op.priority() == Priority::Low {
                         if self.group.is_args() {
-                            // Finish the arguments of the right hand-side expression
+                            // Finish the arguments of the left hand-side expression
                             self.add_current_expr_to_group()?;
                         }
                         self.pop_binary_ops(false)?;
