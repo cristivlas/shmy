@@ -1,4 +1,5 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
+use crate::prompt::{confirm, Answer};
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -10,7 +11,7 @@ use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
 use std::iter::Peekable;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -1454,6 +1455,32 @@ macro_rules! eval_cmp_fn {
     }
 }
 
+fn get_own_path() -> Result<String, String> {
+    match env::current_exe() {
+        Ok(p) => {
+            #[cfg(test)]
+            {
+                let path_str = p.to_string_lossy();
+                #[cfg(windows)]
+                {
+                    let re = Regex::new(r"\\deps\\.*?(\..*)?$").map_err(|e| e.to_string())?;
+                    Ok(re.replace(&path_str, "\\mysh$1").to_string())
+                }
+                #[cfg(not(windows))]
+                {
+                    let re = Regex::new(r"/deps/.+?(\..*)?$").map_err(|e| e.to_string())?;
+                    Ok(re.replace(&path_str, "/mysh$1").to_string())
+                }
+            }
+            #[cfg(not(test))]
+            {
+                Ok(p.to_string_lossy().to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to get executable name: {}", e)),
+    }
+}
+
 impl BinExpr {
     fn eval_and(&self) -> EvalResult<Value> {
         Ok(Value::Int(
@@ -1661,23 +1688,7 @@ impl BinExpr {
         };
 
         // Get our own program name
-        let program = match env::current_exe() {
-            Ok(p) => {
-                #[cfg(test)]
-                {
-                    let path_str = p.to_string_lossy();
-                    let re = Regex::new(r"\\deps\\.*?(\..*)?$").unwrap();
-                    PathBuf::from(re.replace(&path_str, "\\mysh$1").to_string())
-                }
-                #[cfg(not(test))]
-                {
-                    p
-                }
-            }
-            Err(e) => {
-                return error(self, &format!("Failed to get executable name: {}", e));
-            }
-        };
+        let program = get_own_path().map_err(|e| EvalError::new(self.loc, e))?;
 
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
@@ -1758,6 +1769,21 @@ impl BinExpr {
     /// Redirect standard output to file
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
+        // TODO: better var name? should be set by Interp if non-interactive?
+        if self.scope.lookup("HEADLESS").is_none() {
+            let operation = if append { "append" } else { "overwrite" };
+            if Path::new(&filename).exists()
+                && confirm(
+                    format!("{} exists, confirm {}", filename, operation),
+                    &self.scope,
+                    false,
+                )
+                .map_err(|e| EvalError::new(self.loc, e.to_string()))?
+                    != Answer::Yes
+            {
+                return Ok(Value::from_str("Not confirmed").unwrap());
+            }
+        }
 
         // Open destination file
         let file = OpenOptions::new()

@@ -24,7 +24,6 @@ mod help;
 mod ls;
 mod mkdir;
 mod mv;
-mod prompt;
 mod realpath;
 mod rm;
 mod run;

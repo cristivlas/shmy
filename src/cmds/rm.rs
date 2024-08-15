@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
-use crate::cmds::prompt::Answer;
 use crate::eval::{Scope, Value};
+use crate::prompt::{confirm, Answer};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -18,7 +18,7 @@ struct Context {
 impl Context {
     fn confirm(&mut self, path: &Path, prompt: String) -> io::Result<Answer> {
         if self.interactive && path.exists() {
-            match super::prompt::confirm(prompt, &self.scope, self.many)? {
+            match confirm(prompt, &self.scope, self.many)? {
                 Answer::All => {
                     self.interactive = false;
                     return Ok(Answer::Yes);

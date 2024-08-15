@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
-use crate::cmds::prompt::{confirm, Answer};
 use crate::eval::{Scope, Value};
+use crate::prompt::{confirm, Answer};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
