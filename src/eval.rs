@@ -1722,7 +1722,7 @@ impl BinExpr {
         let mut redirect =
             BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
-        expr.eval()?;
+        Status::check_result(expr.eval())?;
 
         let mut str_buf = String::new();
         redirect
@@ -1734,6 +1734,7 @@ impl BinExpr {
 
     fn eval_exit_code(&self, cmd: String, status: &std::process::ExitStatus) -> EvalResult<Value> {
         let exit_code = status.code().unwrap_or_else(|| -1);
+        my_dbg!(exit_code);
 
         let result = if exit_code == 0 {
             Ok(Value::success())
@@ -1761,8 +1762,9 @@ impl BinExpr {
                 // Get the left hand-side expression as a string
                 let lhs_str = lhs.to_string();
 
-                // println!("Executing pipe LHS: {} -c {}", &program, &lhs_str);
                 // Start an instance of the interpreter to evaluate the left hand-side of the pipe
+                // println!("Executing pipe LHS: {} -c {}", &program, &lhs_str);
+
                 let mut child = StdCommand::new(&program)
                     .arg("-c")
                     .arg(&lhs_str)
@@ -1834,10 +1836,11 @@ impl BinExpr {
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
 
-        // println!("Executing pipe RHS: {} -c {}", &program, &rhs_str);
-
         // Start a copy of the running program with the arguments "-c" rhs_str
         // to evaluate the right hand-side of the pipe expression
+
+        // println!("Executing pipe RHS: {} -c {}", &program, &rhs_str);
+
         let child = StdCommand::new(&program)
             .arg("-c")
             .arg(&rhs_str)
@@ -1849,7 +1852,7 @@ impl BinExpr {
             })?;
 
         // Left-side evaluation's stdout goes into the pipe.
-        let lhs_result = lhs.eval();
+        let lhs_result = Status::check_result(lhs.eval());
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
