@@ -293,4 +293,30 @@ mod tests {
             "Hello\nWorld".parse::<Value>().unwrap()
         );
     }
+
+    #[test]
+    fn test_status_and() {
+        assert_eval_err!("(echo Hello && cp x && ls .)", "Missing destination");
+    }
+
+    #[test]
+    fn test_status_or() {
+        // Expect the error of the last of any that failed
+        assert_eval_err!("(0 || cp -x || cp)", "Missing source and destination");
+
+        assert_eval_ok!(
+            "if (0 || cp -x || cp) (ok) else ($__errors)",
+            Value::from_str(&"cp -x: Unknown flag: -x\ncp: Missing source and destination")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_negated_status() {
+        assert_eval_ok!(
+            "if (!(0 || cp -x || cp)) ($__errors)",
+            Value::from_str(&"cp -x: Unknown flag: -x\ncp: Missing source and destination")
+                .unwrap()
+        );
+    }
 }

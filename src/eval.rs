@@ -161,6 +161,7 @@ macro_rules! derive_has_location {
 pub struct Status {
     checked: bool,
     cmd: String,
+    negated: bool,
     result: EvalResult<Value>,
     scope: Rc<Scope>,
 }
@@ -181,6 +182,7 @@ impl Status {
         Rc::new(RefCell::new(Self {
             checked: false,
             cmd,
+            negated: false,
             result: result.clone(),
             scope: Rc::clone(&scope),
         }))
@@ -192,7 +194,12 @@ impl Status {
         }
 
         self.checked = true;
-        self.result.is_ok()
+
+        if self.negated {
+            self.result.is_err()
+        } else {
+            self.result.is_ok()
+        }
     }
 
     fn check_result(result: EvalResult<Value>) -> EvalResult<Value> {
@@ -1538,10 +1545,37 @@ fn get_own_path() -> Result<String, String> {
 
 impl BinExpr {
     fn eval_and(&self) -> EvalResult<Value> {
-        Ok(Value::Int(
-            (value_as_bool(self.lhs.eval()?, &self.scope)
-                && value_as_bool(self.rhs.eval()?, &self.scope)) as _,
-        ))
+        let lhs_val = self.lhs.eval()?;
+        if let Value::Stat(s) = &lhs_val {
+            if s.borrow().result.is_err() {
+                return Ok(lhs_val); // Return unchecked Status
+            }
+        }
+
+        let rhs_val = self.rhs.eval()?;
+        if let Value::Stat(s) = &rhs_val {
+            if s.borrow().result.is_err() {
+                return Ok(rhs_val); // Return unchecked Status
+            }
+        }
+        let all = value_as_bool(&lhs_val, &self.scope) && value_as_bool(&rhs_val, &self.scope);
+
+        Ok(Value::Int(all as _))
+    }
+
+    fn eval_or(&self) -> EvalResult<Value> {
+        let lhs_val = self.lhs.eval()?;
+        let mut any = value_as_bool(&lhs_val, &self.scope);
+
+        if !any {
+            let rhs_val = self.rhs.eval()?;
+            if let Value::Stat(_) = &rhs_val {
+                return Ok(rhs_val); // Return delayed Status
+            }
+            any = value_as_bool(&rhs_val, &self.scope);
+        }
+
+        Ok(Value::Int(any as _))
     }
 
     fn eval_assign(&self, rhs_in: Value) -> EvalResult<Value> {
@@ -1681,13 +1715,6 @@ impl BinExpr {
             },
             Value::Stat(_) => error(self, "Cannot multiply command statuses"),
         }
-    }
-
-    fn eval_or(&self) -> EvalResult<Value> {
-        Ok(Value::Int(
-            (value_as_bool(self.lhs.eval()?, &self.scope)
-                || value_as_bool(self.rhs.eval()?, &self.scope)) as _,
-        ))
     }
 
     /// Evaluate expr and redirect output into a String
@@ -2235,10 +2262,10 @@ fn hoist(scope: &Rc<Scope>, var_name: &str) {
     }
 }
 
-fn value_as_bool(val: Value, scope: &Rc<Scope>) -> bool {
+fn value_as_bool(val: &Value, scope: &Rc<Scope>) -> bool {
     let result = match val {
-        Value::Int(i) => i != 0,
-        Value::Real(r) => r != 0.0,
+        Value::Int(i) => *i != 0,
+        Value::Real(r) => *r != 0.0,
         Value::Str(s) => !s.is_empty(), // TODO: maybe not such a good idea?
         Value::Stat(s) => s.borrow_mut().as_bool(&scope),
     };
@@ -2249,7 +2276,7 @@ fn value_as_bool(val: Value, scope: &Rc<Scope>) -> bool {
 }
 
 fn eval_as_bool(expr: &Rc<Expression>, scope: &Rc<Scope>) -> EvalResult<bool> {
-    Ok(value_as_bool(expr.eval()?, &scope))
+    Ok(value_as_bool(&expr.eval()?, &scope))
 }
 
 impl ExprNode for BranchExpr {
@@ -2488,7 +2515,15 @@ fn eval_unary<T: HasLocation>(
             Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
             Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
-        Op::Not => Ok(Value::Int(!value_as_bool(val, &scope) as _)),
+        Op::Not => {
+            if let Value::Stat(s) = &val {
+                hoist(&scope, "__errors");
+                s.borrow_mut().negated = true;
+                Ok(val)
+            } else {
+                Ok(Value::Int(!value_as_bool(&val, &scope) as _))
+            }
+        }
         _ => error(loc, "Unexpected unary operation"),
     }
 }
