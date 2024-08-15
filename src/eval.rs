@@ -21,6 +21,11 @@ pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
 ];
 
+const ASSIGN_STATUS_ERROR: &str = "Assignment of command status to variable is not allowed.
+Use an IF expression to check for success or failure.
+To capture the output, use the pipe syntax with a variable:
+";
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
@@ -1578,14 +1583,13 @@ impl BinExpr {
         Ok(Value::Int(any as _))
     }
 
-    fn eval_assign(&self, rhs_in: Value) -> EvalResult<Value> {
-        // Does the right hand-side value wrap a command Status?
-        let rhs = if let Value::Stat(status) = &rhs_in {
-            // Assign the command execution result (success or fail?) to a variable
-            Value::Int(status.borrow_mut().as_bool(&self.scope) as _)
-        } else {
-            rhs_in
-        };
+    fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
+        if let Value::Stat(stat) = &rhs {
+            return error(
+                self,
+                &format!("{} {} | result;", ASSIGN_STATUS_ERROR, stat.borrow().cmd),
+            );
+        }
 
         if let Expression::Leaf(lit) = &*self.lhs {
             let var_name = &lit.tok;
