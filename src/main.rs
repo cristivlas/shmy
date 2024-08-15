@@ -417,8 +417,11 @@ fn main() -> Result<(), ()> {
             eprint!("Command line error: {}.", e);
         }
         Ok(shell) => match shell.read_input() {
-            Err(e) => eprintln!("{}.", e),
-            _ => {}
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(500);
+            }
+            Ok(_) => {}
         },
     }
     Ok(())

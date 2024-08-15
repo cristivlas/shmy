@@ -12,6 +12,12 @@ pub enum Answer {
 }
 
 pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answer> {
+    if scope.lookup("NO_CONFIRM").is_some() {
+        // TODO: should Interp set NO_CONFIRM in non-interactive mode?
+        // TODO: is SILENT a better name?
+        return Ok(Answer::Yes);
+    }
+
     let options = if scope.lookup("NO_COLOR").is_some() {
         if many {
             "[Y]es/[N]o/[A]ll/[Q]uit".to_string()

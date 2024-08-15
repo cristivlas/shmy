@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_for_pipe() {
-        assert_eval_ok!("echo 123 | for x in -; (exit $x)", Value::Int(123));
+        assert_eval_ok!("echo 123 | for x in -; (echo $x) | y; $y", Value::Int(123));
     }
 
     #[test]

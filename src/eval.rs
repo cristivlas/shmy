@@ -177,10 +177,10 @@ fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
 }
 
 impl Status {
-    fn new(cmd: &Command, result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
+    fn new(cmd: String, result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
-            cmd: cmd.to_string(),
+            cmd,
             result: result.clone(),
             scope: Rc::clone(&scope),
         }))
@@ -1705,6 +1705,22 @@ impl BinExpr {
         Ok(str_buf.to_string())
     }
 
+    fn eval_exit_code(&self, cmd: String, status: &std::process::ExitStatus) -> EvalResult<Value> {
+        let exit_code = status.code().unwrap_or_else(|| -1);
+        my_dbg!(exit_code);
+
+        let result = if exit_code == 0 {
+            Ok(Value::success())
+        } else {
+            Err(EvalError::new(
+                self.loc(),
+                format!("{}: exited with code {}", cmd, exit_code),
+            ))
+        };
+
+        Ok(Value::Stat(Status::new(cmd, &result, &self.scope)))
+    }
+
     fn eval_pipe_to_var(
         &self,
         lhs: &Rc<Expression>,
@@ -1738,12 +1754,14 @@ impl BinExpr {
                 }
 
                 // Wait for the child process to complete
-                child.wait().map_err(|e| {
+                let exit_status = child.wait().map_err(|e| {
                     EvalError::new(
                         rhs.loc(),
                         format!("Failed to wait for child process output: {}", e),
                     )
                 })?;
+
+                self.eval_exit_code(lhs_str, &exit_status)?;
 
                 String::from_utf8(buffer).map_err(|e| {
                     EvalError::new(
@@ -1823,8 +1841,7 @@ impl BinExpr {
         // Print the output of the right hand-side expression.
         print!("{}", String::from_utf8_lossy(&output.stdout));
 
-        // TODO: return command status?
-        Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
+        self.eval_exit_code(rhs_str, &output.status)
     }
 
     /// Binary plus
@@ -1866,21 +1883,17 @@ impl BinExpr {
     /// Redirect standard output to file
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
-        // TODO: better var name? should be set by Interp if non-interactive?
-        // TODO: move var lookup to confirm
-        if self.scope.lookup("HEADLESS").is_none() {
-            let operation = if append { "append" } else { "overwrite" };
-            if Path::new(&filename).exists()
-                && confirm(
-                    format!("{} exists, confirm {}", filename, operation),
-                    &self.scope,
-                    false,
-                )
-                .map_err(|e| EvalError::new(self.loc, e.to_string()))?
-                    != Answer::Yes
-            {
-                return Ok(Value::from_str("Not confirmed").unwrap());
-            }
+        let operation = if append { "append" } else { "overwrite" };
+        if Path::new(&filename).exists()
+            && confirm(
+                format!("{} exists, confirm {}", filename, operation),
+                &self.scope,
+                false,
+            )
+            .map_err(|e| EvalError::new(self.loc, e.to_string()))?
+                != Answer::Yes
+        {
+            return Ok(Value::Int(401));
         }
 
         // Open destination file
@@ -2166,7 +2179,8 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.args.loc(), e));
 
-        Ok(Value::Stat(Status::new(&self, &result, &self.scope)))
+        let cmd = self.to_string();
+        Ok(Value::Stat(Status::new(cmd, &result, &self.scope)))
     }
 }
 
@@ -2521,8 +2535,6 @@ impl Interp {
     }
 
     pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
-        // my_dbg!(input);
-
         let ast = self.parse(quit, input)?;
 
         if self.scope.lookup("DUMP_AST").is_some() {
