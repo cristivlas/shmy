@@ -2,6 +2,7 @@ use super::{get_command, list_registered_commands, register_command, Exec, Shell
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use std::rc::Rc;
+use terminal_size::terminal_size;
 
 struct Help {
     flags: CommandFlags,
@@ -40,6 +41,31 @@ impl Help {
             }
         }
     }
+
+    fn print_available_commands(spacing: usize) {
+        println!("\nAvailable commands:");
+        let commands = list_registered_commands(true);
+
+        let max_width = terminal_size().map_or(80, |s| s.0 .0 as usize);
+        let max_command_length = commands.iter().map(|cmd| cmd.len()).max().unwrap_or(0);
+        let column_width = max_command_length + spacing;
+        let num_columns = max_width / column_width;
+
+        let mut current_column = 0;
+        for cmd in commands {
+            print!("{:<width$}", cmd, width = column_width);
+            current_column += 1;
+            if current_column >= num_columns {
+                println!();
+                current_column = 0;
+            }
+        }
+        if current_column != 0 {
+            println!();
+        }
+
+        println!("\nUse 'help COMMAND' for more information about a specific command.");
+    }
 }
 
 impl Exec for Help {
@@ -57,11 +83,7 @@ impl Exec for Help {
 
         if args.is_empty() {
             Self::print_interpreter_help();
-            println!("\nAvailable commands:");
-            for cmd in list_registered_commands(true) {
-                println!("  {}", cmd);
-            }
-            println!("\nUse 'help COMMAND' for more information about a specific command.");
+            Self::print_available_commands(4);
         } else {
             for command in args {
                 println!("\n");

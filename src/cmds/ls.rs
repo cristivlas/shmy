@@ -410,7 +410,7 @@ fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
     if args.show_details {
         print_detailed_entries(&entries, &args)?;
     } else {
-        print_simple_entries(&entries, &args)?;
+        print_simple_entries(&entries, &args, 4)?;
     }
     Ok(())
 }
@@ -424,7 +424,7 @@ fn print_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), Str
     Ok(())
 }
 
-fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
+fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs, spacing: usize) -> Result<(), String> {
     let max_width = entries
         .iter()
         .filter(|e| args.all_files || !e.file_name().to_string_lossy().starts_with('.'))
@@ -432,7 +432,7 @@ fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), S
         .max()
         .unwrap_or(0);
 
-    let column_width = max_width + 2;
+    let column_width = max_width + spacing;
     let terminal_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
     let columns = std::cmp::max(1, terminal_width / column_width);
     let mut current_column = 0;
