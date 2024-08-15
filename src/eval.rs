@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::iter::Peekable;
 use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio};
@@ -1757,20 +1757,23 @@ impl BinExpr {
 
     /// Redirect standard output to file
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
-        // Evaluate the output
-        let output = self.eval_redirect(&self.lhs)?;
         let filename = self.rhs.eval()?.to_string();
 
-        OpenOptions::new()
+        // Open destination file
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .append(append)
             .truncate(!append)
             .open(&filename)
-            .and_then(|mut file| file.write_all(output.as_bytes()))
             .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
 
-        Ok(Value::Str(output))
+        // Redirect stdout to the file
+        let _redirect = Redirect::stdout(file)
+            .map_err(|e| EvalError::new(self.loc, format!("Failed to redirect stdout: {}", e)))?;
+
+        // Evaluate left hand-side expression
+        self.lhs.eval()
     }
 }
 
