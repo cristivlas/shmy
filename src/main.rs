@@ -19,6 +19,7 @@ mod macros;
 mod cmds;
 mod eval;
 mod prompt;
+mod utils;
 mod testeval;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]

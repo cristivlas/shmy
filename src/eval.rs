@@ -1,5 +1,6 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
+use crate::utils::copy_vars_to_command_env;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -1785,7 +1786,10 @@ impl BinExpr {
                 // Start an instance of the interpreter to evaluate the left hand-side of the pipe
                 // println!("Executing pipe LHS: {} -c {}", &program, &lhs_str);
 
-                let mut child = StdCommand::new(&program)
+                let mut command = StdCommand::new(&program);
+                copy_vars_to_command_env(&mut command, &self.scope);
+
+                let mut child = command
                     .arg("-c")
                     .arg(&lhs_str)
                     .stdout(Stdio::piped())
@@ -1861,7 +1865,10 @@ impl BinExpr {
 
         // println!("Executing pipe RHS: {} -c {}", &program, &rhs_str);
 
-        let child = StdCommand::new(&program)
+        let mut command = StdCommand::new(&program);
+        copy_vars_to_command_env(&mut command, &self.scope);
+
+        let child = command
             .arg("-c")
             .arg(&rhs_str)
             .stdin(Stdio::from(reader))

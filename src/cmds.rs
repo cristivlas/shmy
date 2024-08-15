@@ -1,4 +1,5 @@
 use crate::eval::{Scope, Value};
+use crate::utils::copy_vars_to_command_env;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -152,24 +153,7 @@ impl Exec for External {
 
         command.args(args);
 
-        // Override existing environment variables
-        command.env_clear();
-
-        let mut current_scope = scope;
-        loop {
-            for (key, variable) in current_scope.vars.borrow().iter() {
-                command.env(key, variable.value().to_string());
-            }
-            // Walk up the enclosing scope
-            match &current_scope.parent {
-                None => {
-                    break;
-                }
-                Some(scope) => {
-                    current_scope = scope;
-                }
-            }
-        }
+        copy_vars_to_command_env(&mut command, &scope);
 
         match command.spawn() {
             Ok(mut child) => match &child.wait() {

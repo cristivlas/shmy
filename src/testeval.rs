@@ -327,4 +327,9 @@ mod tests {
             Value::from_str(&"---Hello---").unwrap()
         );
     }
+
+    #[test]
+    fn test_pass_vars_thru_pipes() {
+        assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
+    }
 }
