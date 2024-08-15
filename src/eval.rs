@@ -750,6 +750,7 @@ where
                 return Ok(()); // Wait for the FOR body
             }
         }
+        let current = Rc::clone(&self.current_expr);
 
         // Handle the use case of erasing variables, e.g. $VAR = ;
         if self.current_expr.is_empty() {
@@ -775,6 +776,12 @@ where
                 panic!("Unexpected group error");
             }
         }
+
+        if current.is_for() {
+            assert!(current.is_complete());
+            self.clear_current();
+        }
+
         Ok(())
     }
 

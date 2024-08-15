@@ -1,7 +1,11 @@
 use crate::eval::Scope;
 use colored::Colorize;
-use std::io::{self, Write};
+use lazy_static::lazy_static;
+use rustyline::history::MemHistory;
+use rustyline::{Config, Editor};
+use std::io;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 #[derive(PartialEq)]
 pub enum Answer {
@@ -11,10 +15,22 @@ pub enum Answer {
     Quit,
 }
 
+// Define a static mutable variable for the Editor instance
+lazy_static! {
+    static ref EDITOR: Mutex<Editor<(), MemHistory>> = {
+        let cfg = Config::builder()
+            .behavior(rustyline::Behavior::PreferTerm)
+            .color_mode(rustyline::ColorMode::Forced)
+            .edit_mode(rustyline::EditMode::Emacs)
+            .build();
+        let editor = Editor::<(), MemHistory>::with_history(cfg, MemHistory::new())
+            .expect("Failed to create editor");
+        Mutex::new(editor)
+    };
+}
+
 pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answer> {
     if scope.lookup("NO_CONFIRM").is_some() {
-        // TODO: should Interp set NO_CONFIRM in non-interactive mode?
-        // TODO: is SILENT a better name?
         return Ok(Answer::Yes);
     }
 
@@ -37,11 +53,19 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answ
             format!("{}es/{}o", "y".green().bold(), "N".red().bold())
         }
     };
-    print!("{}? ({}) ", prompt, options);
-    io::stdout().flush()?;
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
+    let question = format!("{}? ({}) ", prompt, options);
+
+    // Use rustyline to read the input, to avoid issues when running
+    // interpreter instances with -c as the right hand-side of a pipe
+    // expression.
+    let mut editor = EDITOR
+        .lock()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    let input = editor
+        .readline(&question)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
     let answer = input.trim();
 

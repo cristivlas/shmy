@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn test_for() {
         assert_eval_ok!(
-            "i = \"\"; for j in a b c d; ($i = $i + $j)",
+            "i = \"\"; for j in a b c d; ($i = $i + $j);",
             Value::from_str("abcd").unwrap()
         );
     }

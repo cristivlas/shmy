@@ -1,0 +1,31 @@
+# Statements must end with semicolon;
+# Not required for the very last statement in a scope.
+# The top-level scope is implicitly the entire script.
+# Scopes are explicitly introduced by parentheses.
+
+# Example 1.
+# ----------
+# Recursively find all files with .rs extension
+# Start dir is not specified, current dir '.' is assumed
+
+find .*.rs;
+
+# Example 2.
+# ----------
+# Find all rust files in 'src' dir and print file names without parent path
+find src .*.rs | for f in -; (basename $f);
+
+# Example 3.
+# ----------
+# Find files, number the finds. Redirect results to report.txt file
+find src .*rs | rs_files; i = 1; for f in $rs_files; (echo $i $f; $i = $i + 1) => report.txt;
+
+# The above will prompt the user to confirm overwriting 'report.txt' if it exists.
+# To disable the confirmation propmpt, set NO_CONFIRM variable (to anything)
+# NO_CONFIRM = _; find src .*rs | rs_files; i = 1; for f in $rs_files; (echo $i $f; $i = $i + 1) => report.txt;
+
+# Example 4.
+# ----------
+# Achieve similar report as above, but this time using the 'cat' command with the line numbering option.
+
+find src .*rs | cat --number => report.txt;
