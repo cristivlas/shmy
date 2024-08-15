@@ -697,7 +697,7 @@ where
             }
             Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::For(e) => e.borrow_mut().add_child(expr),
-            Expression::Lit(_) => error(self, "Unexpected expression after literal"),
+            Expression::Leaf(_) => error(self, "Unexpected expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
     }
@@ -925,7 +925,7 @@ where
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "BREAK" || word == "CONTINUE" {
-                        let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                        let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                             tok: word.clone(),
                             quoted: false,
                             loc: self.prev_loc,
@@ -952,7 +952,7 @@ where
                         }
                     }
                     // Identifiers and literals. TODO: handle variables (identifiers) separately.
-                    let expr = Rc::new(Expression::Lit(Rc::new(Literal {
+                    let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                         tok: s.clone(),
                         quoted: *quoted,
                         loc: self.prev_loc,
@@ -1289,7 +1289,7 @@ enum Expression {
     Branch(RefCell<BranchExpr>),
     For(RefCell<ForExpr>),
     Group(RefCell<GroupExpr>),
-    Lit(Rc<Literal>),
+    Leaf(Rc<Literal>), // Values and identifiers
     Loop(RefCell<LoopExpr>),
 }
 
@@ -1365,7 +1365,7 @@ impl Expression {
             Expression::Group(group) => group.borrow().closed,
             Expression::For(for_expr) => !&for_expr.borrow().body.is_empty(),
             Expression::Empty => false,
-            Expression::Lit(_) => true,
+            Expression::Leaf(_) => true,
             Expression::Loop(loop_expr) => !&loop_expr.borrow().body.is_empty(),
         }
     }
@@ -1414,7 +1414,7 @@ impl Expression {
             Expression::Group(_) => Priority::High,
             Expression::For(_) => Priority::High,
             Expression::Empty => Priority::High,
-            Expression::Lit(_) => Priority::High,
+            Expression::Leaf(_) => Priority::High,
             Expression::Loop(_) => Priority::High,
         }
     }
@@ -1430,7 +1430,7 @@ impl fmt::Display for Expression {
             Expression::Group(group) => write!(f, "{}", group.borrow()),
             Expression::For(for_expr) => write!(f, "{}", for_expr.borrow()),
             Expression::Empty => write!(f, ""),
-            Expression::Lit(literal) => write!(f, "{}", literal),
+            Expression::Leaf(literal) => write!(f, "{}", literal),
             Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
         }
     }
@@ -1446,7 +1446,7 @@ impl HasLocation for Expression {
             Expression::Group(group) => group.borrow().loc(),
             Expression::For(for_expr) => for_expr.borrow().loc(),
             Expression::Empty => panic!("Empty expression"),
-            Expression::Lit(literal) => literal.loc(),
+            Expression::Leaf(literal) => literal.loc(),
             Expression::Loop(loop_expr) => loop_expr.borrow().loc(),
         }
     }
@@ -1587,7 +1587,7 @@ impl BinExpr {
             rhs_in
         };
 
-        if let Expression::Lit(lit) = &*self.lhs {
+        if let Expression::Leaf(lit) = &*self.lhs {
             let var_name = &lit.tok;
 
             if var_name.starts_with('$') {
@@ -1607,19 +1607,28 @@ impl BinExpr {
         error(self, "Identifier expected on left hand-side of assignment")
     }
 
+    fn eval_cmp_status(&self) -> EvalResult<Value> {
+        let message = if self.op == Op::Gt {
+            "Command status does not support '>', did you mean redirect '=>' ?"
+        } else {
+            "Command status can only be checked as true or false, not compared to other values"
+        };
+        error(self, message)
+    }
+
     fn eval_cmp(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real((i - j) as _)),
                 Value::Real(j) => Ok(Value::Real(i as f64 - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
-                Value::Stat(_) => error(self, "Command status does not support comparison"),
+                Value::Stat(_) => self.eval_cmp_status(),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i - j as f64)),
                 Value::Real(j) => Ok(Value::Real(i - j)),
                 Value::Str(_) => error(self, "Cannot compare number to string"),
-                Value::Stat(_) => error(self, "Command status does not support comparison"),
+                Value::Stat(_) => self.eval_cmp_status(),
             },
             Value::Str(s1) => match rhs {
                 Value::Int(_) | Value::Real(_) => error(self, "Cannot compare string to number"),
@@ -1631,9 +1640,9 @@ impl BinExpr {
                     };
                     Ok(Value::Real(ord as _))
                 }
-                Value::Stat(_) => error(self, "Command status does not support comparison"),
+                Value::Stat(_) => self.eval_cmp_status(),
             },
-            Value::Stat(_) => error(self, "Command status does not support comparison"),
+            Value::Stat(_) => self.eval_cmp_status(),
         }
     }
 
@@ -1754,7 +1763,7 @@ impl BinExpr {
         rhs: &Rc<Expression>,
     ) -> EvalResult<Option<Value>> {
         // Piping into a literal? assign standard output capture to string variable.
-        if let Expression::Lit(lit) = &**rhs {
+        if let Expression::Leaf(lit) = &**rhs {
             // Special case: is the left hand-side expression a pipeline?
             let output = if lhs.is_pipe() {
                 let program = get_own_path().map_err(|e| EvalError::new(self.loc, e))?;
@@ -1895,7 +1904,7 @@ impl BinExpr {
 
     /// Lookup and erase the variable named by the left hand-side expression
     fn eval_erase(&self) -> EvalResult<Value> {
-        if let Expression::Lit(lit) = &*self.lhs {
+        if let Expression::Leaf(lit) = &*self.lhs {
             let var_name = &lit.tok;
 
             if var_name.starts_with('$') {
@@ -2475,7 +2484,7 @@ impl Eval for ForExpr {
 impl ExprNode for ForExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
-            if let Expression::Lit(lit) = &**child {
+            if let Expression::Leaf(lit) = &**child {
                 self.var = lit.tok.clone();
                 return Ok(());
             }
@@ -2542,7 +2551,7 @@ impl Eval for Expression {
             Expression::Empty => {
                 panic!("Empty expression");
             }
-            Expression::Lit(lit) => lit.eval(),
+            Expression::Leaf(lit) => lit.eval(),
             Expression::Loop(l) => l.borrow().eval(),
         }
     }
