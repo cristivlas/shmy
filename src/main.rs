@@ -362,6 +362,9 @@ impl Shell {
             }
             Err(e) => {
                 self.show_error(input, &e);
+                if !self.interactive {
+                    std::process::exit(500);
+                }
             }
         }
     }
@@ -419,7 +422,6 @@ fn main() -> Result<(), ()> {
         Ok(shell) => match shell.read_input() {
             Err(e) => {
                 eprintln!("{}", e);
-                std::process::exit(500);
             }
             Ok(_) => {}
         },

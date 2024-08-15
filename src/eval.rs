@@ -541,13 +541,13 @@ where
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
                 '*' => {
-                    check_text!(self, tok);
-                    self.next();
                     if !self.is_delimiter(&self.text, c) {
                         self.text.push(c);
                     } else {
+                        check_text!(self, tok);
                         tok = Token::Operator(Op::Mul)
                     }
+                    self.next();
                 }
                 '<' => token!(self, tok, '=', Token::Operator(Op::Lt), Token::Operator(Op::Lte)),
                 '>' => token!(self, tok, '=', Token::Operator(Op::Gt), Token::Operator(Op::Gte)),
@@ -576,22 +576,22 @@ where
                     }
                 },
                 '-' => {
-                    check_text!(self, tok);
                     if !self.is_delimiter(&self.text, c) {
                         self.text.push(c);
                     } else {
+                        check_text!(self, tok);
                         tok = Token::Operator(Op::Minus);
                     }
                     self.next();
                 }
                 '/' => {
-                    check_text!(self, tok);
+                    // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
                     if !self.is_delimiter(&self.text, c) {
-                        // Treat forward slashes as chars in arguments to commands, to avoid quoting file paths.
-                            self.text.push(c);
-                            self.next();
-                        } else {
-                            token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
+                        self.text.push(c);
+                        self.next();
+                    } else {
+                        check_text!(self, tok);
+                        token!(self, tok, '/', Token::Operator(Op::Div), Token::Operator(Op::IntDiv));
                     }
                 }
                 _ => {
@@ -1734,7 +1734,6 @@ impl BinExpr {
 
     fn eval_exit_code(&self, cmd: String, status: &std::process::ExitStatus) -> EvalResult<Value> {
         let exit_code = status.code().unwrap_or_else(|| -1);
-        my_dbg!(exit_code);
 
         let result = if exit_code == 0 {
             Ok(Value::success())

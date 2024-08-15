@@ -319,4 +319,12 @@ mod tests {
                 .unwrap()
         );
     }
+
+    #[test]
+    fn test_dash_parse() {
+        assert_eval_ok!(
+            "echo ---Hello--- | x; $x",
+            Value::from_str(&"---Hello---").unwrap()
+        );
+    }
 }
