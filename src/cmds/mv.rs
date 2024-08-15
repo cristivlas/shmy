@@ -52,16 +52,30 @@ impl Exec for Mv {
 
         let interactive = !flags.is_present("force") || flags.is_present("interactive");
 
-        if dest.exists()
+        let final_dest = if dest.is_dir() {
+            dest.join(src.file_name().ok_or("Invalid source filename")?)
+        } else {
+            dest.to_path_buf()
+        };
+
+        if src == final_dest {
+            return Err("Source and destination are the same".to_string());
+        }
+
+        if final_dest.exists()
             && interactive
-            && confirm(format!("Overwrite '{}'", dest.display()), scope, false)
-                .map_err(|e| e.to_string())?
+            && confirm(
+                format!("Overwrite '{}'", final_dest.display()),
+                scope,
+                false,
+            )
+            .map_err(|e| e.to_string())?
                 != Answer::Yes
         {
             return Ok(Value::success());
         }
 
-        fs::rename(src, dest).map_err(|e| e.to_string())?;
+        fs::rename(src, final_dest).map_err(|e| e.to_string())?;
 
         Ok(Value::success())
     }
