@@ -944,14 +944,16 @@ where
                             continue;
                         }
                     }
-                    // Identifiers and literals
+                    // Identifiers and literals. TODO: handle variables (identifiers) separately.
                     let expr = Rc::new(Expression::Lit(Rc::new(Literal {
                         tok: s.clone(),
                         quoted: *quoted,
                         loc: self.prev_loc,
                         scope: Rc::clone(&self.scope),
                     })));
-                    self.add_expr(&expr)?;
+                    if !self.current_expr.is_empty() || !self.rewrite_pipeline(&expr)? {
+                        self.add_expr(&expr)?;
+                    }
                 }
                 Token::Operator(op) => {
                     let is_low_priority = op.priority() <= Priority::Low;
@@ -1003,6 +1005,52 @@ where
 
         Self::close_group(&self.group);
         Ok(Rc::clone(&self.group))
+    }
+
+    fn rewrite_pipeline(&mut self, expr: &Rc<Expression>) -> EvalResult<bool> {
+        assert!(self.current_expr.is_empty());
+
+        let mut head = self.empty();
+        let mut tail = self.empty();
+
+        while let Some(top) = self.expr_stack.last().cloned() {
+            if top.is_pipe() {
+                //println!("pipe: {}", &top);
+                if !head.is_empty() {
+                    self.current_expr = Rc::clone(&top);
+                    self.add_expr(&head)?;
+                    //println!("current: {}", &self.current_expr);
+                }
+                if tail.is_empty() {
+                    if let Expression::Bin(b) = &*top {
+                        assert!(b.borrow().op == Op::Pipe);
+                        tail = Rc::clone(&b.borrow().lhs);
+                        head = Rc::clone(&tail);
+                    }
+                    //println!("end: {}", &tail);
+                } else {
+                    head = Rc::clone(&top);
+                }
+                self.expr_stack.pop();
+            } else {
+                //println!("top: {}", &top);
+                break;
+            }
+        }
+        //println!("start: [{}], end: [{}]", &head, &tail);
+        if head.is_empty() {
+            Ok(false)
+        } else {
+            self.current_expr = Rc::new(Expression::Bin(RefCell::new(BinExpr {
+                op: Op::Pipe,
+                lhs: Rc::clone(&head),
+                rhs: Rc::clone(&expr),
+                loc: expr.loc(),
+                scope: Rc::clone(&self.scope),
+            })));
+            //println!("current_expr: {}", &self.current_expr);
+            Ok(true)
+        }
     }
 }
 
@@ -1287,6 +1335,13 @@ impl Expression {
         }
     }
 
+    fn is_pipe(&self) -> bool {
+        if let Expression::Bin(b) = self {
+            b.borrow().op == Op::Pipe
+        } else {
+            false
+        }
+    }
     /// Is the expression completely constructed (parsed)?
     fn is_complete(&self) -> bool {
         match self {
@@ -1657,11 +1712,53 @@ impl BinExpr {
     ) -> EvalResult<Option<Value>> {
         // Piping into a literal? assign standard output capture to string variable.
         if let Expression::Lit(lit) = &**rhs {
-            let out = self.eval_redirect(lhs)?;
-            let val = Value::Str(out.trim().to_string());
-            self.scope.insert(lit.tok.clone(), val.clone());
+            // Special case: is the left hand-side expression a pipeline?
+            let output = if lhs.is_pipe() {
+                let program = get_own_path().map_err(|e| EvalError::new(self.loc, e))?;
 
-            return Ok(Some(val));
+                // Get the left hand-side expression as a string
+                let lhs_str = lhs.to_string();
+
+                // println!("Executing pipe LHS: {} -c {}", &program, &lhs_str);
+                // Start an instance of the interpreter to evaluate the left hand-side of the pipe
+                let mut child = StdCommand::new(&program)
+                    .arg("-c")
+                    .arg(&lhs_str)
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .map_err(|e| {
+                        EvalError::new(rhs.loc(), format!("Failed to spawn child process: {}", e))
+                    })?;
+
+                let mut buffer = Vec::new();
+                if let Some(mut stdout) = child.stdout.take() {
+                    stdout.read_to_end(&mut buffer).map_err(|e| {
+                        EvalError::new(rhs.loc(), format!("Failed to read output: {}", e))
+                    })?;
+                }
+
+                // Wait for the child process to complete
+                child.wait().map_err(|e| {
+                    EvalError::new(
+                        rhs.loc(),
+                        format!("Failed to wait for child process output: {}", e),
+                    )
+                })?;
+
+                String::from_utf8(buffer).map_err(|e| {
+                    EvalError::new(
+                        rhs.loc(),
+                        format!("Failed to convert pipe output from UTF8: {}", e),
+                    )
+                })?
+            } else {
+                // Base use case, left hand-side is not a pipe expression
+                self.eval_redirect(lhs)?
+            };
+            let value = Value::from_str(output.trim())?;
+            self.scope.insert(lit.tok.clone(), value.clone());
+
+            return Ok(Some(value));
         }
         Ok(None)
     }
@@ -1693,19 +1790,19 @@ impl BinExpr {
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
 
-        // my_dbg!(&program, &rhs_str);
+        // println!("Executing pipe RHS: {} -c {}", &program, &rhs_str);
 
         // Start a copy of the running program with the arguments "-c" rhs_str
-        let child = match StdCommand::new(&program)
+        // to evaluate the right hand-side of the pipe expression
+        let child = StdCommand::new(&program)
             .arg("-c")
             .arg(&rhs_str)
             .stdin(Stdio::from(reader))
             .stdout(Stdio::piped())
             .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => return error(&**rhs, &format!("Failed to spawn child process: {}", e)),
-        };
+            .map_err(|e| {
+                EvalError::new(rhs.loc(), format!("Failed to spawn child process: {}", e))
+            })?;
 
         // Left-side evaluation's stdout goes into the pipe.
         let lhs_result = lhs.eval();
@@ -1714,19 +1811,19 @@ impl BinExpr {
         drop(redirect);
 
         // Wait for the child process to complete and get its output
-        let output = match child.wait_with_output() {
-            Ok(o) => o,
-            Err(e) => {
-                return error(
-                    &**rhs,
-                    &format!("Failed to get child process output: {}", e),
-                )
-            }
-        };
-        lhs_result?; // Check left hand-side errors
+        let output = child.wait_with_output().map_err(|e| {
+            EvalError::new(
+                rhs.loc(),
+                format!("Failed to get child process output: {}", e),
+            )
+        })?;
+
+        lhs_result?; // Check for any left hand-side errors
 
         // Print the output of the right hand-side expression.
         print!("{}", String::from_utf8_lossy(&output.stdout));
+
+        // TODO: return command status?
         Ok(Value::Int(output.status.code().unwrap_or_else(|| -1) as _))
     }
 
@@ -1770,6 +1867,7 @@ impl BinExpr {
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
         // TODO: better var name? should be set by Interp if non-interactive?
+        // TODO: move var lookup to confirm
         if self.scope.lookup("HEADLESS").is_none() {
             let operation = if append { "append" } else { "overwrite" };
             if Path::new(&filename).exists()

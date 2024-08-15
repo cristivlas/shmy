@@ -285,4 +285,12 @@ mod tests {
             Value::from_str("basename .: Failed to get file name").unwrap()
         );
     }
+
+    #[test]
+    fn test_pipeline_rewrite() {
+        assert_eval_ok!(
+            "echo World | (echo Hello; cat) | cat | x; $x",
+            "Hello\nWorld".parse::<Value>().unwrap()
+        );
+    }
 }
