@@ -751,7 +751,6 @@ where
                 return Ok(()); // Wait for the FOR body
             }
         }
-        let current = Rc::clone(&self.current_expr);
 
         // Handle the use case of erasing variables, e.g. $VAR = ;
         if self.current_expr.is_empty() {
@@ -775,14 +774,6 @@ where
                 g.borrow_mut().add_child(&self.current_expr)?;
             } else {
                 panic!("Unexpected group error");
-            }
-        }
-
-        if current.is_for() {
-            assert!(current.is_complete());
-
-            if std::ptr::eq(&*current, &*self.current_expr) {
-                self.clear_current();
             }
         }
 
@@ -878,11 +869,13 @@ where
                 Token::Semicolon => {
                     self.finalize_groups()?;
 
-                    // Semicolons end both statements and FOR argument lists;
-                    // Do not clear the current expression in the latter case,
-                    // since the expression is still being parsed (the body is
-                    // expected after the argument list).
-                    if !self.current_expr.is_for() {
+                    // Semicolons end both statements and FOR argument lists.
+
+                    // In case of this token being the semicolon following the
+                    // arguments of the current FOR expression, do not clear the
+                    // expression, since we are still expecting to parse the body.
+
+                    if !self.current_expr.is_for() || self.current_expr.is_complete() {
                         self.clear_current();
                     }
                 }
