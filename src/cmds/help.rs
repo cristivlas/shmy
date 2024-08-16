@@ -63,8 +63,7 @@ impl Help {
         if current_column != 0 {
             println!();
         }
-
-        println!("\nUse 'help COMMAND' for more information about a specific command.");
+        println!();
     }
 }
 
