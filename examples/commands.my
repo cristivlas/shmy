@@ -29,3 +29,14 @@ while ($i > 0) (
 );
 
 echo Errors: $__errors;
+
+# Example 4.
+# ----------
+# IMPORTANT CAVEAT / PITFALL. Commands are recognized as such at parse-time.
+
+# This will NOT execute the 'ls' command, it will just evaluate $LS as "ls":
+LS="ls"; $LS;
+
+# Workaround: use the 'run' command.
+LS="ls -al"; run $LS -- -h .;
+
