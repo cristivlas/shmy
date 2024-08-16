@@ -48,10 +48,6 @@ for f in *.rs; ( echo $f; ls -l $f )
 #### c) Arithmetic Operations
 Supported operations: `+`, `-`, `/`, `*`
 
-**Important Note on Arithmetic:**
-`2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time.
-$x * $y works as expected.
-
 #### d) Logical Operations
 Supported operations: `||`, `&&`
 
@@ -96,13 +92,11 @@ __stderr=log.txt; ls -al;
 __stderr=$__stdout; ls -al /
 __stdout=some/path/file.txt ls -al;
 ```
-**Note:** Redirects via `$__stdout` and `$__stderr` are effective only in the scope where those variables are defined, and stacked redirects are not supported.
 
 ### 7. Gotchas and Pitfalls
 - **Variable Expansion in Arithmetic:**
-  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`.
-- **Undefined Behavior:** Redirecting `$__stderr` and `$__stdout` to each other in the same scope is undefined.
-- **Command Assignment:** Assigning a command to a variable (e.g., `x = command`) results in `0` or `1`, not the command's output.
+  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time.
+When using spaces like this: ```$x * $y``` the evaluation works as expected.
 
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
