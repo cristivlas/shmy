@@ -1,12 +1,47 @@
 # Pipes
 # ==========
 # Example 1.
-# Expression can be piped to other expressions.
+# ==========
 
+# Expressions can be piped to other expressions.
 echo Hello World | (echo "===== HEADER ====="; cat; echo "===== FOOTER =====");
 
-# Example 2.
-# Expressions can be piped into a variable, and variables are tunneled through.
-# This should print 84
 
-i = 42; echo Var tunnel demo: | cat; echo ($i * 2) | x; echo $x;
+# ==========
+# Example 2.
+# ==========
+
+# Expressions can be piped into a variable, and as expected, vars
+# are sent thru each pipe "stage". The code below should print 84
+
+i = 42; echo Hello! | cat; echo ($i * 2) | x; echo $x;
+
+# Redirecting standard output and standard error using special
+# variables __stderr and __stdout
+
+# ==========
+# Example 3.
+# ==========
+
+__stdout = temp; ls -al;    # Redirect standard out to a temp file.
+$__stdout = ;               # Reset $__stdout, ending the redirect.
+
+echo The content of the ls command was: ;
+cat temp;
+rm -f temp;
+
+
+# Instead of redirecting to a file, we can redirect __stdout to null
+# __stdout = null
+
+#... or to standard error
+# __stdout = 2
+
+# Similarly stderr can be redirected to stdout, a file, or to null
+# __stderr = __stdout;      # Equivalent to __stderr = 1
+
+
+# NOTE: line below fails, because of conflicting redirection of stdout
+# to both null and to a pipe.
+
+__stdout = null; echo hello | cat;

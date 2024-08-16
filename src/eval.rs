@@ -315,10 +315,9 @@ impl EvalError {
         // Create the error indicator
         let indicator = "-".repeat(col - 1) + "^";
 
-        eprintln!("Error at line {}, column {}:", line, col);
+        eprintln!("{}", &self);
         eprintln!("{}", error_line);
         eprintln!("{}", indicator);
-        eprintln!("{}", self.message);
     }
 }
 
@@ -1936,6 +1935,7 @@ impl BinExpr {
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
         let operation = if append { "append" } else { "overwrite" };
+
         if Path::new(&filename).exists()
             && confirm(
                 format!("{} exists, confirm {}", filename, operation),
@@ -1945,7 +1945,7 @@ impl BinExpr {
             .map_err(|e| EvalError::new(self.loc, e.to_string()))?
                 != Answer::Yes
         {
-            return Ok(Value::Int(401));
+            return error(self, "Not confirmed");
         }
 
         // Open destination file
@@ -2128,94 +2128,118 @@ struct Command {
 
 derive_has_location!(Command);
 
-macro_rules! define_redir_enum {
-    ($name:ident, $other_stream:ident) => {
-        enum $name {
-            #[allow(dead_code)]
-            File(Redirect<File>),
-            #[allow(dead_code)]
-            $other_stream(Redirect<io::$other_stream>),
-            #[allow(dead_code)]
-            Null(Gag),
-            None,
-        }
-    };
-}
-
-macro_rules! define_redir_impl {
-    ($name:ident, $self_stream:ident, $other_stream:ident, $other:ident, $lookup_key:expr, $other_key:expr) => {
-        impl $name {
-            fn with_scope(scope: &Rc<Scope>) -> Result<Self, String> {
-                if let Some(v) = scope.lookup_value($lookup_key) {
-                    let path = v.to_string();
-                    if path == $other_key || path == concat!("__", $other_key) {
-                        return Ok($name::$other_stream(
-                            Redirect::$self_stream(io::$other()).map_err(|e| {
-                                format!(
-                                    "Failed to redirect {} to {}: {}",
-                                    $lookup_key, $other_key, e
-                                )
-                            })?,
-                        ));
-                    }
-                    if path.to_ascii_lowercase() == "null" {
-                        return Ok($name::Null(Gag::$self_stream().map_err(|e| e.to_string())?));
-                    }
-                    let file = OpenOptions::new()
-                        .truncate(true)
-                        .read(true)
-                        .create(true)
-                        .write(true)
-                        .open(&path)
-                        .map_err(|e| {
-                            format!(
-                                "Failed to open file for {} redirection '{}': {}",
-                                $lookup_key, path, e
-                            )
-                        })?;
-
-                    return Ok($name::File(Redirect::$self_stream(file).map_err(|e| {
-                        format!(
-                            "Failed to redirect {} to file '{}': {}",
-                            $lookup_key, path, e
-                        )
-                    })?));
-                }
-
-                Ok($name::None)
-            }
-        }
-    };
-}
-
 macro_rules! handle_redir_error {
     ($redir:expr, $loc:expr) => {
         if let Err(message) = &$redir {
-            if !message.contains("Redirect already exists") {
-                return Err(EvalError::new($loc, message.clone()));
-            }
+            return Err(EvalError::new($loc, message.clone()));
         }
     };
 }
 
-// Define RedirStderr
-define_redir_enum!(RedirStderr, Stdout);
-define_redir_impl!(RedirStderr, stderr, Stdout, stdout, "__stderr", "1");
+enum Redirection {
+    #[allow(dead_code)]
+    File(Redirect<File>),
+    #[allow(dead_code)]
+    Stdout(Option<Redirect<std::io::Stdout>>),
+    #[allow(dead_code)]
+    Stderr(Option<Redirect<std::io::Stderr>>),
+    #[allow(dead_code)]
+    Null(Gag),
+    None,
+}
 
-// Define RedirStdout
-define_redir_enum!(RedirStdout, Stderr);
-define_redir_impl!(RedirStdout, stdout, Stderr, stderr, "__stdout", "2");
+impl Redirection {
+    fn with_scope(
+        scope: &Rc<Scope>,
+        name: &str,
+        other: &str,
+        other_desc: &str,
+    ) -> Result<Self, String> {
+        assert!(name == "__stdout" || name == "__stderr");
+
+        if let Some(v) = scope.lookup(name) {
+            let path = v.to_string();
+            Self::redirect(scope, name, other, other_desc, &path)
+        } else {
+            Ok(Redirection::None)
+        }
+    }
+
+    fn redirect(
+        scope: &Rc<Scope>,
+        name: &str,
+        other: &str,
+        other_desc: &str,
+        path: &String,
+    ) -> Result<Self, String> {
+        if path == "null" {
+            if name == "__stdout" {
+                return Ok(Redirection::Null(Gag::stdout().map_err(|e| e.to_string())?));
+            } else {
+                return Ok(Redirection::Null(Gag::stderr().map_err(|e| e.to_string())?));
+            }
+        }
+
+        if path == other || path == other_desc {
+            // Lookup if the other stream is also redirected
+            if let Some(v) = scope.lookup(other) {
+                let desc = if other_desc == "1" { "2" } else { "1" };
+                let other_path = v.to_string();
+                if other_path == name || other_path == desc {
+                    return Err(format!("Cyclical {} redirection", name));
+                }
+                return Self::redirect(scope, name, other, other_desc, &other_path);
+            }
+
+            if name == "__stdout" {
+                let redir = Redirect::stdout(io::stderr()).map_err(|e| e.to_string())?;
+                return Ok(Redirection::Stderr(Some(redir)));
+            } else {
+                let redir = Redirect::stderr(io::stdout()).map_err(|e| e.to_string())?;
+                return Ok(Redirection::Stdout(Some(redir)));
+            }
+        }
+
+        if Path::new(&path).exists()
+            && confirm(
+                format!("{} exists, confirm {} redirect", path, name),
+                &scope,
+                false,
+            )
+            .map_err(|e| e.to_string())?
+                != Answer::Yes
+        {
+            return Err("Not confirmed".to_string());
+        }
+
+        let file = OpenOptions::new()
+            .truncate(true)
+            .read(true)
+            .create(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("Failed to open '{}' for {} redirection: {}", path, name, e))?;
+
+        let redir = if name == "__stdout" {
+            Redirect::stdout(file)
+        } else {
+            Redirect::stderr(file)
+        }
+        .map_err(|e| format!("Failed to redirect {} to file '{}': {}", name, path, e))?;
+        return Ok(Redirection::File(redir));
+    }
+}
 
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
         // Redirect stdout if a $__stdout variable found in scope.
         // Values can be "2", "__stderr", "null", or a filename.
-        let redir_stdout = RedirStdout::with_scope(&self.scope);
+        let redir_stdout = Redirection::with_scope(&self.scope, "__stdout", "__stderr", "2");
         handle_redir_error!(&redir_stdout, self.loc);
 
         // Redirect stderr if a $__stderr variable found in scope.
         // Values can be "1", "__stdout", "null", or a filename.
-        let redir_stderr = RedirStderr::with_scope(&self.scope);
+        let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
         handle_redir_error!(&redir_stderr, self.loc);
 
         // Evaluate command line arguments and convert to strings
