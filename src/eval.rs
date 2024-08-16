@@ -303,8 +303,9 @@ impl EvalError {
         }
     }
 
+    /// Provide a visual indication of the error locus.
     pub fn show(&self, input: &String) {
-        // TODO: deal with wrap around
+        // TODO: deal with wrap around?
         let line = self.loc.line as usize;
         let col = self.loc.col as usize;
 
@@ -317,7 +318,7 @@ impl EvalError {
 
         eprintln!("{}", &self);
         eprintln!("{}", error_line);
-        eprintln!("{}", indicator);
+        eprintln!("{}\n", indicator);
     }
 }
 
@@ -687,7 +688,7 @@ where
                 self.current_expr = Rc::clone(&expr);
                 return Ok(());
             } else {
-                return error(&**expr, "Unexpected expression");
+                return error(&**expr, "Unexpected expression, missing semicolon?");
             }
         }
 
@@ -959,7 +960,8 @@ where
                             continue;
                         }
                     }
-                    // Identifiers and literals. TODO: handle variables (identifiers) separately.
+                    // Identifiers and literals.
+                    // TODO: handle variables (identifiers) separately?
                     let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                         tok: s.clone(),
                         quoted: *quoted,
@@ -1387,17 +1389,19 @@ impl Expression {
                 for expr in &args.borrow().content {
                     let val = Status::check_result(expr.eval())?;
 
+                    // Preserve quotes
                     if let Expression::Leaf(tok) = &**expr {
                         if tok.quoted {
                             tokens.push(val.to_string());
                             continue;
                         }
                     }
-
+                    // If not quoted, split at ASCII whitespace
                     tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
                 }
 
-                // Read from stdin if args consist of a single dash
+                // Read from stdin if args consist of one single dash, allowing arguments to be piped
+                // into FOR commands e.g. ```find . ".*\\.rs" | for file in -; (echo $file);```
                 if tokens.len() == 1 && tokens[0] == "-" {
                     let mut buffer = String::new();
                     io::stdin()
@@ -1477,7 +1481,7 @@ impl ExprNode for BinExpr {
             self.rhs = Rc::clone(child);
             Ok(())
         } else {
-            error(&**child, "Unexpected expression")
+            error(&**child, "Unexpected expression, missing a semicolon?")
         }
     }
 }
@@ -2305,7 +2309,7 @@ fn value_as_bool(val: &Value, scope: &Rc<Scope>) -> bool {
     let result = match val {
         Value::Int(i) => *i != 0,
         Value::Real(r) => *r != 0.0,
-        Value::Str(s) => !s.is_empty(), // TODO: maybe not such a good idea?
+        Value::Str(s) => !s.is_empty(),
         Value::Stat(s) => s.borrow_mut().as_bool(&scope),
     };
 
@@ -2324,7 +2328,7 @@ impl ExprNode for BranchExpr {
             self.cond = Rc::clone(child);
         } else if self.if_branch.is_empty() {
             if !child.is_group() {
-                return error(&**child, "Parentheses are required around IF block");
+                return error(&**child, "Parentheses are required around IF body");
             }
             self.if_branch = Rc::clone(child);
         } else if self.else_branch.is_empty() {
@@ -2332,11 +2336,11 @@ impl ExprNode for BranchExpr {
                 return error(&**child, "Expecting ELSE keyword");
             }
             if !child.is_group() {
-                return error(&**child, "Parentheses are required around ELSE block");
+                return error(&**child, "Parentheses are required around ELSE body");
             }
             self.else_branch = Rc::clone(child);
         } else {
-            return error(&**child, "Unexpected expression after ELSE block");
+            return error(&**child, "Unexpected expression after ELSE body, missing semicolon?");
         }
         Ok(())
     }

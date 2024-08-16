@@ -1,8 +1,3 @@
-Revisit __stdout and __stderr redirects
-Revisit =>, =>>
-$__errors propagation across pipes?
 implement a simple command for reading user input
-add argument to cp to specify buffer size
-multi-threaded cp?
 
-set command (or export?)
+cp perf: add argument to cp to specify buffer size; multi-threaded cp?

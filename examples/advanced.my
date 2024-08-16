@@ -1,2 +1,16 @@
 # Count lines in the current project
-find src .*rs | srcs; echo "${srcs/\n/ }" | args; wc -l $args
+find src .*rs | srcs; echo "${srcs/\n/ }" | args; wc -l $args;
+
+# There is a subtle "bug" in the line above, having to do with the implementation of the 'wc' command:
+# if no arguments are given, wc will read from stdin. So, if no files ending in 'rs' are found, wc will
+# wait for user input.
+
+# The workaround is:
+find src ".*rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args)
+
+# And, the more correct regular expression in the find command argument should be ".*\\.rs"
+# The first backslash escapes the next one so, that the Rust Regex being compiled is: .*\.rs
+# NOTE that in mysh backslashes only work as such inside quotes. This is to avoid complications
+# with TAB-completion of Windows file paths in interactive mode.
+
+find src ".*\\.rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args);
