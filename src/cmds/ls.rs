@@ -372,13 +372,16 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(args: &CmdArgs) -> Result<Value, String> {
-    for path in &args.paths {
-        match fs::metadata(path) {
+    for path_arg in &args.paths {
+        let path = Path::new(&path_arg)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {
-                    print_dir(path, &args)?;
+                    print_dir(&path, &args)?;
                 } else {
-                    print_file(path, &metadata, &args)?;
+                    print_file(&path, &metadata, &args)?;
                 }
             }
             Err(e) => return Err(e.to_string()),
@@ -388,23 +391,16 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
     Ok(Value::success())
 }
 
-fn make_abspath(path: &str) -> Result<String, String> {
-    let path = Path::new(path);
-    match fs::canonicalize(path) {
-        Ok(abs_path) => Ok(abs_path.to_string_lossy().to_string()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
-    let entries = fs::read_dir(path).map_err(|e| format!("Cannot access '{}': {}", path, e))?;
+fn print_dir(path: &Path, args: &CmdArgs) -> Result<(), String> {
+    let entries =
+        fs::read_dir(path).map_err(|e| format!("Cannot access '{}': {}", path.display(), e))?;
     let mut entries: Vec<_> = entries
         .collect::<Result<_, _>>()
         .map_err(|e| format!("Error reading entries: {}", e))?;
     entries.sort_by_key(|e| e.file_name());
 
     if args.paths.len() > 1 {
-        my_println!("\n{}:", make_abspath(path)?)?;
+        my_println!("\n{}:", path.display())?;
     }
 
     if args.show_details {
@@ -415,16 +411,24 @@ fn print_dir(path: &str, args: &CmdArgs) -> Result<(), String> {
     Ok(())
 }
 
-fn print_file(path: &str, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
+fn print_file(path: &Path, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
     if args.show_details {
         print_details(&PathBuf::from(path), metadata, args)?;
     } else if args.all_files || !path.starts_with(".") {
-        my_println!("{}", args.colors.render_file_name(path, metadata))?;
+        my_println!(
+            "{}",
+            args.colors
+                .render_file_name(path.to_str().unwrap_or(""), metadata)
+        )?;
     }
     Ok(())
 }
 
-fn print_simple_entries(entries: &Vec<DirEntry>, args: &CmdArgs, spacing: usize) -> Result<(), String> {
+fn print_simple_entries(
+    entries: &Vec<DirEntry>,
+    args: &CmdArgs,
+    spacing: usize,
+) -> Result<(), String> {
     let max_width = entries
         .iter()
         .filter(|e| args.all_files || !e.file_name().to_string_lossy().starts_with('.'))
