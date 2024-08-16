@@ -1,4 +1,4 @@
-# My First Rust Project
+# My First Rust Project: A Command Line Interpreter
 
 This is a simple, lightweight command line interpreter with Unix-like built-in commands, created for familiarizing myself with Rust.
 
