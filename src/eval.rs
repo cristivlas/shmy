@@ -1378,39 +1378,29 @@ impl Expression {
         }
     }
 
-    /// Argument evaluation
-    fn to_values(&self) -> EvalResult<Vec<Value>> {
+    /// Evaluate and tokenize arguments
+    fn tokenize_args(&self) -> EvalResult<Vec<String>> {
         match &self {
             Expression::Args(args) => {
                 let mut values = Vec::new();
 
-                for v in args.borrow().iter() {
-                    values.push(Status::check_result(v)?);
+                for expr in &args.borrow().content {
+                    let val = Status::check_result(expr.eval())?;
+
+                    if let Expression::Leaf(tok) = &**expr {
+                        if tok.quoted {
+                            values.push(val.to_string());
+                            continue;
+                        }
+                    }
+
+                    values.extend(val.to_string().split_ascii_whitespace().map(String::from));
                 }
+
                 Ok(values)
             }
             _ => error(self, "Expecting argument list"),
         }
-    }
-
-    /// Evaluate and tokenize arguments
-    fn tokenize_args(&self) -> EvalResult<Vec<String>> {
-        let mut tokens = Vec::new();
-
-        for val in &self.to_values()? {
-            tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
-        }
-
-        // Read from stdin if args consist of a single dash
-        if tokens.len() == 1 && tokens[0] == "-" {
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
-            tokens = buffer.split_ascii_whitespace().map(String::from).collect();
-        }
-
-        Ok(tokens)
     }
 
     fn priority(&self) -> Priority {
@@ -2047,10 +2037,6 @@ impl GroupExpr {
             closed: false,
         }
     }
-
-    fn iter(&self) -> impl Iterator<Item = EvalResult<Value>> + '_ {
-        self.content.iter().map(|expr| expr.eval())
-    }
 }
 
 derive_has_location!(GroupExpr);
@@ -2242,13 +2228,8 @@ impl Eval for Command {
         let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
         handle_redir_error!(&redir_stderr, self.loc);
 
-        // Evaluate command line arguments and convert to strings
-        let args = self
-            .args
-            .to_values()?
-            .into_iter()
-            .map(|v| v.to_string())
-            .collect();
+        let args = self.args.tokenize_args()?;
+
         // Execute command
         let result = self
             .cmd
