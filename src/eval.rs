@@ -1382,22 +1382,31 @@ impl Expression {
     fn tokenize_args(&self) -> EvalResult<Vec<String>> {
         match &self {
             Expression::Args(args) => {
-                let mut values = Vec::new();
+                let mut tokens = Vec::new();
 
                 for expr in &args.borrow().content {
                     let val = Status::check_result(expr.eval())?;
 
                     if let Expression::Leaf(tok) = &**expr {
                         if tok.quoted {
-                            values.push(val.to_string());
+                            tokens.push(val.to_string());
                             continue;
                         }
                     }
 
-                    values.extend(val.to_string().split_ascii_whitespace().map(String::from));
+                    tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
                 }
 
-                Ok(values)
+                // Read from stdin if args consist of a single dash
+                if tokens.len() == 1 && tokens[0] == "-" {
+                    let mut buffer = String::new();
+                    io::stdin()
+                        .read_to_string(&mut buffer)
+                        .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+                    tokens = buffer.split_ascii_whitespace().map(String::from).collect();
+                }
+
+                Ok(tokens)
             }
             _ => error(self, "Expecting argument list"),
         }
