@@ -120,15 +120,19 @@ enum Token {
 }
 
 /// Location information for error reporting
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Location {
     pub line: u32,
     pub col: u32,
+    pub file: Option<Rc<String>>,
 }
 
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{}:{}]", self.line, self.col)
+        match &self.file {
+            Some(file_name) => write!(f, "{}:{}:{}", *file_name, self.line, self.col),
+            None => write!(f, "{}:{}", self.line, self.col),
+        }
     }
 }
 
@@ -138,8 +142,12 @@ trait HasLocation {
 }
 
 impl Location {
-    fn new() -> Self {
-        Self { line: 1, col: 1 }
+    fn with_file(file: Option<Rc<String>>) -> Self {
+        Self {
+            line: 1,
+            col: 1,
+            file,
+        }
     }
 
     fn next_line(&mut self) {
@@ -152,7 +160,7 @@ macro_rules! derive_has_location {
     ($type:ty) => {
         impl HasLocation for $type {
             fn loc(&self) -> Location {
-                self.loc
+                self.loc.clone()
             }
         }
     };
@@ -313,12 +321,16 @@ impl EvalError {
         let lines: Vec<&str> = input.lines().collect();
         let error_line = lines.get(line - 1).unwrap_or(&"");
 
-        // Create the error indicator
-        let indicator = "-".repeat(col - 1) + "^";
-
         eprintln!("{}", &self);
         eprintln!("{}", error_line);
-        eprintln!("{}\n", indicator);
+
+        if self.loc.file.is_none() {
+            eprintln!();
+        } else {
+            // Create the error indicator
+            let indicator = "-".repeat(col - 1) + "^\n";
+            eprintln!("{}", indicator);
+        }
     }
 }
 
@@ -365,7 +377,7 @@ struct Parser<I: Iterator<Item = char>> {
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
     fn loc(&self) -> Location {
-        self.loc
+        self.loc.clone()
     }
 }
 
@@ -418,9 +430,9 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
-    fn new(input: T, interp_scope: &Rc<Scope>) -> Self {
+    fn new(input: T, interp_scope: &Rc<Scope>, file: Option<Rc<String>>) -> Self {
         let empty = Rc::new(Expression::Empty);
-        let loc = Location::new();
+        let loc = Location::with_file(file);
 
         // Create a child scope of the interpreter scope; the interp scope contains
         // the environmental vars, which should not be cleared between evaluations.
@@ -428,8 +440,8 @@ where
 
         Self {
             chars: input.peekable(),
-            loc,
-            prev_loc: loc,
+            loc: loc.clone(),
+            prev_loc: loc.clone(),
             comment: false,
             escaped: false,
             in_quotes: false,
@@ -439,7 +451,7 @@ where
             scope: Rc::clone(&scope),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
-            group: new_group(loc, &scope),
+            group: new_group(&loc, &scope),
             group_stack: Vec::new(),
             globbed_tokens: Vec::new(),
             text: String::new(),
@@ -460,7 +472,7 @@ where
                     && !self.current_expr.is_cmd()
                     && !self.current_expr.is_empty();
             }
-            match parse_value(tok, self.loc, &self.scope) {
+            match parse_value(tok, &self.loc, &self.scope) {
                 Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
                 _ => false,
             }
@@ -673,7 +685,7 @@ where
     fn add_expr(&mut self, expr: &Rc<Expression>) -> EvalResult {
         assert!(!expr.is_empty());
 
-        self.prev_loc = self.loc;
+        self.prev_loc = self.loc();
 
         if self.expect_else_expr {
             self.current_expr = self.expr_stack.pop().unwrap();
@@ -809,11 +821,11 @@ where
             self.group_stack.push(Rc::clone(&self.group));
 
             if group == Group::Args {
-                self.group = new_args(self.prev_loc, &self.scope);
-                self.prev_loc = self.loc;
+                self.group = new_args(&self.prev_loc, &self.scope);
+                self.prev_loc = self.loc();
             } else {
-                self.group = new_group(self.prev_loc, &self.scope);
-                self.prev_loc = self.loc;
+                self.group = new_group(&self.prev_loc, &self.scope);
+                self.prev_loc = self.loc();
             }
         }
         self.expr_stack.push(Rc::clone(&self.current_expr));
@@ -830,7 +842,7 @@ where
     fn pop_group(&mut self) -> EvalResult {
         if self.group_stack.is_empty() {
             return Err(EvalError::new(
-                self.loc,
+                self.loc(),
                 "Unbalanced parentheses?".to_string(),
             ));
         }
@@ -890,7 +902,7 @@ where
                             if_branch: self.empty(),
                             else_branch: self.empty(),
                             expect_else: false, // becomes true once "else" keyword is seen
-                            loc: self.prev_loc,
+                            loc: self.prev_loc.clone(),
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -899,7 +911,7 @@ where
                             if f.borrow().var.is_empty() {
                                 return error(self, "Expecting identifier in FOR expression");
                             }
-                            self.prev_loc = self.loc;
+                            self.prev_loc = self.loc();
                         } else {
                             return error(self, "IN without FOR");
                         }
@@ -909,7 +921,7 @@ where
                             if !b.borrow_mut().is_else_expected() {
                                 return error(self, "Conditional expression or IF branch missing");
                             }
-                            self.prev_loc = self.loc;
+                            self.prev_loc = self.loc();
                             self.expect_else_expr = true;
                             self.push(Group::None)?;
                         } else {
@@ -920,7 +932,7 @@ where
                             var: String::default(),
                             args: self.empty(),
                             body: self.empty(),
-                            loc: self.prev_loc,
+                            loc: self.prev_loc.clone(),
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -929,7 +941,7 @@ where
                         let expr = Rc::new(Expression::Loop(RefCell::new(LoopExpr {
                             cond: self.empty(),
                             body: self.empty(),
-                            loc: self.prev_loc,
+                            loc: self.prev_loc.clone(),
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -937,7 +949,7 @@ where
                         let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                             tok: word.clone(),
                             quoted: false,
-                            loc: self.prev_loc,
+                            loc: self.prev_loc.clone(),
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
@@ -949,7 +961,7 @@ where
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
                                 args: self.empty(),
-                                loc: self.prev_loc,
+                                loc: self.prev_loc.clone(),
                                 scope: Rc::clone(&self.scope),
                             })));
                             self.add_expr(&expr)?;
@@ -965,7 +977,7 @@ where
                     let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                         tok: s.clone(),
                         quoted: *quoted,
-                        loc: self.prev_loc,
+                        loc: self.prev_loc.clone(),
                         scope: Rc::clone(&self.scope),
                     })));
                     if !self.current_expr.is_empty() || !self.rewrite_pipeline(&expr)? {
@@ -987,11 +999,11 @@ where
                         op: op.clone(),
                         lhs: Rc::clone(&self.current_expr),
                         rhs: self.empty(),
-                        loc: self.prev_loc,
+                        loc: self.prev_loc.clone(),
                         scope: Rc::clone(&self.scope),
                     })));
 
-                    self.prev_loc = self.loc;
+                    self.prev_loc = self.loc();
 
                     if is_low_priority {
                         self.expr_stack.push(Rc::clone(&expr));
@@ -1238,9 +1250,9 @@ impl Scope {
 /// "${UNDEFINED_VAR}"             -> ""
 /// "${UNDEFINED_VAR/foo/bar}"     -> ""
 /// ```
-fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
+fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> {
     let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)")
-        .map_err(|e| EvalError::new(loc, e.to_string()))?;
+        .map_err(|e| EvalError::new(loc.clone(), e.to_string()))?;
 
     let result = re.replace_all(s, |caps: &regex::Captures| {
         let var_expr = caps
@@ -1287,7 +1299,7 @@ fn parse_value(s: &str, loc: Location, scope: &Rc<Scope>) -> EvalResult<Value> {
 
     result
         .parse::<Value>()
-        .map_err(|e| EvalError::new(loc, e.to_string()))
+        .map_err(|e| EvalError::new(loc.clone(), e.to_string()))
 }
 
 #[derive(Debug)]
@@ -1678,7 +1690,7 @@ impl BinExpr {
 
     fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
         Err(EvalError::new(
-            self.loc,
+            self.loc(),
             "Integer division not implemented".to_string(),
         ))
     }
@@ -1708,7 +1720,7 @@ impl BinExpr {
 
     fn eval_mod(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
         Err(EvalError::new(
-            self.loc,
+            self.loc(),
             "Modulo operation not implemented".to_string(),
         ))
     }
@@ -1739,14 +1751,14 @@ impl BinExpr {
     /// Evaluate expr and redirect output into a String
     fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
         let mut redirect =
-            BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc, e.to_string()))?;
+            BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
         Status::check_result(expr.eval())?;
 
         let mut str_buf = String::new();
         redirect
             .read_to_string(&mut str_buf)
-            .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
+            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
         Ok(str_buf.to_string())
     }
@@ -1776,7 +1788,7 @@ impl BinExpr {
         if let Expression::Leaf(lit) = &**rhs {
             // Special case: is the left hand-side expression a pipeline?
             let output = if lhs.is_pipe() {
-                let program = get_own_path().map_err(|e| EvalError::new(self.loc, e))?;
+                let program = get_own_path().map_err(|e| EvalError::new(self.loc(), e))?;
 
                 // Get the left hand-side expression as a string
                 let lhs_str = lhs.to_string();
@@ -1853,7 +1865,7 @@ impl BinExpr {
         };
 
         // Get our own program name
-        let program = get_own_path().map_err(|e| EvalError::new(self.loc, e))?;
+        let program = get_own_path().map_err(|e| EvalError::new(self.loc(), e))?;
 
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();
@@ -1945,7 +1957,7 @@ impl BinExpr {
                 &self.scope,
                 false,
             )
-            .map_err(|e| EvalError::new(self.loc, e.to_string()))?
+            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?
                 != Answer::Yes
         {
             return error(self, "Not confirmed");
@@ -1958,11 +1970,11 @@ impl BinExpr {
             .append(append)
             .truncate(!append)
             .open(&filename)
-            .map_err(|e| EvalError::new(self.loc, e.to_string()))?;
+            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
         // Redirect stdout to the file
         let _redirect = Redirect::stdout(file)
-            .map_err(|e| EvalError::new(self.loc, format!("Failed to redirect stdout: {}", e)))?;
+            .map_err(|e| EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e)))?;
 
         // Evaluate left hand-side expression
         self.lhs.eval()
@@ -2031,21 +2043,21 @@ struct GroupExpr {
 }
 
 impl GroupExpr {
-    fn new_args(loc: Location, scope: &Rc<Scope>) -> Self {
+    fn new_args(loc: &Location, scope: &Rc<Scope>) -> Self {
         Self {
             kind: Group::Args,
             scope: Rc::clone(&scope),
             content: Vec::new(),
-            loc,
+            loc: loc.clone(),
             closed: false,
         }
     }
 
-    fn new_group(loc: Location, scope: &Rc<Scope>) -> Self {
+    fn new_group(loc: &Location, scope: &Rc<Scope>) -> Self {
         Self {
             kind: Group::Block,
             content: Vec::new(),
-            loc,
+            loc: loc.clone(),
             scope: Rc::clone(&scope),
             closed: false,
         }
@@ -2234,12 +2246,12 @@ impl Eval for Command {
         // Redirect stdout if a $__stdout variable found in scope.
         // Values can be "2", "__stderr", "null", or a filename.
         let redir_stdout = Redirection::with_scope(&self.scope, "__stdout", "__stderr", "2");
-        handle_redir_error!(&redir_stdout, self.loc);
+        handle_redir_error!(&redir_stdout, self.loc());
 
         // Redirect stderr if a $__stderr variable found in scope.
         // Values can be "1", "__stdout", "null", or a filename.
         let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
-        handle_redir_error!(&redir_stderr, self.loc);
+        handle_redir_error!(&redir_stderr, self.loc());
 
         let args = self.args.tokenize_args()?;
 
@@ -2340,7 +2352,10 @@ impl ExprNode for BranchExpr {
             }
             self.else_branch = Rc::clone(child);
         } else {
-            return error(&**child, "Unexpected expression after ELSE body, missing semicolon?");
+            return error(
+                &**child,
+                "Unexpected expression after ELSE body, missing semicolon?",
+            );
         }
         Ok(())
     }
@@ -2386,7 +2401,7 @@ derive_has_location!(Literal);
 
 impl Eval for Literal {
     fn eval(&self) -> EvalResult<Value> {
-        parse_value(&self.tok, self.loc, &self.scope)
+        parse_value(&self.tok, &self.loc, &self.scope)
     }
 }
 
@@ -2591,15 +2606,16 @@ impl Eval for Expression {
 
 pub struct Interp {
     scope: Rc<Scope>,
+    file: Option<Rc<String>>,
 }
 
-fn new_args(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
+fn new_args(loc: &Location, scope: &Rc<Scope>) -> Rc<Expression> {
     Rc::new(Expression::Args(RefCell::new(GroupExpr::new_args(
         loc, &scope,
     ))))
 }
 
-fn new_group(loc: Location, scope: &Rc<Scope>) -> Rc<Expression> {
+fn new_group(loc: &Location, scope: &Rc<Scope>) -> Rc<Expression> {
     Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(
         loc, &scope,
     ))))
@@ -2609,6 +2625,7 @@ impl Interp {
     pub fn new() -> Self {
         Self {
             scope: Scope::with_env_vars(),
+            file: None,
         }
     }
 
@@ -2623,7 +2640,7 @@ impl Interp {
     }
 
     fn parse(&self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
-        let mut parser = Parser::new(input.chars(), &self.scope);
+        let mut parser = Parser::new(input.chars(), &self.scope, self.file.clone());
         parser.parse(quit)
     }
 
@@ -2633,5 +2650,9 @@ impl Interp {
 
     pub fn get_scope(&self) -> Rc<Scope> {
         Rc::clone(&self.scope)
+    }
+
+    pub fn set_file(&mut self, file: Option<Rc<String>>) {
+        self.file = file;
     }
 }

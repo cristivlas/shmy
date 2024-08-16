@@ -19,8 +19,8 @@ mod macros;
 mod cmds;
 mod eval;
 mod prompt;
-mod utils;
 mod testeval;
+mod utils;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]
 struct CmdLineHelper {
@@ -217,7 +217,7 @@ fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Opti
 }
 
 impl Shell {
-    fn new(source: Option<Box<dyn BufRead>>, interactive: bool, interp: Interp) -> Self {
+    fn new() -> Self {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
@@ -225,11 +225,10 @@ impl Shell {
             })
             .expect("Error setting Ctrl+C handler");
         }
-
         Self {
-            source,
-            interactive,
-            interp,
+            source: None,
+            interactive: true,
+            interp: Interp::new(),
             home_dir: None,
             history_path: None,
             edit_config: rustyline::Config::builder()
@@ -383,14 +382,14 @@ pub fn current_dir() -> Result<String, String> {
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
-    let mut shell = Shell::new(None, true, Interp::new());
+    let mut shell = Shell::new();
 
     let args: Vec<String> = env::args().collect();
     for (i, arg) in args.iter().enumerate().skip(1) {
         if arg.starts_with("-") {
             if arg == "-c" {
                 if !shell.interactive {
-                    Err("cannot specify -c command and scripts at the same time")?;
+                    Err("Cannot specify -c command and scripts at the same time")?;
                 }
                 shell.source = Some(Box::new(Cursor::new(format!(
                     "{}",
@@ -403,6 +402,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
             let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
             shell.source = Some(Box::new(BufReader::new(file)));
             shell.interactive = false;
+            shell.interp.set_file(Some(Rc::new(arg.to_owned())));
         }
     }
 
