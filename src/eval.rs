@@ -780,7 +780,10 @@ where
 
         if current.is_for() {
             assert!(current.is_complete());
-            self.clear_current();
+
+            if std::ptr::eq(&*current, &*self.current_expr) {
+                self.clear_current();
+            }
         }
 
         Ok(())
