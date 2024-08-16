@@ -68,7 +68,7 @@ mod tests {
     fn test_if_no_group() {
         assert_eval_err!(
             "i = 1; if $i true",
-            "Parentheses are required around IF block"
+            "Parentheses are required around IF body"
         )
     }
 
@@ -89,7 +89,7 @@ mod tests {
     fn test_else_no_group() {
         assert_eval_err!(
             "i = 1; if $i (1) else 0",
-            "Parentheses are required around ELSE block"
+            "Parentheses are required around ELSE body"
         )
     }
 
