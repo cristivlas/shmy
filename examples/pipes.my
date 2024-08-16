@@ -1,0 +1,12 @@
+# Pipes
+# ==========
+# Example 1.
+# Expression can be piped to other expressions.
+
+echo Hello World | (echo "===== HEADER ====="; cat; echo "===== FOOTER =====");
+
+# Example 2.
+# Expressions can be piped into a variable, and variables are tunneled through.
+# This should print 84
+
+i = 42; echo Var tunnel demo: | cat; echo ($i * 2) | x; echo $x;

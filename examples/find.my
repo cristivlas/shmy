@@ -18,6 +18,8 @@ find src .*.rs | for f in -; (basename $f);
 # Example 3.
 # ----------
 # Find files, number the finds. Redirect results to report.txt file
+# NOTE that redirect operator is '=>' (not '>'); to append to an existing file, use '=>>'
+
 find src .*rs | rs_files; i = 1; for f in $rs_files; (echo $i $f; $i = $i + 1) => report.txt;
 
 # The above will prompt the user to confirm overwriting 'report.txt' if it exists.

@@ -1,0 +1,31 @@
+# Commands return an internal 'Status'. If the command succeeds, great.
+# If the command failed and the status was never checked, we get an error.
+
+# Example 1.
+# ----------
+# Command fails due to incorrect arguments. If the next two lines are 
+# uncommented, note that the 'echo' statement is never executed.
+
+# cp --bogus src dest;
+# echo "This is never reached";
+
+# Example 2.
+# ----------
+# Handled error.
+
+if (cp --bogus src dest) (echo "Ok") else (echo "Failed");
+
+# Example 3.
+# ----------
+# Errors are collected and hoisted all the way to top scope.
+
+i = 3;
+
+while ($i > 0) (
+    $i = $i - 1;
+    if (!(cp --bogus)) (
+        break;
+    )
+);
+
+echo Errors: $__errors;
