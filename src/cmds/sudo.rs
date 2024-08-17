@@ -83,7 +83,11 @@ impl Exec for Sudo {
             startup_info.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
             let mut process_info = PROCESS_INFORMATION::default();
 
-            // Construct environment block
+            // Construct environment block.
+
+            // TODO: good idea (or useful at all?) to copy all vars to the environment here?
+            // Not doing it for now.
+
             let env_vars = vec!["NO_COLOR=_"];
             let mut env_block: Vec<u16> = env_vars
                 .iter()
