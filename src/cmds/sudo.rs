@@ -51,7 +51,7 @@ impl Exec for Sudo {
         let user = flags
             .get_value("user")
             .unwrap_or("Administrator".to_string());
-        let cmd_name = command_args.remove(0);
+        let cmd_name = &command_args[0].to_string();
 
         if let Some(additional_args) = flags.get_value("args") {
             command_args.extend(additional_args.split_whitespace().map(String::from));
@@ -62,20 +62,25 @@ impl Exec for Sudo {
                 .map_err(|e| format!("Failed to read password: {}", e))?;
 
             let command = if cmd.is_external() {
-                format!("{} {}", cmd_name, command_args.join(" "))
+                command_args.join(" ")
             } else {
                 let own_path =
                     get_own_path().map_err(|e| format!("Failed to get own path: {}", e))?;
-                format!("{} -c {} {}", own_path, cmd_name, command_args.join(" "))
+                format!("{} -c {}", own_path, command_args.join(" "))
             };
+
+            let mut title: Vec<u16> = OsStr::new(&format!("{}: {}", user, cmd_name))
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
 
             let user: Vec<u16> = OsStr::new(&user).encode_wide().chain(Some(0)).collect();
             let password: Vec<u16> = OsStr::new(&password).encode_wide().chain(Some(0)).collect();
+
             let mut command: Vec<u16> = OsStr::new(&command).encode_wide().chain(Some(0)).collect();
-
             let mut startup_info = STARTUPINFOW::default();
+            startup_info.lpTitle = PWSTR(title.as_mut_ptr());
             startup_info.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-
             let mut process_info = PROCESS_INFORMATION::default();
 
             // Construct environment block
