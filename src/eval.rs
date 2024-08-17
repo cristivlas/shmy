@@ -317,20 +317,15 @@ impl EvalError {
         let line = self.loc.line as usize;
         let col = self.loc.col as usize;
 
+        eprintln!("{}", &self);
         // Get the problematic line from the input
         let lines: Vec<&str> = input.lines().collect();
         let error_line = lines.get(line - 1).unwrap_or(&"");
-
-        eprintln!("{}", &self);
         eprintln!("{}", error_line);
 
-        if self.loc.file.is_none() {
-            eprintln!();
-        } else {
-            // Create the error indicator
-            let indicator = "-".repeat(col - 1) + "^\n";
-            eprintln!("{}", indicator);
-        }
+        // Create the error indicator
+        let indicator = "-".repeat(col - 1) + "^\n";
+        eprintln!("{}", indicator);
     }
 }
 
@@ -1601,15 +1596,17 @@ impl BinExpr {
         Ok(Value::Int(any as _))
     }
 
-    fn eval_assign(&self, rhs: Value) -> EvalResult<Value> {
-        if let Value::Stat(stat) = &rhs {
-            return error(
-                self,
-                &format!("{} {} | result;", ASSIGN_STATUS_ERROR, stat.borrow().cmd),
-            );
-        }
-
+    fn eval_assign(&self) -> EvalResult<Value> {
         if let Expression::Leaf(lit) = &*self.lhs {
+            let rhs = self.rhs.eval()?;
+
+            if let Value::Stat(stat) = &rhs {
+                let lhs = self.lhs.to_string();
+                return error(
+                    self,
+                    &format!("{} {} | {};", ASSIGN_STATUS_ERROR, stat.borrow().cmd, lhs),
+                );
+            }
             let var_name = &lit.tok;
 
             if var_name.starts_with('$') {
@@ -2004,7 +2001,7 @@ impl Eval for BinExpr {
             match self.op {
                 Op::And => self.eval_and(),
                 Op::Append => self.eval_write(true),
-                Op::Assign => self.eval_assign(self.rhs.eval()?.clone()),
+                Op::Assign => self.eval_assign(),
                 Op::Div => eval_bin!(self, eval_div),
                 Op::Gt => eval_bin!(self, eval_gt),
                 Op::Gte => eval_bin!(self, eval_gte),
