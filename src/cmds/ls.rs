@@ -512,7 +512,9 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<
 
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            let link_path = fs::read_link(path).map_err(|e| e.to_string())?;
+            // let link_path = fs::read_link(path).map_err(|e| e.to_string())?;
+            // TODO: Handle NTFS junctions, https://en.wikipedia.org/wiki/NTFS_links
+            let link_path = fs::read_link(path).unwrap_or(Path::new("[...]").to_path_buf());
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()
