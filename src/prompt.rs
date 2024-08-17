@@ -80,3 +80,9 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answ
     }
     Ok(Answer::No)
 }
+
+/// Used by sudo implementation on Windows
+#[cfg(windows)]
+pub fn read_password(prompt: &str) -> io::Result<String> {
+    rpassword::prompt_password(prompt)
+}

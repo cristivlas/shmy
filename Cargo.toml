@@ -16,6 +16,7 @@ indicatif = "0.17.3"
 lazy_static = "1.4.0"
 os_pipe = "1.1.4"
 regex = "1"
+rpassword = "7.2"
 rustyline = { version = "14.0", features = ["derive"] }
 terminal_size = "0.3.0"
 which = "6.0.2"
@@ -24,14 +25,16 @@ which = "6.0.2"
 users = "0.11.0"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58.0", features = [
+windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_System_Memory",
     "Win32_Storage_FileSystem",
+    "Win32_System_Threading", "Win32_System_WindowsProgramming"
 ] }
-windows-sys = { version = "0.59.0", features = [
+
+windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",

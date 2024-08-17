@@ -1,4 +1,5 @@
 use crate::eval::Scope;
+use std::env;
 use std::rc::Rc;
 
 /// Copy variables from the current scope outwards into the environment of the
@@ -23,5 +24,33 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<
                 current_scope = scope;
             }
         }
+    }
+}
+
+pub fn get_own_path() -> Result<String, String> {
+    match env::current_exe() {
+        Ok(p) => {
+            #[cfg(test)]
+            {
+                use regex::Regex;
+
+                let path_str = p.to_string_lossy();
+                #[cfg(windows)]
+                {
+                    let re = Regex::new(r"\\deps\\.*?(\..*)?$").map_err(|e| e.to_string())?;
+                    Ok(re.replace(&path_str, "\\mysh$1").to_string())
+                }
+                #[cfg(not(windows))]
+                {
+                    let re = Regex::new(r"/deps/.+?(\..*)?$").map_err(|e| e.to_string())?;
+                    Ok(re.replace(&path_str, "/mysh$1").to_string())
+                }
+            }
+            #[cfg(not(test))]
+            {
+                Ok(p.to_string_lossy().to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to get executable name: {}", e)),
     }
 }

@@ -28,6 +28,8 @@ mod mv;
 mod realpath;
 mod rm;
 mod run;
+#[cfg(windows)]
+mod sudo;
 mod vars;
 mod wc;
 
