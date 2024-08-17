@@ -1177,7 +1177,7 @@ impl Scope {
         self.vars.borrow().get(var_name).cloned()
     }
 
-    pub fn lookup_partial(&self, var_name: &str) -> Vec<String> {
+    pub fn lookup_starting_with(&self, var_name: &str) -> Vec<String> {
         let mut keys = Vec::new();
 
         for key in self.vars.borrow().keys() {
@@ -1239,12 +1239,6 @@ impl Scope {
 /// "${NAME/(\\w+) (\\w+)/\\2, \\1}"   -> "Doe, John"
 /// "${GREETING/(Hello), (World)!/\\2 says \\1}" -> "World says Hello"
 /// ```
-///
-/// Handling non-existent variables:
-/// ```
-/// "${UNDEFINED_VAR}"             -> ""
-/// "${UNDEFINED_VAR/foo/bar}"     -> ""
-/// ```
 fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> {
     let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)")
         .map_err(|e| EvalError::new(loc.clone(), e.to_string()))?;
@@ -1288,7 +1282,7 @@ fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> 
 
                 value
             }
-            None => String::default(), // Return empty string if VAR not found
+            None => format!("${}", var_name)
         }
     });
 

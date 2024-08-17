@@ -145,7 +145,7 @@ impl completion::Completer for CmdLineHelper {
         } else if tail.starts_with("$") {
             // Expand variables
             kw_pos -= tail.len();
-            keywords.extend(self.scope.lookup_partial(&tail[1..]).iter().map(|k| {
+            keywords.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
                 Self::Candidate {
                     replacement: format!("${}", k),
                     display: String::default(),

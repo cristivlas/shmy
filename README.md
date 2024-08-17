@@ -121,6 +121,6 @@ This section details the parsing and expanding of shell-like variable expression
     ```
   - Handling non-existent variables:
     ```shell
-    "${UNDEFINED_VAR}"             -> ""
-    "${UNDEFINED_VAR/foo/bar}"     -> ""
+    "${UNDEFINED_VAR}"             -> "$UNDEFINED_VAR"
+    "${UNDEFINED_VAR/foo/bar}"     -> "$UNDEFINED_VAR"
     ```
