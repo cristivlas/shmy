@@ -38,7 +38,7 @@ impl Exec for Sudo {
 
         if flags.is_present("help") {
             println!("Usage: sudo [OPTIONS] COMMAND [ARGS]...");
-            println!("Execute a command with elevated privileges.");
+            println!("Execute a command as another user (without passing environmental variables).");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
