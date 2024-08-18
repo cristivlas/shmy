@@ -1,11 +1,11 @@
 use crate::eval::Scope;
 use colored::Colorize;
-use lazy_static::lazy_static;
-use rustyline::history::MemHistory;
-use rustyline::{Config, Editor};
-use std::io;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+use std::io::{self, Write};
 use std::rc::Rc;
-use std::sync::Mutex;
 
 #[derive(PartialEq)]
 pub enum Answer {
@@ -13,20 +13,6 @@ pub enum Answer {
     Yes,
     All,
     Quit,
-}
-
-// Define a static mutable variable for the Editor instance
-lazy_static! {
-    static ref EDITOR: Mutex<Editor<(), MemHistory>> = {
-        let cfg = Config::builder()
-            .behavior(rustyline::Behavior::PreferTerm)
-            .color_mode(rustyline::ColorMode::Forced)
-            .edit_mode(rustyline::EditMode::Emacs)
-            .build();
-        let editor = Editor::<(), MemHistory>::with_history(cfg, MemHistory::new())
-            .expect("Failed to create editor");
-        Mutex::new(editor)
-    };
 }
 
 pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answer> {
@@ -56,29 +42,70 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answ
 
     let question = format!("{}? ({}) ", prompt, options);
 
-    // Use rustyline to read the input, to avoid issues when running
-    // interpreter instances with -c as the right hand-side of a pipe
-    // expression.
-    let mut editor = EDITOR
-        .lock()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    // Open the TTY for writing the prompt
+    let mut tty = open_tty_for_writing()?;
+    write!(tty, "{}", question)?;
+    tty.flush()?;
 
-    let input = editor
-        .readline(&question)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    enable_raw_mode()?;
 
-    let answer = input.trim();
-
-    if answer.eq_ignore_ascii_case("y") {
-        return Ok(Answer::Yes);
-    } else if many {
-        if answer.eq_ignore_ascii_case("a") {
-            return Ok(Answer::All);
-        } else if answer.eq_ignore_ascii_case("q") {
-            return Ok(Answer::Quit);
+    let mut input = String::new();
+    loop {
+        match event::read()? {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                match key_event.code {
+                    KeyCode::Char(c) => {
+                        input.push(c);
+                        write!(tty, "{}", c)?;
+                        tty.flush()?;
+                    }
+                    KeyCode::Enter => {
+                        writeln!(tty)?;
+                        break;
+                    }
+                    KeyCode::Backspace => {
+                        if !input.is_empty() {
+                            input.pop();
+                            write!(tty, "\x08 \x08")?;
+                            tty.flush()?;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
     }
-    Ok(Answer::No)
+
+    write!(tty, "\r")?;
+    disable_raw_mode()?;
+
+    process_answer(&input, many)
+}
+
+fn process_answer(input: &str, many: bool) -> io::Result<Answer> {
+    let first_char = input.trim().chars().next().map(|c| c.to_ascii_lowercase());
+
+    match first_char {
+        Some('y') => Ok(Answer::Yes),
+        Some('n') => Ok(Answer::No),
+        Some('a') if many => Ok(Answer::All),
+        Some('q') if many => Ok(Answer::Quit),
+        _ => Ok(Answer::No),
+    }
+}
+
+fn open_tty_for_writing() -> io::Result<impl Write> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        OpenOptions::new().write(true).open("/dev/tty")
+    }
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        OpenOptions::new().write(true).open("CON")
+    }
 }
 
 /// Used by sudo implementation on Windows
