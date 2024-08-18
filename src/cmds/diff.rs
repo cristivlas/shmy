@@ -178,7 +178,7 @@ impl Hunk {
 }
 
 /// Accumulates edit hunks for printing
-struct Unified<'a> {
+struct UnifiedView<'a> {
     src: &'a [String],
     dest: &'a [String],
     src_line: usize,  // Current line number in the 'src' file
@@ -186,7 +186,7 @@ struct Unified<'a> {
     hunks: Vec<Hunk>,
 }
 
-impl<'a> Unified<'a> {
+impl<'a> UnifiedView<'a> {
     fn new(src: &'a [String], dest: &'a [String]) -> Self {
         Self {
             src,
@@ -267,7 +267,7 @@ fn print_unified(
     src_path: &str,
     dest_path: &str,
 ) -> Result<(), String> {
-    let mut unified = Unified::new(src, dest);
+    let mut unified = UnifiedView::new(src, dest);
 
     while let Some(edit) = grid.at(unified.dest_line, unified.src_line) {
         if !unified.update(&edit) {
