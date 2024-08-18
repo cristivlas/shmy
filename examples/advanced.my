@@ -13,4 +13,4 @@ find src ".*rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args);
 # NOTE that in mysh backslashes only work as such inside quotes. This is to avoid complications
 # with TAB-completion of Windows file paths in interactive mode.
 
-find src ".*\\.rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args);
+find src ".*\\.rs" | src; if ($src) (wc -l $src)

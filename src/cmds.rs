@@ -16,6 +16,7 @@ mod cat;
 mod cd;
 mod clear;
 mod cp;
+mod diff;
 mod df;
 mod echo;
 mod exit;
