@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::rc::Rc;
 
-const MAX_CONTEXT: usize = 3;
 struct Diff {
     flags: CommandFlags,
 }
@@ -62,14 +61,14 @@ fn read_file(filename: &str) -> Result<Vec<String>, String> {
         .map_err(|e| e.to_string())
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum Edit {
     None,
     Delete,
     Insert,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct Node {
     i: usize,
     j: usize,
@@ -120,133 +119,144 @@ fn diff(src: &[String], dest: &[String], grid: &mut Grid) {
     queue.push_back(Node::new(0, 0, src.len() + dest.len(), Edit::None));
 
     while let Some(n) = queue.pop_front() {
-        if n.i < dest.len() || n.j < src.len() {
-            if let Some(m) = grid.at(n.i, n.j) {
-                if m.d <= n.d {
-                    continue;
-                }
+        if let Some(m) = grid.at(n.i, n.j) {
+            if m.d <= n.d {
+                continue;
             }
+        }
 
-            if n.i < dest.len() {
-                if n.j < src.len() {
-                    if &dest[n.i] == &src[n.j] {
-                        queue.push_back(Node::new(n.i + 1, n.j + 1, n.d - 1, Edit::None));
-                    } else {
-                        queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
-                        queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
-                    }
+        if n.i < dest.len() {
+            if n.j < src.len() {
+                if &dest[n.i] == &src[n.j] {
+                    queue.push_back(Node::new(n.i + 1, n.j + 1, n.d - 2, Edit::None));
                 } else {
                     queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
+                    queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
                 }
-            } else if n.j < src.len() {
-                queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
+            } else {
+                queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
             }
+        } else if n.j < src.len() {
+            queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
         }
         grid.insert(n);
     }
 }
 
-/// Accumulate edit hunks for printing
-struct Hunk<'a> {
-    src: &'a [String],
-    dest: &'a [String],
-    src_path: &'a str,
-    dest_path: &'a str,
+struct Hunk {
     edits: Vec<String>,
     src_count: usize,
     src_line: usize,
     dest_count: usize,
     dest_line: usize,
-    context: VecDeque<&'a str>,
-    print_header: bool,
 }
 
-impl<'a> Hunk<'a> {
-    fn new(src: &'a [String], dest: &'a [String], src_path: &'a str, dest_path: &'a str) -> Self {
+impl Hunk {
+    fn new() -> Self {
+        Self {
+            edits: Vec::new(),
+            src_count: 0,
+            src_line: 0,
+            dest_count: 0,
+            dest_line: 0,
+        }
+    }
+
+    fn update(&mut self, src_line: usize, dest_line: usize) -> bool {
+        self.dest_line = dest_line;
+        if self.dest_count == 0 && dest_line > 0 {
+            self.dest_line -= 1;
+        }
+
+        self.src_line = src_line;
+        if self.src_count == 0 && src_line > 0 {
+            self.src_line -= 1;
+        }
+
+        !self.edits.is_empty()
+    }
+}
+
+/// Accumulates edit hunks for printing
+struct Unified<'a> {
+    src: &'a [String],
+    dest: &'a [String],
+    src_line: usize,  // Current line number in the 'src' file
+    dest_line: usize, // Current line number in the 'dest' file
+    hunks: Vec<Hunk>,
+}
+
+impl<'a> Unified<'a> {
+    fn new(src: &'a [String], dest: &'a [String]) -> Self {
         Self {
             src,
             dest,
-            src_path,
-            dest_path,
-            edits: Vec::new(),
-            src_count: 0,
             src_line: src.len(),
-            dest_count: 0,
             dest_line: dest.len(),
-            context: VecDeque::new(),
-            print_header: true,
+            hunks: vec![Hunk::new()],
         }
     }
 
-    fn update(&mut self, n: &Node) -> Result<bool, String> {
+    fn hunk(&mut self) -> &mut Hunk {
+        self.hunks.last_mut().unwrap()
+    }
+
+    fn update(&mut self, n: &Node) -> bool {
         match n.op {
             Edit::None => {
+                self.push_hunk(false);
                 self.src_line -= 1;
                 self.dest_line -= 1;
-
-                // Update the rolling buffer of context lines
-                self.context.push_front(&self.src[self.src_line]);
-
-                if self.context.len() == MAX_CONTEXT {
-                    if !self.edits.is_empty() {
-                        self.print()?;
-                        self.reset();
-                    }
-
-                    self.context.pop_back();
-                }
             }
             Edit::Delete => {
-                self.src_count += 1;
                 self.src_line -= 1;
-                self.context.clear();
-                self.edits.push(format!("-{}", &self.src[self.src_line]));
+                let line = &self.src[self.src_line];
+                self.hunk().src_count += 1;
+                self.hunk().edits.push(format!("-{}", line));
             }
             Edit::Insert => {
-                self.dest_count += 1;
                 self.dest_line -= 1;
-                self.context.clear();
-                self.edits.push(format!("+{}", &self.dest[self.dest_line]));
+                let line = &self.dest[self.dest_line];
+                self.hunk().dest_count += 1;
+                self.hunk().edits.push(format!("+{}", line));
             }
         }
 
-        Ok(self.src_line > 0 && self.dest_line > 0)
+        self.src_line != 0 || self.dest_line != 0
     }
 
-    fn print(&self) -> Result<(), String> {
-        if self.print_header {
-            my_println!("--- {}", self.src_path)?;
-            my_println!("+++ {}", self.dest_path)?;
+    fn print(&mut self, src_path: &str, dest_path: &str) -> Result<(), String> {
+        if self.hunks.len() > 1 {
+            my_println!("--- {}", src_path.replace("\\", "/"))?;
+            my_println!("+++ {}", dest_path.replace("\\", "/"))?;
         }
 
-        let ctx_len = self.context.len();
+        for hunk in self.hunks.iter().rev() {
+            if hunk.edits.is_empty() {
+                continue;
+            }
+            my_println!(
+                "@@ -{},{} +{},{} @@",
+                hunk.src_line + 1,
+                hunk.src_count,
+                hunk.dest_line + 1,
+                hunk.dest_count
+            )?;
 
-        my_println!(
-            "@@ -{},{} +{},{} @@",
-            self.src_line + 1,
-            self.src_count + ctx_len,
-            self.dest_line + 1,
-            self.dest_count + ctx_len
-        )?;
-
-        self.context
-            .iter()
-            .try_for_each(|line| my_println!(" {}", line))?;
-
-        self.edits
-            .iter()
-            .rev()
-            .try_for_each(|line| my_println!("{}", line))?;
-
+            hunk.edits
+                .iter()
+                .rev()
+                .try_for_each(|line| my_println!("{}", line))?;
+        }
         Ok(())
     }
 
-    fn reset(&mut self) {
-        self.context.clear();
-        self.edits.clear();
-        self.print_header = false;
-        self.src_count = 0;
-        self.dest_count = 0;
+    fn push_hunk(&mut self, last: bool) {
+        let (src_line, dest_line) = (self.src_line, self.dest_line);
+
+        if self.hunk().update(src_line, dest_line) && !last {
+            self.hunks.push(Hunk::new());
+        }
     }
 }
 
@@ -257,19 +267,15 @@ fn print_unified(
     src_path: &str,
     dest_path: &str,
 ) -> Result<(), String> {
-    let mut hunk = Hunk::new(src, dest, src_path, dest_path);
+    let mut unified = Unified::new(src, dest);
 
-    while let Some(edit) = grid.at(hunk.dest_line, hunk.src_line) {
-        if !hunk.update(&edit)? {
+    while let Some(edit) = grid.at(unified.dest_line, unified.src_line) {
+        if !unified.update(&edit) {
             break;
         }
     }
-
-    if !hunk.edits.is_empty() {
-        hunk.print()?;
-    }
-
-    Ok(())
+    unified.push_hunk(true);
+    unified.print(src_path, dest_path)
 }
 
 #[ctor::ctor]
