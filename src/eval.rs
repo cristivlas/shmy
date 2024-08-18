@@ -1282,7 +1282,7 @@ fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> 
 
                 value
             }
-            None => format!("${}", var_name)
+            None => format!("${}", var_name),
         }
     });
 
@@ -1911,7 +1911,7 @@ impl BinExpr {
         error(self, "Variable expected on left hand-side of assignment")
     }
 
-    /// Redirect standard output to file
+    /// Redirect standard output to file, and evaluate the left hand-side expression.
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
         let operation = if append { "append" } else { "overwrite" };
@@ -1925,24 +1925,25 @@ impl BinExpr {
             .map_err(|e| EvalError::new(self.loc(), e.to_string()))?
                 != Answer::Yes
         {
-            return error(self, "Not confirmed");
+            Ok(Value::success())
+        } else {
+            // Open destination file
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .append(append)
+                .truncate(!append)
+                .open(&filename)
+                .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+
+            // Redirect stdout to the file
+            let _redirect = Redirect::stdout(file).map_err(|e| {
+                EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e))
+            })?;
+
+            // Evaluate left hand-side expression
+            self.lhs.eval()
         }
-
-        // Open destination file
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .append(append)
-            .truncate(!append)
-            .open(&filename)
-            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
-
-        // Redirect stdout to the file
-        let _redirect = Redirect::stdout(file)
-            .map_err(|e| EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e)))?;
-
-        // Evaluate left hand-side expression
-        self.lhs.eval()
     }
 }
 
@@ -2112,6 +2113,15 @@ macro_rules! handle_redir_error {
     };
 }
 
+/// Implement special variables __stderr and __stdout for redirecting standard error and output.
+/// # Examples
+/// ```
+/// __stderr = null; ls;
+/// __stderr = log.txt; ls -al;
+/// __stderr = __stdout; ls -al /
+/// __stdout = some/path/file.txt ls -al;
+/// __stdout = output.txt; __stderr = 1; ls -al c:\
+/// ```
 enum Redirection {
     #[allow(dead_code)]
     File(Redirect<File>),
@@ -2185,7 +2195,7 @@ impl Redirection {
             .map_err(|e| e.to_string())?
                 != Answer::Yes
         {
-            return Err("Not confirmed".to_string());
+            return Ok(Redirection::None);
         }
 
         let file = OpenOptions::new()

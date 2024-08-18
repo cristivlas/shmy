@@ -75,10 +75,18 @@ impl Rm {
             if ctx.recursive {
                 self.remove_dir(path, ctx)
             } else {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Cannot remove '{}': Is a directory", path.display()),
-                ))
+                let prompt = format!(
+                    "'{}' is a directory. Delete all of its content recursively",
+                    path.display()
+                );
+
+                if confirm(prompt, &ctx.scope, ctx.many)? == Answer::Yes {
+                    let interactive = ctx.interactive;
+                    ctx.interactive = false;
+                    self.remove_dir(path, ctx)?;
+                    ctx.interactive = interactive;
+                }
+                Ok(())
             }
         } else {
             self.remove_file(path, ctx)

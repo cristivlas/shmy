@@ -89,7 +89,7 @@ Use the following special variables for redirecting output:
 ```shell
 __stderr=null; ls;
 __stderr=log.txt; ls -al;
-__stderr=$__stdout; ls -al /
+__stderr=__stdout; ls -al /
 __stdout=some/path/file.txt ls -al;
 ```
 
