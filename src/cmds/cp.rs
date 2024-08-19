@@ -67,6 +67,7 @@ struct FileCopier<'a> {
     dest: PathBuf,           // Destination
     ignore_links: bool,      // Skip symbolic links
     confirm_overwrite: bool, // Ask for overwrite confirmation?
+    no_hidden: bool,         // Ignore entries starting with '.'
     preserve_metadata: bool,
     progress: Option<ProgressBar>,
     recursive: bool,
@@ -80,6 +81,7 @@ impl<'a> FileCopier<'a> {
             dest: PathBuf::from(args.last().unwrap()),
             ignore_links: flags.is_present("no-dereference"),
             confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
+            no_hidden: flags.is_present("no-hidden"),
             preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
                 let template = "{spinner:.green} Collecting files: {total_bytes} {wide_msg}";
@@ -105,6 +107,16 @@ impl<'a> FileCopier<'a> {
         path: &Path,
         info: &mut (Vec<(&'a str, PathBuf)>, u64),
     ) -> io::Result<bool> {
+        // Ignore files and dirs starting with '.'? Useful for
+        // copying project directories without .git, .vscode, etc.
+        if self.no_hidden
+            && path
+                .file_name()
+                .is_some_and(|f| f.to_string_lossy().starts_with("."))
+        {
+            return Ok(true);
+        }
+
         if path.is_symlink() {
             if !self.ignore_links {
                 info.0.push((start, path.to_path_buf()));
@@ -376,6 +388,7 @@ impl Cp {
         flags.add_flag('f', "force", "Overwrite without prompting");
         flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
         flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
+        flags.add(None, "no-hidden", false, "Ignore hidden files");
         flags.add(
             None,
             "no-preserve",

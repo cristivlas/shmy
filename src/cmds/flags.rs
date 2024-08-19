@@ -22,14 +22,8 @@ impl CommandFlags {
         }
     }
 
-    pub fn add(
-        &mut self,
-        short: Option<char>,
-        long: &str,
-        takes_value: bool,
-        help: &str,
-    ) {
-        if self.flags.values().find(|f| f.short == short).is_some()
+    pub fn add(&mut self, short: Option<char>, long: &str, takes_value: bool, help: &str) {
+        if (short.is_some() && self.flags.values().find(|f| f.short == short).is_some())
             || self
                 .flags
                 .insert(
