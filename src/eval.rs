@@ -170,7 +170,7 @@ macro_rules! derive_has_location {
 /// The idea is to delay dealing with errors: if the status is checked (by
 /// being evaluated as bool), then the error (if any) is treated as handled.
 /// If the Status object is never checked, the error is returned by the eval
-/// of group containing the command expression.
+/// of the group containing the command expression.
 #[derive(Debug, PartialEq)]
 pub struct Status {
     checked: bool,

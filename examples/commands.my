@@ -1,5 +1,5 @@
 # Commands return an internal 'Status'. If the command succeeds, great.
-# If the command failed and the status was never checked, we get an error.
+# If the command fails and the status is never checked, we get an error.
 
 # Example 1.
 # ----------
