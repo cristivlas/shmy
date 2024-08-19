@@ -2,6 +2,7 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use crate::prompt::{confirm, Answer};
+use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -66,6 +67,7 @@ struct FileCopier<'a> {
     dest: PathBuf,           // Destination
     ignore_links: bool,      // Skip symbolic links
     confirm_overwrite: bool, // Ask for overwrite confirmation?
+    preserve_metadata: bool,
     progress: Option<ProgressBar>,
     recursive: bool,
     scope: &'a Rc<Scope>,
@@ -78,19 +80,17 @@ impl<'a> FileCopier<'a> {
             dest: PathBuf::from(args.last().unwrap()),
             ignore_links: flags.is_present("no-dereference"),
             confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
-            recursive: flags.is_present("recursive"),
+            preserve_metadata: flags.is_present("preserve"),
             progress: if flags.is_present("progress") {
+                let template = "{spinner:.green} Collecting files: {total_bytes} {wide_msg}";
                 let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
-                pb.set_style(
-                    ProgressStyle::default_spinner()
-                        .template("{spinner:.green} Collecting files: {total_bytes} {wide_msg}")
-                        .unwrap(),
-                );
+                pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
                 pb.enable_steady_tick(Duration::from_millis(100));
                 Some(pb)
             } else {
                 None
             },
+            recursive: flags.is_present("recursive"),
             scope,
             srcs: &args[..args.len() - 1],
         }
@@ -114,20 +114,22 @@ impl<'a> FileCopier<'a> {
                 eprintln!("Omitting directory: {}", path.display());
                 return Ok(true);
             }
-            // Replicate dirs from the source into the destination (even if empty)
+            // Replicate dirs from the source into the destination (even if empty)q
             info.0.push((start, path.to_path_buf()));
 
+            // Collect info recursively
             for entry in fs::read_dir(path).map_err(|e| wrap_error(path, e))? {
                 if self.scope.is_interrupted() {
                     return Ok(false);
                 }
                 let entry = entry.map_err(|e| wrap_error(path, e))?;
                 let child = entry.path();
+
                 if !self
                     .collect_path_info(start, &child, info)
                     .map_err(|e| wrap_error(&child, e))?
                 {
-                    return Ok(false);
+                    return Ok(false); // User interrupted
                 }
             }
         } else {
@@ -207,7 +209,7 @@ impl<'a> FileCopier<'a> {
         if self.progress.is_some() {
             // Reset the progress indicator.
             let template =
-                "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}";
+                "[{elapsed_precise}] [{bar:50.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}";
 
             let pb = ProgressBar::with_draw_target(Some(info.1), ProgressDrawTarget::stdout());
             pb.set_style(
@@ -241,10 +243,7 @@ impl<'a> FileCopier<'a> {
             };
 
             // Copy the individual entry
-            if !self
-                .copy_entry(many, path, &dest)
-                .map_err(|e| wrap_error(path, e))?
-            {
+            if !self.copy_entry(many, path, &dest)? {
                 if let Some(pb) = self.progress.as_mut() {
                     pb.abandon_with_message("Quit");
                 }
@@ -287,6 +286,9 @@ impl<'a> FileCopier<'a> {
         } else if src.is_symlink() {
             copy_symlink(src, &dest).map_err(|e| wrap_error(src, e))?;
         } else {
+            #[cfg(unix)]
+            self.handle_unix_special_file(src, dest)?;
+
             let mut src_file = File::open(src).map_err(|e| wrap_error(src, e))?;
             let mut dst_file = File::create(&dest).map_err(|e| wrap_error(dest, e))?;
             let mut buffer = [0; 8192]; // TODO: allow user to specify buffer size?
@@ -306,7 +308,58 @@ impl<'a> FileCopier<'a> {
             }
         }
 
+        if self.preserve_metadata {
+            self.preserve_metadata(src, dest)?;
+        }
+
         Ok(true)
+    }
+
+    #[cfg(unix)]
+    fn handle_unix_special_file(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
+        use std::os::unix::fs::FileTypeExt;
+        let file_type = fs::symlink_metadata(src)?.file_type();
+
+        if file_type.is_fifo() {
+            // Recreate the FIFO rather than copying contents
+            nix::unistd::mkfifo(dest, nix::sys::stat::Mode::S_IRWXU)?;
+        } else if file_type.is_socket() {
+            eprintln!("Skipping socket: {}", src.display());
+        } else if file_type.is_block_device() || file_type.is_char_device() {
+            eprintln!("Skipping device file: {}", src.display());
+        }
+        Ok(())
+    }
+
+    fn preserve_metadata(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
+        // Get metadata of source file
+        let metadata = fs::metadata(src)
+            .map_err(|e| wrap_error(src, format!("Cannot read metadata: {}", e)))?;
+
+        // Set timestamps on destination file
+        filetime::set_file_times(
+            dest,
+            FileTime::from_last_access_time(&metadata),
+            FileTime::from_last_modification_time(&metadata),
+        )
+        .map_err(|e| wrap_error(dest, format!("Cannot set file time: {}", e)))?;
+
+        // Set permissions on the destination
+        fs::set_permissions(dest, metadata.permissions())
+            .map_err(|e| wrap_error(dest, format!("Cannot set permissions: {}", e)))?;
+
+        #[cfg(unix)]
+        {
+            use nix::unistd::{chown, Gid, Uid};
+            use std::os::unix::fs::MetadataExt;
+
+            let uid = metadata.uid();
+            let gid = metadata.gid();
+
+            chown(dest, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))?;
+        }
+
+        Ok(())
     }
 }
 
@@ -323,6 +376,7 @@ impl Cp {
         flags.add_flag('f', "force", "Overwrite without prompting");
         flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
         flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
+        flags.add_flag('p', "preserve", "Preserve permissions and time stamps");
         Cp { flags }
     }
 }
