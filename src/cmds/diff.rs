@@ -130,8 +130,8 @@ fn diff(src: &[String], dest: &[String], grid: &mut Grid) {
                 if &dest[n.i] == &src[n.j] {
                     queue.push_back(Node::new(n.i + 1, n.j + 1, n.d - 2, Edit::None));
                 } else {
-                    queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
                     queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
+                    queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
                 }
             } else {
                 queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
