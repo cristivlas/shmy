@@ -97,7 +97,7 @@ impl<'a> FileCopier<'a> {
     }
 
     /// Collect info about one path and its size, recurse if directory.
-    /// Return Ok(false) if interrupted by the user pressing Ctrl+C.
+    /// Return Ok(false) if interrupted by Ctrl+C.
     /// Update progress indicator in verbose mode.
     fn collect_path_info(
         &self,
@@ -114,7 +114,7 @@ impl<'a> FileCopier<'a> {
                 eprintln!("Omitting directory: {}", path.display());
                 return Ok(true);
             }
-            // Replicate dirs from the source into the destination (even if empty)q
+            // Replicate dirs from the source into the destination (even if empty)
             info.0.push((start, path.to_path_buf()));
 
             // Collect info recursively
