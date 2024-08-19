@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 struct Flag {
-    short: char,
+    short: Option<char>,
     long: String,
     help: String,
-    takes_value: bool, // Currently not used, for future proofing
+    takes_value: bool,
 }
 
 #[derive(Clone)]
@@ -22,30 +22,39 @@ impl CommandFlags {
         }
     }
 
-    /// Add boolean flag
-    pub fn add_flag(&mut self, short: char, long: &str, help: &str) {
-        self.flags.insert(
-            long.to_string(),
-            Flag {
-                short,
-                long: long.to_string(),
-                help: help.to_string(),
-                takes_value: false,
-            },
-        );
+    pub fn add(
+        &mut self,
+        short: Option<char>,
+        long: &str,
+        takes_value: bool,
+        help: &str,
+    ) {
+        if self.flags.values().find(|f| f.short == short).is_some()
+            || self
+                .flags
+                .insert(
+                    long.to_string(),
+                    Flag {
+                        short,
+                        long: long.to_string(),
+                        help: help.to_string(),
+                        takes_value: takes_value,
+                    },
+                )
+                .is_some()
+        {
+            panic!("flag '{}' (or its short form) already exists", long);
+        }
     }
 
-    /// Add flag that takes value(s)
+    /// Add boolean flag
+    pub fn add_flag(&mut self, short: char, long: &str, help: &str) {
+        self.add(Some(short), long, false, help);
+    }
+
+    /// Add flag that takes a value
     pub fn add_value_flag(&mut self, short: char, long: &str, help: &str) {
-        self.flags.insert(
-            long.to_string(),
-            Flag {
-                short,
-                long: long.to_string(),
-                help: help.to_string(),
-                takes_value: true,
-            },
-        );
+        self.add(Some(short), long, true, help);
     }
 
     pub fn parse(&mut self, args: &[String]) -> Result<Vec<String>, String> {
@@ -93,7 +102,7 @@ impl CommandFlags {
         args_iter: &mut std::iter::Peekable<std::slice::Iter<String>>,
     ) -> Result<(), String> {
         for (pos, c) in arg[1..].chars().enumerate() {
-            if let Some(flag) = self.flags.values().find(|f| f.short == c) {
+            if let Some(flag) = self.flags.values().find(|f| f.short == Some(c)) {
                 if flag.takes_value {
                     if pos + 2 < arg.len() {
                         return Err(format!(
@@ -112,7 +121,7 @@ impl CommandFlags {
                         };
                         self.values.insert(flag.long.clone(), next);
                     } else {
-                        return Err(format!("Flag -{} requires a value", flag.short));
+                        return Err(format!("Flag -{} requires a value", c));
                     }
                 } else {
                     self.values.insert(flag.long.clone(), "true".to_string());
@@ -138,10 +147,16 @@ impl CommandFlags {
 
     pub fn help(&self) -> String {
         let mut help_text = String::new();
+
         for flag in self.flags.values() {
+            let short_flag_help = if let Some(short) = flag.short {
+                format!("-{}, ", short)
+            } else {
+                String::new()
+            };
             help_text.push_str(&format!(
-                "-{}, --{:16}\t{}\n",
-                flag.short, flag.long, flag.help
+                "{}--{:16}\t{}\n",
+                short_flag_help, flag.long, flag.help
             ));
         }
         help_text

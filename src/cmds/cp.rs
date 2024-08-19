@@ -80,7 +80,7 @@ impl<'a> FileCopier<'a> {
             dest: PathBuf::from(args.last().unwrap()),
             ignore_links: flags.is_present("no-dereference"),
             confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
-            preserve_metadata: flags.is_present("preserve"),
+            preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
                 let template = "{spinner:.green} Collecting files: {total_bytes} {wide_msg}";
                 let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
@@ -209,7 +209,7 @@ impl<'a> FileCopier<'a> {
         if self.progress.is_some() {
             // Reset the progress indicator.
             let template =
-                "[{elapsed_precise}] [{bar:50.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}";
+                "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}";
 
             let pb = ProgressBar::with_draw_target(Some(info.1), ProgressDrawTarget::stdout());
             pb.set_style(
@@ -376,7 +376,12 @@ impl Cp {
         flags.add_flag('f', "force", "Overwrite without prompting");
         flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
         flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
-        flags.add_flag('p', "preserve", "Preserve permissions and time stamps");
+        flags.add(
+            None,
+            "no-preserve",
+            false,
+            "Do not preserve permissions and time stamps",
+        );
         Cp { flags }
     }
 }
