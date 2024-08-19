@@ -80,11 +80,25 @@ impl Rm {
                     path.display()
                 );
 
-                if confirm(prompt, &ctx.scope, ctx.many)? == Answer::Yes {
-                    let interactive = ctx.interactive;
-                    ctx.interactive = false;
-                    self.remove_dir(path, ctx)?;
-                    ctx.interactive = interactive;
+                match confirm(prompt, &ctx.scope, ctx.many)? {
+                    Answer::Yes => {
+                        let interactive = ctx.interactive;
+                        let recursive = ctx.recursive;
+
+                        ctx.interactive = false;
+                        ctx.recursive = true;
+
+                        self.remove_dir(path, ctx)?;
+
+                        ctx.interactive = interactive;
+                        ctx.recursive = recursive;
+                    }
+                    Answer::All => {
+                        ctx.interactive = false;
+                        ctx.recursive = true;
+                        self.remove_dir(path, ctx)?;
+                    }
+                    _ => {}
                 }
                 Ok(())
             }
