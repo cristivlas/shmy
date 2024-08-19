@@ -143,7 +143,8 @@ impl Exec for Grep {
         } else {
             for file in files {
                 let path = Path::new(file);
-                let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                let content = fs::read_to_string(&path)
+                    .map_err(|e| format!("Cannot read '{}': {}", path.display(), e))?;
                 for (line_number, line) in content.lines().enumerate() {
                     Self::process_line(
                         Some(file),
