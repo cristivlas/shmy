@@ -375,7 +375,7 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
     for path_arg in &args.paths {
         let path = Path::new(&path_arg)
             .canonicalize()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Cannot canonicalize '{}': {}", path_arg, e))?;
         match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {

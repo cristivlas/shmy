@@ -2,8 +2,10 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use crate::my_println;
+use colored::*;
 use std::collections::VecDeque;
 use std::fs::File;
+use std::io::IsTerminal;
 use std::io::{self, BufRead};
 use std::rc::Rc;
 
@@ -15,12 +17,13 @@ impl Diff {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('o', "color", "Color output");
         Diff { flags }
     }
 }
 
 impl Exec for Diff {
-    fn exec(&self, name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(args)?;
 
@@ -39,10 +42,17 @@ impl Exec for Diff {
         let file1 = read_file(&filenames[0])?;
         let file2 = read_file(&filenames[1])?;
 
+        // Calculate the diff
         let mut grid = Grid::new();
         diff(&file1, &file2, &mut grid);
 
-        print_unified(&grid, &file1, &file2, &filenames[0], &filenames[1])?;
+        // Print it
+        let color = flags.is_present("color")
+            && scope.lookup("NO_COLOR").is_none()
+            && std::io::stdout().is_terminal();
+
+        // UnifiedView only, no context lines.
+        print(&grid, &file1, &file2, &filenames[0], &filenames[1], color)?;
 
         Ok(Value::success())
     }
@@ -225,7 +235,7 @@ impl<'a> UnifiedView<'a> {
         self.src_line != 0 || self.dest_line != 0
     }
 
-    fn print(&mut self, src_path: &str, dest_path: &str) -> Result<(), String> {
+    fn print(&mut self, src_path: &str, dest_path: &str, color: bool) -> Result<(), String> {
         if self.hunks.len() > 1 {
             my_println!("--- {}", src_path.replace("\\", "/"))?;
             my_println!("+++ {}", dest_path.replace("\\", "/"))?;
@@ -243,10 +253,16 @@ impl<'a> UnifiedView<'a> {
                 hunk.dest_count
             )?;
 
-            hunk.edits
-                .iter()
-                .rev()
-                .try_for_each(|line| my_println!("{}", line))?;
+            hunk.edits.iter().rev().try_for_each(|line| {
+                let output_line = if color && line.starts_with("-") {
+                    line.red()
+                } else if color && line.starts_with("+") {
+                    line.green()
+                } else {
+                    line.normal()
+                };
+                my_println!("{}", output_line)
+            })?;
         }
         Ok(())
     }
@@ -260,12 +276,13 @@ impl<'a> UnifiedView<'a> {
     }
 }
 
-fn print_unified(
+fn print(
     grid: &Grid,
     src: &[String],
     dest: &[String],
     src_path: &str,
     dest_path: &str,
+    color: bool,
 ) -> Result<(), String> {
     let mut unified = UnifiedView::new(src, dest);
 
@@ -275,7 +292,7 @@ fn print_unified(
         }
     }
     unified.push_hunk(true);
-    unified.print(src_path, dest_path)
+    unified.print(src_path, dest_path, color)
 }
 
 #[ctor::ctor]
