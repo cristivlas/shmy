@@ -1,11 +1,12 @@
-# My First Rust Project: A Command Line Interpreter
+# My First Rust Project: A (WIP) Command Line Interpreter
 
-This is a simple, lightweight command line interpreter with Unix-like built-in commands, created for familiarizing myself with Rust.
+This is a simple, lightweight command line interpreter with a few Unix-like built-in commands, that I wrote to familiarize myself with Rust, and to deal with those odd moments when the muscle memory goes for the quick Unix command only to realize that I am on Windows (WSL is a solution of course, but the file system is under /mnt/c, and everything that's relative to $HOME is different from the native environment). And yeah, I wanted to see what's the deal with this rusty thing all the cool kids are so excited about.
 
-The interpreter works in interactive mode or can consume script files passed in the command line.
-In interactive mode history and TAB expansion are supported via rustyline.
+I also wanted to address the bad habit of writing quick-and-dirty scripts in which I execute a bunch of commands but "forget" to handle the errors. In this command interpreter, when a command fails and its status is not checked with an IF expression, the script stops and the error is reported, like an unhandled exception - sort of.
 
-## Command Interpreter Notes
+The interpreter works in interactive mode or can consume script files passed in the command line. In interactive mode history and TAB expansion are supported via rustyline.
+
+## Expression Evaluation Random Notes
 
 ### 1. Variable Assignment and Evaluation
 You can assign variables and use them in commands:
@@ -95,8 +96,7 @@ __stdout=some/path/file.txt ls -al;
 
 ### 7. Gotchas and Pitfalls
 - **Variable Expansion in Arithmetic:**
-  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time.
-When using spaces like this: ```$x * $y``` the evaluation works as expected.
+  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time. When using spaces like this: ```$x * $y``` the evaluation works as expected.
 
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
