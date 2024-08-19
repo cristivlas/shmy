@@ -5,7 +5,7 @@ use colored::*;
 use regex::Regex;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 struct Grep {
@@ -36,11 +36,32 @@ impl Grep {
             "no-filename",
             "Suppress the prefixing of file names on output",
         );
-        Grep { flags }
+        flags.add_flag('r', "recursive", "Recursively search subdirectories");
+        Self { flags }
+    }
+
+    fn collect_files(&self, paths: &[String], recursive: bool) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        for path in paths {
+            let path = PathBuf::from(path);
+            if path.is_dir() && recursive {
+                files.extend(fs::read_dir(path).unwrap().filter_map(Result::ok).flat_map(
+                    |entry| {
+                        self.collect_files(
+                            &[entry.path().to_string_lossy().into_owned()],
+                            recursive,
+                        )
+                    },
+                ));
+            } else if path.is_file() {
+                files.push(path);
+            }
+        }
+        files
     }
 
     fn process_line(
-        filename: Option<&str>,
+        filename: Option<&Path>,
         line_number: usize,
         line: &str,
         regex: &Regex,
@@ -59,7 +80,7 @@ impl Grep {
             let mut output = String::new();
             if show_filename {
                 if let Some(name) = filename {
-                    output.push_str(&format!("{}:", name));
+                    output.push_str(&format!("{}:", name.display()));
                 }
             }
             if line_number_flag {
@@ -107,6 +128,7 @@ impl Exec for Grep {
         let no_filename = flags.is_present("no-filename");
         let with_filename = flags.is_present("with-filename");
         let use_color = scope.lookup("NO_COLOR").is_none() && std::io::stdout().is_terminal();
+        let recursive = flags.is_present("recursive");
 
         let regex = if ignore_case {
             Regex::new(&format!("(?i){}", pattern)).map_err(|e| e.to_string())?
@@ -115,13 +137,6 @@ impl Exec for Grep {
         };
 
         let files = &args[1..];
-        let show_filename = if no_filename {
-            false
-        } else if with_filename || files.len() > 1 {
-            true
-        } else {
-            false
-        };
 
         if files.is_empty() {
             // Read from stdin if no files are provided
@@ -141,13 +156,23 @@ impl Exec for Grep {
                 );
             }
         } else {
-            for file in files {
-                let path = Path::new(file);
+            let files_to_process = self.collect_files(files, recursive);
+
+            let show_filename = if no_filename {
+                false
+            } else if with_filename || files_to_process.len() > 1 {
+                true
+            } else {
+                false
+            };
+
+            for path in &files_to_process {
                 let content = fs::read_to_string(&path)
                     .map_err(|e| format!("Cannot read '{}': {}", path.display(), e))?;
+
                 for (line_number, line) in content.lines().enumerate() {
                     Self::process_line(
-                        Some(file),
+                        Some(path),
                         line_number,
                         line,
                         &regex,
