@@ -98,6 +98,9 @@ impl Rm {
                         ctx.recursive = true;
                         self.remove_dir(path, ctx)?;
                     }
+                    Answer::Quit => {
+                        ctx.quit = true;
+                    }
                     _ => {}
                 }
                 Ok(())
