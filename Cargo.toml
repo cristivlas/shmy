@@ -26,7 +26,7 @@ url = "2.2"
 which = "6.0"
 
 [target.'cfg(unix)'.dependencies]
-users = "0.11.0"
+uzers = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

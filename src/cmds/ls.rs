@@ -314,7 +314,7 @@ mod win {
 #[cfg(unix)]
 fn get_owner_and_group(_: PathBuf, metadata: &fs::Metadata) -> (String, String) {
     use std::os::unix::fs::MetadataExt;
-    use users::{get_group_by_gid, get_user_by_uid};
+    use uzers::{get_group_by_gid, get_user_by_uid};
 
     let uid = metadata.uid();
     let gid = metadata.gid();
