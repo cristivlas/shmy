@@ -76,7 +76,8 @@ impl<'a> FileCopier<'a> {
             no_hidden: flags.is_present("no-hidden"),
             preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
-                let template = "{spinner:.green} Collecting files: {total_bytes} {wide_msg}";
+                let template =
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} {total_bytes}";
                 let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
                 pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
                 pb.enable_steady_tick(Duration::from_millis(100));
@@ -165,7 +166,7 @@ impl<'a> FileCopier<'a> {
             let path = Path::new(src);
             if !self.collect_path_info(src, path, info)? {
                 if let Some(pb) = self.progress.as_mut() {
-                    pb.finish_with_message("Interrupted");
+                    pb.finish_with_message("Aborted");
                 }
                 return Ok(false);
             }
@@ -179,12 +180,12 @@ impl<'a> FileCopier<'a> {
 
     /// Truncate path for display in progress indicator.
     fn truncate_path(path: &Path) -> String {
-        let max_length = 30; // TODO: fix hardcoded value
+        const MAX_LENGTH: usize = 30;
         let filename = path.to_str().unwrap_or("");
-        if filename.len() <= max_length {
-            filename.to_string()
+        if filename.len() <= MAX_LENGTH {
+            filename.to_uppercase()
         } else {
-            let start_index = filename.len() - (max_length - 3);
+            let start_index = filename.len() - (MAX_LENGTH - 3);
             format!("...{}", &filename[start_index..])
         }
     }
@@ -220,7 +221,7 @@ impl<'a> FileCopier<'a> {
         if self.progress.is_some() {
             // Reset the progress indicator.
             let template =
-                "[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta}) {msg}";
+                "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} [{bar:45.cyan/blue}] {bytes}/{total_bytes} ({eta})";
 
             let pb = ProgressBar::with_draw_target(Some(info.1), ProgressDrawTarget::stdout());
             pb.set_style(
@@ -257,7 +258,7 @@ impl<'a> FileCopier<'a> {
             // Copy the individual entry
             if !self.copy_entry(many, path, &dest)? {
                 if let Some(pb) = self.progress.as_mut() {
-                    pb.abandon_with_message("Quit");
+                    pb.abandon_with_message("Aborted");
                 }
                 return Ok(());
             }

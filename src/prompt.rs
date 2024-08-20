@@ -33,9 +33,9 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, one_of_many: bool) -> io::Resu
         if one_of_many {
             format!(
                 "{}es/{}o/{}ll/{}uit",
-                "y".green().bold(),
+                "y".bright_green().bold(),
                 "N".red().bold(),
-                "a".cyan().bold(),
+                "a".blue().bold(),
                 "q".truecolor(255, 165, 0).bold() // Orange
             )
         } else {
