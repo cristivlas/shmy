@@ -123,11 +123,7 @@ impl<'a> FileCopier<'a> {
             }
         } else if path.is_dir() {
             if !self.recursive {
-                my_warning!(
-                    self.scope,
-                    "Omitting directory: {}",
-                    self.scope.err_path(path)
-                );
+                my_warning!(self.scope, "Omitting dir: {}", self.scope.err_path(path));
                 return Ok(true);
             }
             // Replicate dirs from the source into the destination (even if empty)
@@ -347,7 +343,11 @@ impl<'a> FileCopier<'a> {
         } else if file_type.is_socket() {
             my_warning!(self.scope, "Skipping socket: {}", self.scope.err_path(src));
         } else if file_type.is_block_device() || file_type.is_char_device() {
-            my_warning!(self.scope, "Skipping device file: {}", self.scope.err_path(src));
+            my_warning!(
+                self.scope,
+                "Skipping device file: {}",
+                self.scope.err_path(src)
+            );
         }
         Ok(())
     }

@@ -5,7 +5,6 @@ use chrono::DateTime;
 use colored::*;
 use core::fmt;
 use std::fs::{self, DirEntry, Metadata};
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,9 +17,8 @@ struct ColorScheme {
 
 impl ColorScheme {
     fn with_scope(scope: &Rc<Scope>) -> Self {
-        let color = scope.lookup("NO_COLOR").is_none();
         Self {
-            use_colors: color && std::io::stdout().is_terminal(),
+            use_colors: scope.use_colors_and_styles(&std::io::stdout()),
             scope: Rc::clone(&scope),
         }
     }

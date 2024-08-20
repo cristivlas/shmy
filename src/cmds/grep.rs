@@ -49,6 +49,11 @@ impl Grep {
     fn collect_files(&self, scope: &Rc<Scope>, paths: &[String], recursive: bool) -> Vec<PathBuf> {
         let mut files = Vec::new();
         for p in paths {
+            // Handle Ctrl+C
+            if scope.is_interrupted() {
+                return files;
+            }
+
             let path = PathBuf::from(p);
             if path.is_dir() {
                 if recursive {
@@ -62,11 +67,7 @@ impl Grep {
                         },
                     ));
                 } else {
-                    my_warning!(
-                        scope,
-                        "Omitting directory: {}",
-                        scope.err_path(path.as_path())
-                    );
+                    my_warning!(scope, "Omitting dir: {}", scope.err_path(path.as_path()));
                 }
             } else if path.is_file() {
                 files.push(path);
@@ -202,6 +203,10 @@ impl Exec for Grep {
             };
 
             for path in &files_to_process {
+                if scope.is_interrupted() {
+                    break;
+                }
+
                 match &fs::read_to_string(&path) {
                     Ok(content) => {
                         for (line_number, line) in content.lines().enumerate() {

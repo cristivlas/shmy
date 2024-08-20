@@ -1213,14 +1213,22 @@ impl Scope {
         }
     }
 
+    /// The evaluation scope is passed to commands via the Exec trait;
+    /// this is a convenient place to check for NO_COLOR.
+    /// TODO: CLICOLOR, CLICOLOR_FORCE? See: https://bixense.com/clicolors/
+    pub fn use_colors_and_styles<T: IsTerminal>(&self, out: &T) -> bool {
+        self.lookup("NO_COLOR").is_none() && out.is_terminal()
+    }
+
     pub fn color<T: IsTerminal>(&self, t: &str, c: Color, out: &T) -> ColoredString {
-        if self.lookup("NO_COLOR").is_none() && out.is_terminal() {
+        if self.use_colors_and_styles(out) {
             t.color(c)
         } else {
             t.normal()
         }
     }
 
+    /// Colorize paths shown in errors and warnings.
     pub fn err_path_str(&self, path: &str) -> ColoredString {
         self.color(
             &path,
@@ -2082,6 +2090,9 @@ impl Eval for GroupExpr {
                 let temp = e.eval();
 
                 if let Ok(Value::Str(word)) = &temp {
+                    // BREAK and CONTINUE are "caught" by eval_iteration,
+                    // if inside a legite loop; otherwise will propagate
+                    // up as errors (break / continue outside of a loop).
                     if word == "BREAK" {
                         result = Err(EvalError {
                             loc: e.loc(),
@@ -2286,6 +2297,9 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.args.loc(), e));
 
+        if self.scope.is_interrupted() {
+            eprintln!("^C");
+        }
         let cmd = self.to_string();
         Ok(Value::Stat(Status::new(cmd, &result, &self.scope)))
     }
@@ -2460,7 +2474,7 @@ macro_rules! eval_iteration {
         // Evaluate the loop body, checking for command status
         $result = Status::check_result($self.body.eval());
 
-        // Check for break, continue
+        // Check for break and continue
         if let Err(e) = &$result {
             match &e.jump {
                 Some(Jump::Break(v)) => {
@@ -2560,7 +2574,7 @@ impl ExprNode for ForExpr {
                 self.var = lit.tok.clone();
                 return Ok(());
             }
-            return error(self, "Expecting identifier FOR expression");
+            return error(self, "Expecting identifier in FOR expression");
         } else if self.args.is_empty() {
             if child.is_args() {
                 self.args = Rc::clone(&child);
