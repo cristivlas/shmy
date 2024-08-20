@@ -463,7 +463,7 @@ where
         // Forward slashes and dashes need special handling, since they occur in
         // paths and command line options; it is unreasonable to require quotes.
 
-        // + included here for chmod w+a to work; current chmod impl is dubious anyway
+        // + is included here for chmod w+a to work; side-note: chmod impl is dubious
         if "/-+*".contains(c) {
             if tok.is_empty() {
                 return !self.group.is_args()
@@ -1222,7 +1222,15 @@ impl Scope {
     }
 
     pub fn err_path_str(&self, path: &str) -> ColoredString {
-        self.color(&path, Color::BrightCyan, &std::io::stderr())
+        self.color(
+            &path,
+            Color::TrueColor {
+                r: 255,
+                g: 165,
+                b: 0,
+            },
+            &std::io::stderr(),
+        )
     }
 
     pub fn err_path(&self, path: &std::path::Path) -> ColoredString {

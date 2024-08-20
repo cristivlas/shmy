@@ -13,6 +13,7 @@ use terminal_size::{terminal_size, Width};
 
 struct ColorScheme {
     use_colors: bool,
+    scope: Rc<Scope>,
 }
 
 impl ColorScheme {
@@ -20,6 +21,7 @@ impl ColorScheme {
         let color = scope.lookup("NO_COLOR").is_none();
         Self {
             use_colors: color && std::io::stdout().is_terminal(),
+            scope: Rc::clone(&scope),
         }
     }
 
@@ -29,6 +31,10 @@ impl ColorScheme {
         } else {
             e.to_string().normal()
         }
+    }
+
+    fn render_error_path(&self, path: &Path) -> ColoredString {
+        self.scope.err_path(path)
     }
 
     fn render_file_name(&self, file_name: &str, metadata: &Metadata) -> ColoredString {
@@ -448,7 +454,7 @@ fn print_simple_entries(
 
         let file_name = match entry.metadata() {
             Ok(metadata) => args.colors.render_file_name(&file_name, &metadata),
-            Err(_) => args.colors.render_error(&file_name),
+            Err(_) => args.colors.render_error_path(&entry.path()),
         };
 
         if current_column == 0 {
@@ -486,7 +492,7 @@ fn print_detailed_entries(
                 my_warning!(
                     scope,
                     "Cannot access {}: {}",
-                    scope.err_path(&entry.path()),
+                    args.colors.render_error_path(&entry.path()),
                     args.colors.render_error(&e)
                 );
                 my_println!(
@@ -495,8 +501,7 @@ fn print_detailed_entries(
                     "?",
                     "?",
                     "?",
-                    args.colors
-                        .render_error(&entry.file_name().to_string_lossy())
+                    args.colors.render_error_path(&entry.path())
                 )?;
             }
         }

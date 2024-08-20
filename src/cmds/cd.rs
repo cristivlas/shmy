@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::{
     cmds::flags::CommandFlags,
-    current_dir, my_dbg,
+    current_dir,
     eval::{Scope, Value},
 };
 
@@ -28,6 +28,12 @@ impl ChangeDir {
         }
     }
 
+    fn do_chdir(&self, scope: &Rc<Scope>, dir: &str) -> Result<(), String> {
+        env::set_current_dir(&dir)
+            .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_path_str(dir), e))?;
+        Ok(())
+    }
+
     fn chdir(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(args)?;
@@ -50,6 +56,7 @@ impl ChangeDir {
             }
             println!("\nOptions:");
             print!("{}", flags.help());
+
             return Ok(Value::success());
         }
 
@@ -63,9 +70,7 @@ impl ChangeDir {
                 } else {
                     parsed_args.join(" ")
                 };
-                my_dbg!(&new_dir);
-                env::set_current_dir(&new_dir)
-                    .map_err(|e| format!("Change dir to \"{}\": {}", &new_dir, e))?;
+                self.do_chdir(scope, &new_dir)?
             }
             "pushd" => {
                 let new_dir = if parsed_args.is_empty() {
@@ -74,16 +79,14 @@ impl ChangeDir {
                     parsed_args.join(" ")
                 };
                 self.stack.borrow_mut().push(current_dir()?);
-                env::set_current_dir(&new_dir)
-                    .map_err(|e| format!("Change dir to \"{}\": {}", &new_dir, e))?;
+                self.do_chdir(scope, &new_dir)?
             }
             "popd" => {
                 if self.stack.borrow().is_empty() {
                     return Err("popd: directory stack empty".to_string());
                 }
                 let old_dir = self.stack.borrow_mut().pop().unwrap();
-                env::set_current_dir(&old_dir)
-                    .map_err(|e| format!("Change dir to \"{}\": {}", &old_dir, e))?;
+                self.do_chdir(scope, &old_dir)?
             }
             _ => unreachable!(),
         }
