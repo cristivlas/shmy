@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use url::Url;
 
 struct Grep {
     flags: CommandFlags,
@@ -35,6 +36,11 @@ impl Grep {
             'h',
             "no-filename",
             "Suppress the prefixing of file names on output",
+        );
+        flags.add_flag(
+            'l',
+            "hyperlink",
+            "Include hyperlinks to files and lines in the output",
         );
         flags.add_flag('r', "recursive", "Recursively search subdirectories");
         Self { flags }
@@ -69,6 +75,7 @@ impl Grep {
         ignore_case: bool,
         show_filename: bool,
         use_color: bool,
+        use_hyperlink: bool,
     ) {
         let line_to_check = if ignore_case {
             line.to_lowercase()
@@ -78,13 +85,24 @@ impl Grep {
 
         if regex.is_match(&line_to_check) {
             let mut output = String::new();
-            if show_filename {
+
+            if use_hyperlink {
                 if let Some(name) = filename {
-                    output.push_str(&format!("{}:", name.display()));
+                    let path = name.canonicalize().unwrap_or_else(|_| name.to_path_buf());
+                    let url = Url::from_file_path(path).unwrap();
+                    let text = format!("{}:{}", name.display(), line_number + 1);
+                    let hyperlink = format!("\x1B]8;;{}?line={}\x1B\\{}\x1B]8;;\x1B\\", url, line_number + 1, text);
+                    output.push_str(&hyperlink);
                 }
-            }
-            if line_number_flag {
-                output.push_str(&format!("{}:", line_number + 1));
+            } else {
+                if show_filename {
+                    if let Some(name) = filename {
+                        output.push_str(&format!("{}:", name.display()));
+                    }
+                }
+                if line_number_flag {
+                    output.push_str(&format!("{}:", line_number + 1));
+                }
             }
 
             if use_color {
@@ -123,12 +141,14 @@ impl Exec for Grep {
         }
 
         let pattern = &args[0];
+
         let ignore_case = flags.is_present("ignore-case");
         let line_number_flag = flags.is_present("line-number");
         let no_filename = flags.is_present("no-filename");
-        let with_filename = flags.is_present("with-filename");
-        let use_color = scope.lookup("NO_COLOR").is_none() && std::io::stdout().is_terminal();
         let recursive = flags.is_present("recursive");
+        let use_color = scope.lookup("NO_COLOR").is_none() && std::io::stdout().is_terminal();
+        let use_filename = flags.is_present("with-filename");
+        let use_hyperlink = flags.is_present("hyperlink");
 
         let regex = if ignore_case {
             Regex::new(&format!("(?i){}", pattern)).map_err(|e| e.to_string())?
@@ -153,6 +173,7 @@ impl Exec for Grep {
                     ignore_case,
                     false,
                     use_color,
+                    use_hyperlink,
                 );
             }
         } else {
@@ -160,7 +181,7 @@ impl Exec for Grep {
 
             let show_filename = if no_filename {
                 false
-            } else if with_filename || files_to_process.len() > 1 {
+            } else if use_filename || files_to_process.len() > 1 {
                 true
             } else {
                 false
@@ -180,6 +201,7 @@ impl Exec for Grep {
                         ignore_case,
                         show_filename,
                         use_color,
+                        use_hyperlink,
                     );
                 }
             }
