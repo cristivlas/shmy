@@ -15,25 +15,28 @@ pub enum Answer {
     Quit,
 }
 
-pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answer> {
+pub fn confirm(prompt: String, scope: &Rc<Scope>, one_of_many: bool) -> io::Result<Answer> {
+    // Bypass confirmation?
     if scope.lookup("NO_CONFIRM").is_some() {
         return Ok(Answer::Yes);
     }
 
-    let options = if scope.lookup("NO_COLOR").is_some() {
-        if many {
+    let use_colors = scope.use_colors(&std::io::stdout());
+
+    let options = if !use_colors {
+        if one_of_many {
             "[Y]es/[N]o/[A]ll/[Q]uit".to_string()
         } else {
             "[Y]es/[N]o".to_string()
         }
     } else {
-        if many {
+        if one_of_many {
             format!(
                 "{}es/{}o/{}ll/{}uit",
                 "y".green().bold(),
                 "N".red().bold(),
                 "a".cyan().bold(),
-                "q".yellow().bold()
+                "q".truecolor(255, 165, 0).bold() // Orange
             )
         } else {
             format!("{}es/{}o", "y".green().bold(), "N".red().bold())
@@ -80,7 +83,7 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, many: bool) -> io::Result<Answ
     write!(tty, "\r")?;
     disable_raw_mode()?;
 
-    process_answer(&input, many)
+    process_answer(&input, one_of_many)
 }
 
 fn process_answer(input: &str, many: bool) -> io::Result<Answer> {

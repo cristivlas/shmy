@@ -2,6 +2,7 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use crate::prompt::{confirm, Answer};
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -62,22 +63,15 @@ impl Rm {
         }
     }
 
-    fn remove_dir(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
-        if ctx.confirm(&path, format!("Remove directory {}", path.display()))? == Answer::Yes {
-            fs::remove_dir_all(path)
-        } else {
-            Ok(())
-        }
-    }
-
     fn remove(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
         if path.is_dir() {
-            if ctx.recursive {
-                self.remove_dir(path, ctx)
+            if ctx.recursive && !ctx.interactive {
+                // Nuke it, no questions asked
+                fs::remove_dir_all(path)
             } else {
                 let prompt = format!(
                     "{} is a directory. Delete all of its content recursively",
-                    path.display()
+                    ctx.scope.err_path(path)
                 );
 
                 match confirm(prompt, &ctx.scope, ctx.many)? {
@@ -85,18 +79,21 @@ impl Rm {
                         let interactive = ctx.interactive;
                         let recursive = ctx.recursive;
 
+                        // Save context
                         ctx.interactive = false;
                         ctx.recursive = true;
 
-                        self.remove_dir(path, ctx)?;
+                        fs::remove_dir_all(path)?;
 
+                        // Restore context
                         ctx.interactive = interactive;
                         ctx.recursive = recursive;
                     }
                     Answer::All => {
                         ctx.interactive = false;
                         ctx.recursive = true;
-                        self.remove_dir(path, ctx)?;
+
+                        fs::remove_dir_all(path)?;
                     }
                     Answer::Quit => {
                         ctx.quit = true;
@@ -140,9 +137,13 @@ impl Exec for Rm {
             scope: Rc::clone(&scope),
         };
 
-        for arg in args {
-            let path = Path::new(&arg);
-            self.remove(&path, &mut ctx).map_err(|e| e.to_string())?;
+        // Use a set to dedupe inputs, e.g. avoid ```rm *.rs *.rs``` resulting in error.
+        let to_remove: HashSet<&String> = HashSet::from_iter(&args);
+
+        for path in to_remove.iter().map(|s| Path::new(s)) {
+            self.remove(&path, &mut ctx)
+                .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+
             if ctx.quit {
                 break;
             }

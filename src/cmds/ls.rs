@@ -18,7 +18,7 @@ struct ColorScheme {
 impl ColorScheme {
     fn with_scope(scope: &Rc<Scope>) -> Self {
         Self {
-            use_colors: scope.use_colors_and_styles(&std::io::stdout()),
+            use_colors: scope.use_colors(&std::io::stdout()),
             scope: Rc::clone(&scope),
         }
     }

@@ -1216,12 +1216,12 @@ impl Scope {
     /// The evaluation scope is passed to commands via the Exec trait;
     /// this is a convenient place to check for NO_COLOR.
     /// TODO: CLICOLOR, CLICOLOR_FORCE? See: https://bixense.com/clicolors/
-    pub fn use_colors_and_styles<T: IsTerminal>(&self, out: &T) -> bool {
+    pub fn use_colors<T: IsTerminal>(&self, out: &T) -> bool {
         self.lookup("NO_COLOR").is_none() && out.is_terminal()
     }
 
     pub fn color<T: IsTerminal>(&self, t: &str, c: Color, out: &T) -> ColoredString {
-        if self.use_colors_and_styles(out) {
+        if self.use_colors(out) {
             t.color(c)
         } else {
             t.normal()
