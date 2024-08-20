@@ -264,6 +264,7 @@ mod tests {
 
     #[test]
     fn test_arithmetic() {
+        assert_eval_ok!("2+2", Value::Int(4));
         assert_eval_ok!("1 - 2 * 2 + 3", Value::Int(0));
     }
 

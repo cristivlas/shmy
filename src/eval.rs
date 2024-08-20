@@ -462,7 +462,9 @@ where
     fn is_delimiter(&self, tok: &str, c: char) -> bool {
         // Forward slashes and dashes need special handling, since they occur in
         // paths and command line options; it is unreasonable to require quotes.
-        if "/-*".contains(c) {
+
+        // + included here for chmod w+a to work; current chmod impl is dubious anyway
+        if "/-+*".contains(c) {
             if tok.is_empty() {
                 return !self.group.is_args()
                     && !self.current_expr.is_cmd()

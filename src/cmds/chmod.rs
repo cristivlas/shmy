@@ -49,8 +49,8 @@ impl Chmod {
             use std::os::windows::fs::MetadataExt;
             use windows::core::PWSTR;
             use windows::Win32::Storage::FileSystem::{
-                SetFileAttributesW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY,
-                FILE_FLAGS_AND_ATTRIBUTES,
+                SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL,
+                FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_SYSTEM, FILE_FLAGS_AND_ATTRIBUTES,
             };
 
             let metadata = fs::metadata(path).map_err(|error| {
@@ -62,16 +62,23 @@ impl Chmod {
             })?;
             let mut attributes = metadata.file_attributes();
 
-            if mode & 0o200 == 0 {
+            // Clear the relevant attributes first
+            attributes &=
+                !(FILE_ATTRIBUTE_READONLY.0 | FILE_ATTRIBUTE_HIDDEN.0 | FILE_ATTRIBUTE_SYSTEM.0);
+
+            // Set read-only if write permission is not granted to anyone
+            if mode & 0o222 == 0 {
                 attributes |= FILE_ATTRIBUTE_READONLY.0;
-            } else {
-                attributes &= !FILE_ATTRIBUTE_READONLY.0;
             }
 
+            // Windows doesn't have a direct equivalent for execute permissions
+            // We're not setting hidden or system attributes based on the mode,
+            // as these don't have a clear Unix equivalent
+
+            // Ensure the file is not set to NORMAL, as it can't be combined with other attributes
             if attributes == FILE_ATTRIBUTE_NORMAL.0 {
                 attributes = 0;
             }
-
             // Convert path to wide string
             let wide_path: Vec<u16> = path
                 .as_os_str()
@@ -102,7 +109,14 @@ impl Chmod {
                         error
                     )
                 })?;
-                Chmod::change_mode(&entry.path(), mode, recursive, verbose, scope)?;
+
+                let entry_path = entry.path();
+
+                if entry_path.is_symlink() {
+                    continue;
+                }
+
+                Self::change_mode(&entry_path, mode, recursive, verbose, scope)?;
             }
         }
 
@@ -111,7 +125,7 @@ impl Chmod {
 
     fn parse_mode(mode_str: &str) -> Result<u32, String> {
         if mode_str.chars().all(|c| c.is_digit(8)) {
-            // Octal mode
+            // Handle octal mode
             return u32::from_str_radix(mode_str, 8)
                 .map_err(|_| format!("Invalid octal mode: {}", mode_str));
         }
@@ -130,7 +144,7 @@ impl Chmod {
                         'o' => 0o007,
                         'a' => 0o777,
                         _ => unreachable!(),
-                    };
+                    }
                 }
                 '+' | '-' | '=' => {
                     if action != ' ' {
@@ -142,7 +156,7 @@ impl Chmod {
                 'r' => perm |= 0o444,
                 'w' => perm |= 0o222,
                 'x' => perm |= 0o111,
-                'X' => perm |= 0o111, // simplified
+                'X' => perm |= 0o111, // For simplification, treat 'X' the same as 'x'
                 's' => perm |= 0o4000 | 0o2000,
                 't' => perm |= 0o1000,
                 _ => return Err(format!("Invalid mode character: {}", c)),
@@ -158,7 +172,7 @@ impl Chmod {
 
     fn apply_change(mode: &mut u32, who: u32, action: char, perm: u32) -> Result<(), String> {
         if who == 0 {
-            // If no 'who' is specified, default to 'a'
+            // Default to 'a' if no 'who' is specified
             *mode = match action {
                 '+' => *mode | (perm & 0o7777),
                 '-' => *mode & !(perm & 0o7777),
@@ -203,7 +217,7 @@ impl Exec for Chmod {
         let verbose = flags.is_present("verbose");
 
         for arg in &args[1..] {
-            Chmod::change_mode(Path::new(&arg), mode, recursive, verbose, scope)?;
+            Self::change_mode(Path::new(&arg), mode, recursive, verbose, scope)?;
         }
 
         Ok(Value::success())
