@@ -1,5 +1,6 @@
 use crate::eval::{Scope, Value};
 use crate::utils::copy_vars_to_command_env;
+
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -8,6 +9,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
 use which::which;
+
 mod flags;
 use flags::CommandFlags;
 
@@ -16,8 +18,8 @@ mod cat;
 mod cd;
 mod clear;
 mod cp;
-mod diff;
 mod df;
+mod diff;
 mod echo;
 mod exit;
 mod find;

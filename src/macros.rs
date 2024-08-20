@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! my_dbg {
     ($($arg:tt)*) => {
@@ -14,16 +13,16 @@ macro_rules! my_dbg {
 /// More robust than built-in when redirect stdout to pipe.
 #[macro_export]
 macro_rules! my_println {
-    // Version with arguments
     ($($arg:tt)*) => {{
         use std::io::Write;
 
         // Create a formatted string
         let output = format!($($arg)*);
         // Attempt to write to stdout
-        std::io::stdout().lock()
+        let mut stdout = std::io::stdout().lock();
+        stdout
             .write_all(output.as_bytes())
-            .and_then(|_| std::io::stdout().write_all(b"\n"))
+            .and_then(|_| stdout.write_all(b"\n"))
             .map_err(|e| e.to_string())?;
 
         Ok(()) as Result<(), String>
@@ -34,7 +33,6 @@ macro_rules! my_println {
 /// More robust than built-in when redirect stdout to pipe.
 #[macro_export]
 macro_rules! my_print {
-    // Version with arguments
     ($($arg:tt)*) => {{
         use std::io::Write;
 
@@ -46,5 +44,14 @@ macro_rules! my_print {
             .map_err(|e| e.to_string())?;
 
         Ok(()) as Result<(), String>
+    }};
+}
+
+#[macro_export]
+macro_rules! my_warning {
+    ($scope:expr, $($arg:tt)*) => {{
+        use colored::*;
+
+        eprintln!("{}", $scope.color(&format!($($arg)*), Color::Yellow, &std::io::stderr()));
     }};
 }

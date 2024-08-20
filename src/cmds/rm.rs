@@ -76,7 +76,7 @@ impl Rm {
                 self.remove_dir(path, ctx)
             } else {
                 let prompt = format!(
-                    "'{}' is a directory. Delete all of its content recursively",
+                    "{} is a directory. Delete all of its content recursively",
                     path.display()
                 );
 

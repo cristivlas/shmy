@@ -1,6 +1,7 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::utils::{copy_vars_to_command_env, get_own_path};
+use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -10,7 +11,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 use std::iter::Peekable;
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
@@ -1209,6 +1210,22 @@ impl Scope {
             },
         }
     }
+
+    pub fn color<T: IsTerminal>(&self, t: &str, c: Color, out: &T) -> ColoredString {
+        if self.lookup("NO_COLOR").is_none() && out.is_terminal() {
+            t.color(c)
+        } else {
+            t.normal()
+        }
+    }
+
+    pub fn err_path_str(&self, path: &str) -> ColoredString {
+        self.color(&path, Color::BrightCyan, &std::io::stderr())
+    }
+
+    pub fn err_path(&self, path: &std::path::Path) -> ColoredString {
+        self.err_path_str(&path.display().to_string())
+    }
 }
 
 /// Parses and expands shell-like variable expressions in a given string.
@@ -1934,7 +1951,16 @@ impl BinExpr {
                 .append(append)
                 .truncate(!append)
                 .open(&filename)
-                .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+                .map_err(|e| {
+                    EvalError::new(
+                        self.loc(),
+                        format!(
+                            "Failed to open {}: {}",
+                            self.scope.err_path_str(&filename),
+                            e.to_string()
+                        ),
+                    )
+                })?;
 
             // Redirect stdout to the file
             let _redirect = Redirect::stdout(file).map_err(|e| {
@@ -2204,14 +2230,28 @@ impl Redirection {
             .create(true)
             .write(true)
             .open(&path)
-            .map_err(|e| format!("Failed to open '{}' for {} redirection: {}", path, name, e))?;
+            .map_err(|error| {
+                format!(
+                    "Failed to open {} for {} redirection: {}",
+                    scope.err_path_str(path),
+                    name,
+                    error
+                )
+            })?;
 
         let redir = if name == "__stdout" {
             Redirect::stdout(file)
         } else {
             Redirect::stderr(file)
         }
-        .map_err(|e| format!("Failed to redirect {} to file '{}': {}", name, path, e))?;
+        .map_err(|error| {
+            format!(
+                "Failed to redirect {} to file {}: {}",
+                name,
+                scope.err_path_str(path),
+                error
+            )
+        })?;
         return Ok(Redirection::File(redir));
     }
 }

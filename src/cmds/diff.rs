@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::my_println;
 use colored::*;
 use std::collections::VecDeque;
 use std::fs::File;

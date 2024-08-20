@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::eval::{Scope, Value};
 use std::rc::Rc;
-use crate::my_println;
 
 struct Echo;
 

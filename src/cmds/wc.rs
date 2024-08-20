@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::my_println;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 #[cfg(windows)]
@@ -115,7 +114,7 @@ impl Exec for WordCount {
         false
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
 
@@ -153,7 +152,7 @@ impl Exec for WordCount {
                         total.bytes += result.bytes;
                     }
                     Err(e) => {
-                        eprintln!("{}: {}", file, e);
+                        my_warning!(scope, "{}: {}", scope.err_path(path), e);
                     }
                 }
             }

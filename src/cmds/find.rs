@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::my_println;
 use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;
@@ -38,13 +37,13 @@ impl Find {
                                 self.search(scope, &entry.file_name(), &entry.path(), regex)?;
                             }
                             Err(e) => {
-                                eprintln!("{}: {}", path.display(), e);
+                                my_warning!(scope, "{}: {}", scope.err_path(path), e);
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("{}: {}", path.display(), e);
+                    my_warning!(scope, "{}: {}", scope.err_path(path), e);
                 }
             }
         } else {

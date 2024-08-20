@@ -10,14 +10,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-// Add the path to the error reported to the caller
-fn wrap_error<E: std::fmt::Display>(path: &Path, error: E) -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Other,
-        format!("{}: {}", path.display(), error),
-    )
-}
-
 fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -98,6 +90,14 @@ impl<'a> FileCopier<'a> {
         }
     }
 
+    // Add the path to the error reported to the caller
+    fn wrap_error<E: std::fmt::Display>(&self, path: &Path, error: E) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("{}: {}", self.scope.err_path(&path), error),
+        )
+    }
+
     /// Collect info about one path and its size, recurse if directory.
     /// Return Ok(false) if interrupted by Ctrl+C.
     /// Update progress indicator in verbose mode.
@@ -123,29 +123,32 @@ impl<'a> FileCopier<'a> {
             }
         } else if path.is_dir() {
             if !self.recursive {
-                eprintln!("Omitting directory: {}", path.display());
+                my_warning!(
+                    self.scope,
+                    "Omitting directory: {}",
+                    self.scope.err_path(path)
+                );
                 return Ok(true);
             }
             // Replicate dirs from the source into the destination (even if empty)
             info.0.push((start, path.to_path_buf()));
 
             // Collect info recursively
-            for entry in fs::read_dir(path).map_err(|e| wrap_error(path, e))? {
+            for entry in fs::read_dir(path).map_err(|e| self.wrap_error(path, e))? {
                 if self.scope.is_interrupted() {
                     return Ok(false);
                 }
-                let entry = entry.map_err(|e| wrap_error(path, e))?;
+                let entry = entry.map_err(|e| self.wrap_error(path, e))?;
                 let child = entry.path();
 
-                if !self
-                    .collect_path_info(start, &child, info)
-                    .map_err(|e| wrap_error(&child, e))?
-                {
+                if !self.collect_path_info(start, &child, info)? {
                     return Ok(false); // User interrupted
                 }
             }
         } else {
-            let size = fs::metadata(&path).map_err(|e| wrap_error(&path, e))?.len();
+            let size = fs::metadata(&path)
+                .map_err(|e| self.wrap_error(&path, e))?
+                .len();
 
             info.0.push((start, path.to_path_buf()));
             info.1 += size;
@@ -245,7 +248,8 @@ impl<'a> FileCopier<'a> {
 
             let dest = if dest_is_dir {
                 let src_path = if let Some(parent) = Path::new(start).parent() {
-                    path.strip_prefix(parent).map_err(|e| wrap_error(path, e))?
+                    path.strip_prefix(parent)
+                        .map_err(|e| self.wrap_error(path, e))?
                 } else {
                     path
                 };
@@ -274,7 +278,7 @@ impl<'a> FileCopier<'a> {
         // Ask for confirmation if needed
         if self.confirm_overwrite && dest.exists() && !dest.is_dir() {
             match confirm(
-                format!("Overwrite '{}'", dest.display()),
+                format!("Overwrite {}", dest.display()),
                 self.scope,
                 one_of_many,
             )? {
@@ -296,23 +300,28 @@ impl<'a> FileCopier<'a> {
                 fs::create_dir(dest)?;
             }
         } else if src.is_symlink() {
-            copy_symlink(src, &dest).map_err(|e| wrap_error(src, e))?;
+            copy_symlink(src, &dest).map_err(|e| self.wrap_error(src, e))?;
         } else {
             #[cfg(unix)]
             self.handle_unix_special_file(src, dest)?;
 
-            let mut src_file = File::open(src).map_err(|e| wrap_error(src, e))?;
-            let mut dst_file = File::create(&dest).map_err(|e| wrap_error(dest, e))?;
+            let mut src_file = File::open(src).map_err(|e| self.wrap_error(src, e))?;
+            let mut dst_file = File::create(&dest).map_err(|e| self.wrap_error(dest, e))?;
             let mut buffer = [0; 8192]; // TODO: allow user to specify buffer size?
             loop {
-                let n = src_file.read(&mut buffer).map_err(|e| wrap_error(src, e))?;
+                if self.scope.is_interrupted() {
+                    return Ok(false);
+                }
+                let n = src_file
+                    .read(&mut buffer)
+                    .map_err(|e| self.wrap_error(src, e))?;
 
                 if n == 0 {
                     break;
                 }
                 dst_file
                     .write_all(&buffer[..n])
-                    .map_err(|e| wrap_error(dest, e))?;
+                    .map_err(|e| self.wrap_error(dest, e))?;
 
                 if let Some(pb) = self.progress.as_mut() {
                     pb.inc(n as u64);
@@ -336,9 +345,9 @@ impl<'a> FileCopier<'a> {
             // Recreate the FIFO rather than copying contents
             nix::unistd::mkfifo(dest, nix::sys::stat::Mode::S_IRWXU)?;
         } else if file_type.is_socket() {
-            eprintln!("Skipping socket: {}", src.display());
+            my_warning!("Skipping socket: {}", self.scope.err_path(src));
         } else if file_type.is_block_device() || file_type.is_char_device() {
-            eprintln!("Skipping device file: {}", src.display());
+            my_warning!("Skipping device file: {}", self.scope.err_path(src));
         }
         Ok(())
     }
@@ -346,7 +355,7 @@ impl<'a> FileCopier<'a> {
     fn preserve_metadata(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
         // Get metadata of source file
         let metadata = fs::metadata(src)
-            .map_err(|e| wrap_error(src, format!("Cannot read metadata: {}", e)))?;
+            .map_err(|e| self.wrap_error(src, format!("Cannot read metadata: {}", e)))?;
 
         // Set timestamps on destination file
         filetime::set_file_times(
@@ -354,11 +363,11 @@ impl<'a> FileCopier<'a> {
             FileTime::from_last_access_time(&metadata),
             FileTime::from_last_modification_time(&metadata),
         )
-        .map_err(|e| wrap_error(dest, format!("Cannot set file time: {}", e)))?;
+        .map_err(|e| self.wrap_error(dest, format!("Cannot set file time: {}", e)))?;
 
         // Set permissions on the destination
         fs::set_permissions(dest, metadata.permissions())
-            .map_err(|e| wrap_error(dest, format!("Cannot set permissions: {}", e)))?;
+            .map_err(|e| self.wrap_error(dest, format!("Cannot set permissions: {}", e)))?;
 
         #[cfg(unix)]
         {

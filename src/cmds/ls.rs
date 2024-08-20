@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::my_println;
 use chrono::DateTime;
 use colored::*;
 use core::fmt;
@@ -91,12 +90,6 @@ struct CmdArgs {
     colors: ColorScheme,
 }
 
-impl CmdArgs {
-    fn cannot_access<P: fmt::Display, E: fmt::Display>(&self, path: &P, e: &E) {
-        eprintln!("Cannot access '{}: {}", path, self.colors.render_error(e));
-    }
-}
-
 impl Dir {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
@@ -147,7 +140,7 @@ impl Exec for Dir {
             return Ok(Value::success());
         }
 
-        list_entries(&cmd_args)
+        list_entries(scope, &cmd_args)
     }
 
     fn is_external(&self) -> bool {
@@ -371,15 +364,15 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 #[cfg(windows)]
 use win::{get_owner_and_group, get_permissions};
 
-fn list_entries(args: &CmdArgs) -> Result<Value, String> {
+fn list_entries(scope: &Rc<Scope>, args: &CmdArgs) -> Result<Value, String> {
     for path_arg in &args.paths {
         let path = Path::new(&path_arg)
             .canonicalize()
-            .map_err(|e| format!("Cannot canonicalize '{}': {}", path_arg, e))?;
+            .map_err(|e| format!("Cannot canonicalize {}: {}", path_arg, e))?;
         match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {
-                    print_dir(&path, &args)?;
+                    print_dir(scope, &path, &args)?;
                 } else {
                     print_file(&path, &metadata, &args)?;
                 }
@@ -391,9 +384,9 @@ fn list_entries(args: &CmdArgs) -> Result<Value, String> {
     Ok(Value::success())
 }
 
-fn print_dir(path: &Path, args: &CmdArgs) -> Result<(), String> {
+fn print_dir(scope: &Rc<Scope>, path: &Path, args: &CmdArgs) -> Result<(), String> {
     let entries =
-        fs::read_dir(path).map_err(|e| format!("Cannot access '{}': {}", path.display(), e))?;
+        fs::read_dir(path).map_err(|e| format!("Cannot access {}: {}", path.display(), e))?;
     let mut entries: Vec<_> = entries
         .collect::<Result<_, _>>()
         .map_err(|e| format!("Error reading entries: {}", e))?;
@@ -404,7 +397,7 @@ fn print_dir(path: &Path, args: &CmdArgs) -> Result<(), String> {
     }
 
     if args.show_details {
-        print_detailed_entries(&entries, &args)?;
+        print_detailed_entries(scope, &entries, &args)?;
     } else {
         print_simple_entries(&entries, &args, 4)?;
     }
@@ -478,7 +471,11 @@ fn print_simple_entries(
     Ok(())
 }
 
-fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(), String> {
+fn print_detailed_entries(
+    scope: &Rc<Scope>,
+    entries: &Vec<DirEntry>,
+    args: &CmdArgs,
+) -> Result<(), String> {
     my_println!("total {}", entries.len())?;
     for entry in entries {
         match entry.metadata() {
@@ -486,7 +483,12 @@ fn print_detailed_entries(entries: &Vec<DirEntry>, args: &CmdArgs) -> Result<(),
                 print_details(&entry.path(), &metadata, args)?;
             }
             Err(e) => {
-                args.cannot_access(&entry.file_name().to_string_lossy(), &e);
+                my_warning!(
+                    scope,
+                    "Cannot access {}: {}",
+                    scope.err_path(&entry.path()),
+                    args.colors.render_error(&e)
+                );
                 my_println!(
                     "?---------  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {:>12}  {}",
                     "?",

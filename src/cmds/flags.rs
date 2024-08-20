@@ -37,7 +37,7 @@ impl CommandFlags {
                 )
                 .is_some()
         {
-            panic!("flag '{}' (or its short form) already exists", long);
+            panic!("flag {} (or its short form) already exists", long);
         }
     }
 

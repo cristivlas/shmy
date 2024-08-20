@@ -37,7 +37,7 @@ impl Help {
                     cmd.exec(command, &help_args, scope)?;
                     Ok(())
                 }
-                None => Err(format!("Unknown command: '{}'", command)),
+                None => Err(format!("Unknown command: {}", command)),
             }
         }
     }

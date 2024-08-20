@@ -46,19 +46,28 @@ impl Grep {
         Self { flags }
     }
 
-    fn collect_files(&self, paths: &[String], recursive: bool) -> Vec<PathBuf> {
+    fn collect_files(&self, scope: &Rc<Scope>, paths: &[String], recursive: bool) -> Vec<PathBuf> {
         let mut files = Vec::new();
-        for path in paths {
-            let path = PathBuf::from(path);
-            if path.is_dir() && recursive {
-                files.extend(fs::read_dir(path).unwrap().filter_map(Result::ok).flat_map(
-                    |entry| {
-                        self.collect_files(
-                            &[entry.path().to_string_lossy().into_owned()],
-                            recursive,
-                        )
-                    },
-                ));
+        for p in paths {
+            let path = PathBuf::from(p);
+            if path.is_dir() {
+                if recursive {
+                    files.extend(fs::read_dir(path).unwrap().filter_map(Result::ok).flat_map(
+                        |entry| {
+                            self.collect_files(
+                                scope,
+                                &[entry.path().to_string_lossy().into_owned()],
+                                recursive,
+                            )
+                        },
+                    ));
+                } else {
+                    my_warning!(
+                        scope,
+                        "Omitting directory: {}",
+                        scope.err_path(path.as_path())
+                    );
+                }
             } else if path.is_file() {
                 files.push(path);
             }
@@ -91,7 +100,12 @@ impl Grep {
                     let path = name.canonicalize().unwrap_or_else(|_| name.to_path_buf());
                     let url = Url::from_file_path(path).unwrap();
                     let text = format!("{}:{}", name.display(), line_number + 1);
-                    let hyperlink = format!("\x1B]8;;{}?line={}\x1B\\{}\x1B]8;;\x1B\\", url, line_number + 1, text);
+                    let hyperlink = format!(
+                        "\x1B]8;;{}?line={}\x1B\\{}\x1B]8;;\x1B\\",
+                        url,
+                        line_number + 1,
+                        text
+                    );
                     output.push_str(&hyperlink);
                 }
             } else {
@@ -177,7 +191,7 @@ impl Exec for Grep {
                 );
             }
         } else {
-            let files_to_process = self.collect_files(files, recursive);
+            let files_to_process = self.collect_files(scope, files, recursive);
 
             let show_filename = if no_filename {
                 false
@@ -189,7 +203,7 @@ impl Exec for Grep {
 
             for path in &files_to_process {
                 let content = fs::read_to_string(&path)
-                    .map_err(|e| format!("Cannot read '{}': {}", path.display(), e))?;
+                    .map_err(|e| format!("Cannot read {}: {}", scope.err_path(path), e))?;
 
                 for (line_number, line) in content.lines().enumerate() {
                     Self::process_line(

@@ -29,7 +29,7 @@ impl Mv {
         let mut final_dest = if dest.is_dir() {
             dest.join(
                 src.file_name()
-                    .ok_or(format!("Invalid source filename: '{}'", src.display()))?,
+                    .ok_or(format!("Invalid source filename: {}", scope.err_path(src)))?,
             )
         } else {
             dest.to_path_buf()
@@ -37,16 +37,15 @@ impl Mv {
         final_dest = final_dest.canonicalize().unwrap_or(final_dest);
 
         if src == final_dest {
-            return Err(format!("'{}': Source and destination are the same", src.display()));
+            return Err(format!(
+                "{}: Source and destination are the same",
+                scope.err_path(src)
+            ));
         }
 
         if final_dest.exists() && *interactive {
-            match confirm(
-                format!("Overwrite '{}'", final_dest.display()),
-                scope,
-                batch,
-            )
-            .map_err(|e| e.to_string())?
+            match confirm(format!("Overwrite {}", final_dest.display()), scope, batch)
+                .map_err(|e| e.to_string())?
             {
                 Answer::Yes => {}
                 Answer::No => return Ok(true), // Continue with next file
@@ -57,12 +56,12 @@ impl Mv {
             }
         }
 
-        fs::rename(&src, &final_dest).map_err(|e| {
+        fs::rename(&src, &final_dest).map_err(|error| {
             format!(
-                "Failed to move or rename '{}' to '{}': {}",
-                src.display(),
-                final_dest.display(),
-                e
+                "Failed to move or rename {} to {}: {}",
+                scope.err_path(src),
+                scope.err_path(final_dest.as_path()),
+                error
             )
         })?;
 
@@ -103,7 +102,7 @@ impl Exec for Mv {
         for src in sources {
             let src_path = Path::new(src)
                 .canonicalize()
-                .map_err(|e| format!("Cannot canonicalize: '{}': {}", src, e))?;
+                .map_err(|e| format!("Cannot canonicalize: {}: {}", src, e))?;
 
             if !Mv::move_file(&src_path, &dest, &mut interactive, batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)
