@@ -101,7 +101,7 @@ __stdout=some/path/file.txt ls -al;
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
 
-### Notes:
+#### Notes:
 - **Grouping and Escaping:** Groups in substitution must be enclosed in quotes, and captures need to be double escaped.
 - **Examples of Variable Expansion:**
   - Basic variable expansion:
@@ -124,3 +124,43 @@ This section details the parsing and expanding of shell-like variable expression
     "${UNDEFINED_VAR}"             -> "$UNDEFINED_VAR"
     "${UNDEFINED_VAR/foo/bar}"     -> "$UNDEFINED_VAR"
     ```
+
+### 9. Escaping and Globbing
+```
+# Count lines in the current project
+find src .*rs | srcs; echo "${srcs/\n/ }" | args; wc -l $args;
+
+# There is a subtle "bug" in the line above, having to do with the implementation of the 'wc' command:
+# if no arguments are given, wc will read from stdin. So, if no files ending in 'rs' are found, wc will
+# wait for user input.
+
+# The workaround is:
+find src ".*rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args);
+
+# And, the more correct regular expression in the find command argument should be ".*\\.rs"
+# The first backslash escapes the next one so the Rust Regex being compiled is: .*\.rs
+# NOTE that in mysh backslashes only work as such inside quotes. This is to avoid complications
+# with TAB-completion of Windows file paths in interactive mode.
+
+find src ".*\\.rs" | src; if ($src) (wc -l $src)
+```
+
+Without quotes the backslashes are passed verbatim to the tokenizer, which will attempt globbing.
+If the pattern is globbed successfully, the expanded tokens are passed to the expression evaluator,
+otherwise the pattern is treated as a literal. Note the difference in outputs bellow:
+```
+C:\Users\crist\Projects\rust\mysh> for f in src\*.rs; (echo $f)
+src\cmds.rs
+src\eval.rs
+src\macros.rs
+src\main.rs
+src\prompt.rs
+src\testeval.rs
+src\utils.rs
+C:\Users\crist\Projects\rust\mysh> for f in "src\*.rs"; (echo $f)
+src*.rs
+C:\Users\crist\Projects\rust\mysh> for f in "src\\*.rs"; (echo $f)
+src\*.rs
+```
+
+
