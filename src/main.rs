@@ -356,7 +356,7 @@ impl Shell {
     fn eval(&mut self, quit: &mut bool, input: &String) {
         INTERRUPT.store(false, SeqCst);
 
-        match self.interp.eval(quit, input) {
+        match &self.interp.eval(quit, input) {
             Ok(result) => {
                 my_dbg!(&result);
             }

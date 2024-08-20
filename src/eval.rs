@@ -1042,11 +1042,9 @@ where
 
         while let Some(top) = self.expr_stack.last().cloned() {
             if top.is_pipe() {
-                //println!("pipe: {}", &top);
                 if !head.is_empty() {
                     self.current_expr = Rc::clone(&top);
                     self.add_expr(&head)?;
-                    //println!("current: {}", &self.current_expr);
                 }
                 if tail.is_empty() {
                     if let Expression::Bin(b) = &*top {
@@ -1054,17 +1052,15 @@ where
                         tail = Rc::clone(&b.borrow().lhs);
                         head = Rc::clone(&tail);
                     }
-                    //println!("end: {}", &tail);
                 } else {
                     head = Rc::clone(&top);
                 }
                 self.expr_stack.pop();
             } else {
-                //println!("top: {}", &top);
                 break;
             }
         }
-        //println!("start: [{}], end: [{}]", &head, &tail);
+
         if head.is_empty() {
             Ok(false)
         } else {
@@ -1075,7 +1071,7 @@ where
                 loc: expr.loc(),
                 scope: Rc::clone(&self.scope),
             })));
-            //println!("current_expr: {}", &self.current_expr);
+
             Ok(true)
         }
     }
