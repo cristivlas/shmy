@@ -16,6 +16,7 @@ use flags::CommandFlags;
 mod basename;
 mod cat;
 mod cd;
+mod chmod;
 mod clear;
 mod cp;
 mod df;

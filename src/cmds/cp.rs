@@ -345,9 +345,9 @@ impl<'a> FileCopier<'a> {
             // Recreate the FIFO rather than copying contents
             nix::unistd::mkfifo(dest, nix::sys::stat::Mode::S_IRWXU)?;
         } else if file_type.is_socket() {
-            my_warning!("Skipping socket: {}", self.scope.err_path(src));
+            my_warning!(self.scope, "Skipping socket: {}", self.scope.err_path(src));
         } else if file_type.is_block_device() || file_type.is_char_device() {
-            my_warning!("Skipping device file: {}", self.scope.err_path(src));
+            my_warning!(self.scope, "Skipping device file: {}", self.scope.err_path(src));
         }
         Ok(())
     }

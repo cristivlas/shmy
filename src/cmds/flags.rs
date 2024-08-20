@@ -68,6 +68,27 @@ impl CommandFlags {
         Ok(non_flag_args)
     }
 
+    pub fn parse_all(&mut self, args: &[String]) -> Vec<String> {
+        let mut args_iter = args.iter().peekable();
+        let mut non_flag_args = Vec::new();
+
+        while let Some(arg) = args_iter.next() {
+            if arg.starts_with("--") && arg != "--" {
+                if !self.handle_long_flag(arg, &mut args_iter).is_ok() {
+                    non_flag_args.push(arg.clone());
+                }
+            } else if arg.starts_with('-') && arg != "-" {
+                if !self.handle_short_flags(arg, &mut args_iter).is_ok() {
+                    non_flag_args.push(arg.clone());
+                }
+            } else {
+                non_flag_args.push(arg.clone());
+            }
+        }
+
+        non_flag_args
+    }
+
     fn handle_long_flag(
         &mut self,
         arg: &str,
