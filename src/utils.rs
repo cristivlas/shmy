@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 /// Copy variables from the current scope outwards into the environment of the
 /// command to be executed, but do not carry over special redirect variables.
-pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<Scope>) {
+pub(crate) fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<Scope>) {
     // Override existing environment variables
     command.env_clear();
 
@@ -27,7 +27,7 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<
     }
 }
 
-pub fn get_own_path() -> Result<String, String> {
+pub(crate) fn get_own_path() -> Result<String, String> {
     match env::current_exe() {
         Ok(p) => {
             #[cfg(test)]

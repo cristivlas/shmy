@@ -68,6 +68,8 @@ impl CommandFlags {
         Ok(non_flag_args)
     }
 
+    /// Parse flags ignoring unrecognized flags.
+    /// Useful when command needs to process arguments containing dashes, e.g. ```chmod a-w```
     pub fn parse_all(&mut self, args: &[String]) -> Vec<String> {
         let mut args_iter = args.iter().peekable();
         let mut non_flag_args = Vec::new();
