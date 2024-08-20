@@ -202,24 +202,27 @@ impl Exec for Grep {
             };
 
             for path in &files_to_process {
-                let content = fs::read_to_string(&path)
-                    .map_err(|e| format!("Cannot read {}: {}", scope.err_path(path), e))?;
-
-                for (line_number, line) in content.lines().enumerate() {
-                    Self::process_line(
-                        Some(path),
-                        line_number,
-                        line,
-                        &regex,
-                        line_number_flag,
-                        ignore_case,
-                        show_filename,
-                        use_color,
-                        use_hyperlink,
-                    );
+                match &fs::read_to_string(&path) {
+                    Ok(content) => {
+                        for (line_number, line) in content.lines().enumerate() {
+                            Self::process_line(
+                                Some(path),
+                                line_number,
+                                line,
+                                &regex,
+                                line_number_flag,
+                                ignore_case,
+                                show_filename,
+                                use_color,
+                                use_hyperlink,
+                            );
+                        }
+                    }
+                    Err(e) => my_warning!(scope, "Cannot read {}: {}", scope.err_path(path), e),
                 }
             }
         }
+
         Ok(Value::success())
     }
 }
