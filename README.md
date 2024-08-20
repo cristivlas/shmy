@@ -101,7 +101,6 @@ __stdout=some/path/file.txt ls -al;
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
 
-#### Notes:
 - **Grouping and Escaping:** Groups in substitution must be enclosed in quotes, and captures need to be double escaped.
 - **Examples of Variable Expansion:**
   - Basic variable expansion:
