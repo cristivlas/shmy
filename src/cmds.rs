@@ -21,6 +21,7 @@ mod clear;
 mod cp;
 mod df;
 mod diff;
+mod du;
 mod echo;
 mod exit;
 mod find;

@@ -54,3 +54,20 @@ pub(crate) fn get_own_path() -> Result<String, String> {
         Err(e) => Err(format!("Failed to get executable name: {}", e)),
     }
 }
+
+pub(crate) fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
+    if !human_readable {
+        return (size / block_size).to_string();
+    }
+
+    let units = ["B", "K", "M", "G", "T", "P", "E", "Z", "Y"];
+    let mut index = 0;
+    let mut formatted_size = size as f64;
+
+    while formatted_size >= 1024.0 && index < units.len() - 1 {
+        formatted_size /= 1024.0;
+        index += 1;
+    }
+
+    format!("{:.1} {}", formatted_size, units[index])
+}

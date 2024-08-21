@@ -1,6 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
+use crate::utils::format_size;
 use chrono::DateTime;
 use colored::*;
 use core::fmt;
@@ -85,7 +86,7 @@ struct Dir {
 
 const OWNER_MAX_LEN: usize = 16;
 
-struct CmdArgs {
+struct Options {
     all_files: bool,
     show_details: bool,
     human_readable: bool,
@@ -108,11 +109,11 @@ impl Dir {
         Self { flags }
     }
 
-    fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<CmdArgs, String> {
+    fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<Options, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(args)?;
 
-        let cmd_args = CmdArgs {
+        let cmd_args = Options {
             all_files: flags.is_present("all"),
             show_details: flags.is_present("long"),
             human_readable: flags.is_present("human-readable"),
@@ -368,7 +369,7 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 #[cfg(windows)]
 use win::{get_owner_and_group, get_permissions};
 
-fn list_entries(scope: &Rc<Scope>, args: &CmdArgs) -> Result<Value, String> {
+fn list_entries(scope: &Rc<Scope>, args: &Options) -> Result<Value, String> {
     for path_arg in &args.paths {
         let path = Path::new(&path_arg)
             .canonicalize()
@@ -388,7 +389,7 @@ fn list_entries(scope: &Rc<Scope>, args: &CmdArgs) -> Result<Value, String> {
     Ok(Value::success())
 }
 
-fn print_dir(scope: &Rc<Scope>, path: &Path, args: &CmdArgs) -> Result<(), String> {
+fn print_dir(scope: &Rc<Scope>, path: &Path, args: &Options) -> Result<(), String> {
     let entries =
         fs::read_dir(path).map_err(|e| format!("Cannot access {}: {}", path.display(), e))?;
     let mut entries: Vec<_> = entries
@@ -408,7 +409,7 @@ fn print_dir(scope: &Rc<Scope>, path: &Path, args: &CmdArgs) -> Result<(), Strin
     Ok(())
 }
 
-fn print_file(path: &Path, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
+fn print_file(path: &Path, metadata: &Metadata, args: &Options) -> Result<(), String> {
     if args.show_details {
         print_details(&PathBuf::from(path), metadata, args)?;
     } else if args.all_files || !path.starts_with(".") {
@@ -423,7 +424,7 @@ fn print_file(path: &Path, metadata: &Metadata, args: &CmdArgs) -> Result<(), St
 
 fn print_simple_entries(
     entries: &Vec<DirEntry>,
-    args: &CmdArgs,
+    args: &Options,
     spacing: usize,
 ) -> Result<(), String> {
     let max_width = entries
@@ -478,7 +479,7 @@ fn print_simple_entries(
 fn print_detailed_entries(
     scope: &Rc<Scope>,
     entries: &Vec<DirEntry>,
-    args: &CmdArgs,
+    args: &Options,
 ) -> Result<(), String> {
     my_println!("total {}", entries.len())?;
     for entry in entries {
@@ -508,7 +509,7 @@ fn print_detailed_entries(
 }
 
 /// Print details for one file entry
-fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<(), String> {
+fn print_details(path: &PathBuf, metadata: &Metadata, args: &Options) -> Result<(), String> {
     let base_name = path
         .file_name()
         .or(Some(path.as_os_str()))
@@ -542,22 +543,11 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &CmdArgs) -> Result<
     Ok(())
 }
 
-fn format_file_size(metadata: &Metadata, args: &CmdArgs) -> String {
+fn format_file_size(metadata: &Metadata, args: &Options) -> String {
     if metadata.is_dir() {
         String::default()
-    } else if args.human_readable {
-        let size = metadata.len();
-        if size < 1024 {
-            format!("{}B", size)
-        } else if size < 1024 * 1024 {
-            format!("{:.1}K", size as f64 / 1024.0)
-        } else if size < 1024 * 1024 * 1024 {
-            format!("{:.1}M", size as f64 / (1024.0 * 1024.0))
-        } else {
-            format!("{:.1}G", size as f64 / (1024.0 * 1024.0 * 1024.0))
-        }
     } else {
-        metadata.len().to_string()
+        format_size(metadata.len(), 1, args.human_readable)
     }
 }
 
