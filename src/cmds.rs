@@ -13,12 +13,16 @@ use which::which;
 mod flags;
 use flags::CommandFlags;
 
+// Built-in commands
 mod basename;
 mod cat;
 mod cd;
 mod chmod;
 mod clear;
 mod cp;
+
+#[cfg(windows)]
+mod date;
 
 #[cfg(windows)]
 mod df;
