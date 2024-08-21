@@ -172,7 +172,7 @@ impl CommandFlags {
                 String::new()
             };
             help_text.push_str(&format!(
-                "{}--{:16}\t{}\n",
+                "{:4}--{:20} {}\n",
                 short_flag_help, flag.long, flag.help
             ));
         }

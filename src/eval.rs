@@ -2214,7 +2214,7 @@ impl Redirection {
             if let Some(v) = scope.lookup(other) {
                 let desc = if other_desc == "1" { "2" } else { "1" };
                 let other_path = v.to_string();
-                if other_path == name || other_path == desc {
+                if other_path == name || &other_path == path || other_path == desc {
                     return Err(format!("Cyclical {} redirection", name));
                 }
                 return Self::redirect(scope, name, other, other_desc, &other_path);
