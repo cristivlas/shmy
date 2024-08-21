@@ -244,7 +244,7 @@ impl Shell {
     }
 
     fn prompt(&mut self) -> &str {
-        self.prompt = format!("{}> ", current_dir().unwrap());
+        self.prompt = format!("{}> ", current_dir().unwrap_or(String::default()));
         &self.prompt
     }
 

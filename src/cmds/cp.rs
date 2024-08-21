@@ -93,9 +93,10 @@ impl<'a> FileCopier<'a> {
 
     // Add the path to the error reported to the caller
     fn wrap_error<E: std::fmt::Display>(&self, path: &Path, error: E) -> io::Error {
+        let canonical_path = path.canonicalize().unwrap_or(path.to_path_buf());
         io::Error::new(
             io::ErrorKind::Other,
-            format!("{}: {}", self.scope.err_path(&path), error),
+            format!("{}: {}", self.scope.err_path(&canonical_path), error),
         )
     }
 

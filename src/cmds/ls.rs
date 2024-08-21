@@ -103,7 +103,7 @@ impl Dir {
         flags.add_flag(
             'h',
             "human-readable",
-            "Print sizes in human readable format (e.g., 1K 234M 2G)",
+            "Print sizes in human readable format (e.g., 1K, 234M, 2G)",
         );
         flags.add_flag('?', "help", "Display this help and exit");
         Self { flags }

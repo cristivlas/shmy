@@ -16,17 +16,18 @@ impl Mv {
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('f', "force", "Do not prompt before overwriting");
         flags.add_flag('i', "interactive", "Prompt before overwriting files");
-        Mv { flags }
+
+        Self { flags }
     }
 
     fn move_file(
         src: &Path,
         dest: &Path,
         interactive: &mut bool,
-        batch: bool,
+        one_of_many: bool,
         scope: &Rc<Scope>,
     ) -> Result<bool, String> {
-        let mut final_dest = if dest.is_dir() {
+        let final_dest = if dest.is_dir() {
             dest.join(
                 src.file_name()
                     .ok_or(format!("Invalid source filename: {}", scope.err_path(src)))?,
@@ -34,7 +35,6 @@ impl Mv {
         } else {
             dest.to_path_buf()
         };
-        final_dest = final_dest.canonicalize().unwrap_or(final_dest);
 
         if src == final_dest {
             return Err(format!(
@@ -42,10 +42,20 @@ impl Mv {
                 scope.err_path(src)
             ));
         }
+        if final_dest.starts_with(src) {
+            return Err(format!(
+                "Cannot move {} to a subdirectory of itself",
+                scope.err_path(src)
+            ));
+        }
 
         if final_dest.exists() && *interactive {
-            match confirm(format!("Overwrite {}", final_dest.display()), scope, batch)
-                .map_err(|e| e.to_string())?
+            match confirm(
+                format!("Overwrite {}", final_dest.display()),
+                scope,
+                one_of_many,
+            )
+            .map_err(|e| e.to_string())?
             {
                 Answer::Yes => {}
                 Answer::No => return Ok(true), // Continue with next file
@@ -66,6 +76,15 @@ impl Mv {
         })?;
 
         Ok(true) // Continue with next file, if any
+    }
+
+    fn get_dest_path(scope: &Rc<Scope>, path: &str) -> Result<PathBuf, String> {
+        Ok(PathBuf::from(path).canonicalize().unwrap_or(
+            Path::new(".")
+                .canonicalize()
+                .map_err(|e| format!("{}: {}", scope.err_path_str(path), e))?
+                .join(path),
+        ))
     }
 }
 
@@ -94,17 +113,18 @@ impl Exec for Mv {
         }
 
         let mut interactive = !flags.is_present("force") || flags.is_present("interactive");
-        let dest = PathBuf::from(args.last().unwrap());
-        let sources = &args[..args.len() - 1];
 
-        let batch = sources.len() > 1;
+        let dest = Self::get_dest_path(scope, args.last().unwrap())?;
+
+        let sources = &args[..args.len() - 1];
+        let is_batch = sources.len() > 1;
 
         for src in sources {
             let src_path = Path::new(src)
                 .canonicalize()
                 .map_err(|e| format!("Cannot canonicalize: {}: {}", src, e))?;
 
-            if !Mv::move_file(&src_path, &dest, &mut interactive, batch, scope)? {
+            if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)
             }
         }
