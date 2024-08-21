@@ -74,6 +74,7 @@ impl Help {
         Self::print_available_commands(4, 4);
         println!("SEE ALSO");
         println!("    help [COMMAND]");
+        println!("    https://github.com/cristivlas/mysh");
         println!();
         println!("AUTHOR");
         println!("    Written by Cristian Vlasceanu");
@@ -142,7 +143,6 @@ impl Help {
                 println!("    {}", line);
             }
         }
-        println!();
     }
 
     fn print_available_commands(indent: usize, spacing: usize) {
@@ -194,6 +194,8 @@ impl Exec for Help {
         } else {
             for command in args {
                 Self::print_command_help(&command, scope)?;
+
+                println!();
             }
         }
 
