@@ -19,7 +19,10 @@ mod cd;
 mod chmod;
 mod clear;
 mod cp;
+
+#[cfg(windows)]
 mod df;
+
 mod diff;
 mod du;
 mod echo;
@@ -33,8 +36,10 @@ mod mv;
 mod realpath;
 mod rm;
 mod run;
+
 #[cfg(windows)]
 mod sudo;
+
 mod vars;
 mod wc;
 
