@@ -2,6 +2,7 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
 use chrono::{DateTime, Local, Utc};
+use chrono_tz::Tz;
 use std::rc::Rc;
 
 struct Date {
@@ -15,18 +16,22 @@ impl Date {
         flags.add_flag('u', "utc", "Display time in UTC instead of local time");
         flags.add_flag('r', "rfc2822", "Display date and time in RFC 2822 format");
         flags.add_flag('I', "iso8601", "Display date in ISO 8601 format");
+        flags.add_value_flag(
+            'z',
+            "timezone",
+            "Specify the zone (e.g., America/New_York) to display local time",
+        );
         Self { flags }
     }
 
-    fn get_current_time(&self, use_utc: bool) -> DateTime<chrono::FixedOffset> {
-        if use_utc {
-            Utc::now().into()
-        } else {
-            Local::now().into()
-        }
+    fn get_time_in_timezone(&self, zone: &String) -> Result<DateTime<Tz>, String> {
+        let tz: Tz = zone
+            .parse()
+            .map_err(|_| format!("Invalid timezone specified: {}", zone))?;
+        Ok(Utc::now().with_timezone(&tz))
     }
 
-    fn format_time(&self, time: DateTime<chrono::FixedOffset>, flags: &CommandFlags) -> String {
+    fn format_time(&self, time: DateTime<Tz>, flags: &CommandFlags) -> String {
         if flags.is_present("rfc2822") {
             time.to_rfc2822()
         } else if flags.is_present("iso8601") {
@@ -44,7 +49,7 @@ impl Exec for Date {
 
     fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let _args = flags.parse(args)?;
+        let args = flags.parse(args)?;
 
         if flags.is_present("help") {
             println!("Usage: date [OPTIONS]");
@@ -55,7 +60,13 @@ impl Exec for Date {
         }
 
         let use_utc = flags.is_present("utc");
-        let current_time = self.get_current_time(use_utc);
+        let timezone = if use_utc {
+            "UTC".to_string()
+        } else {
+            flags.get_value("timezone").unwrap_or("UTC".to_string())
+        };
+
+        let current_time = self.get_time_in_timezone(&timezone)?;
         let formatted_time = self.format_time(current_time, &flags);
 
         println!("{}", formatted_time);

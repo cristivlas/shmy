@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chrono = "0.4.38"
+chrono = "0.4"
+chrono-tz = "0.6"
 clearscreen = "3.0.0"
 crossterm = "0.28"
 colored = "2"
