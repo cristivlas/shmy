@@ -31,7 +31,7 @@ impl DiskFreeInfo {
     }
 }
 
-fn _get_last_err_str() -> String {
+fn get_last_err_str() -> String {
     unsafe {
         let error_code = GetLastError();
         let mut buffer: Vec<u16> = Vec::with_capacity(512);
@@ -75,7 +75,7 @@ impl DiskFree {
 
     fn get_disk_free_info(
         &self,
-        _scope: &Rc<Scope>,
+        scope: &Rc<Scope>,
         path: &PathBuf,
     ) -> Result<DiskFreeInfo, String> {
         let dirname: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
@@ -93,30 +93,32 @@ impl DiskFree {
                 total_free_bytes_ptr,
             );
         }
-        // if info.total_bytes == 0 {
-        //     return Err(format!("{}: {}", _scope.err_path(path), _get_last_err_str()));
-        // }
+        if info.total_bytes == 0 {
+            return Err(format!("{}: {}", scope.err_path(path), get_last_err_str()));
+        }
         Ok(info)
     }
 }
 
 fn get_path_from_arg(scope: &Rc<Scope>, args: &Vec<String>) -> Result<PathBuf, String> {
-    let path_str = if args.is_empty() {
-        "/".to_string()
+    let path = if args.is_empty() {
+        let root = PathBuf::from("/");
+        root.canonicalize().unwrap_or(root)
     } else {
         let canonical_path = Path::new(&args[0])
             .canonicalize()
             .map_err(|e| format!("{}: {}", scope.err_path_str(&args[0]), e))?;
 
-        // Extract the first
+        // Extract the first component
         if let Some(component) = canonical_path.components().next() {
-            component.as_os_str().to_string_lossy().to_string()
+            // Append "/"" in case prefix is just the drive.
+            PathBuf::from(component.as_os_str()).join("/")
         } else {
             return Err(format!("{}: path has no components", args[0]));
         }
     };
 
-    Ok(Path::new(&path_str).join("/"))
+    Ok(path)
 }
 
 impl Exec for DiskFree {
