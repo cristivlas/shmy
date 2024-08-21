@@ -21,12 +21,12 @@ impl Sudo {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_value_flag(
+        flags.add_option(
             'u',
             "user",
             "Specify the user to run as (default: Administrator)",
         );
-        flags.add_value_flag('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
         Sudo { flags }
     }
 }
@@ -49,11 +49,11 @@ impl Exec for Sudo {
         }
 
         let user = flags
-            .get_value("user")
-            .unwrap_or("Administrator".to_string());
+            .get_option("user")
+            .unwrap_or("Administrator");
         let cmd_name = &command_args[0].to_string();
 
-        if let Some(additional_args) = flags.get_value("args") {
+        if let Some(additional_args) = flags.get_option("args") {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 

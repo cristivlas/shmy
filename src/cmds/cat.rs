@@ -23,7 +23,7 @@ impl CatHeadTail {
         flags.add_flag('n', "number", "Number all output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
-            flags.add_value_flag('l', "lines", "Specify the number of lines to output");
+            flags.add_option('l', "lines", "Specify the number of lines to output");
         }
         flags.add_flag('?', "help", "Display this help message");
         CatHeadTail { flags, mode }
@@ -53,7 +53,7 @@ impl Exec for CatHeadTail {
 
         let line_numbers: bool = flags.is_present("number");
         let lines = flags
-            .get_value("lines")
+            .get_option("lines")
             .map(|v| v.parse::<usize>().map_err(|e| e.to_string()))
             .unwrap_or(Ok(10))?;
 

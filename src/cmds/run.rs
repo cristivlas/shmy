@@ -12,7 +12,7 @@ impl Run {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_value_flag('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
         Run { flags }
     }
 }
@@ -45,7 +45,7 @@ impl Exec for Run {
         if let Some(cmd) = get_command(cmd_name) {
             command_args.remove(0);
 
-            if let Some(cmd_flags) = flags.get_value("args") {
+            if let Some(cmd_flags) = flags.get_option("args") {
                 command_args.extend(cmd_flags.split_ascii_whitespace().map(String::from));
             }
 

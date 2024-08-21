@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use std::rc::Rc;
 
@@ -16,7 +16,7 @@ impl Date {
         flags.add_flag('u', "utc", "Display time in UTC instead of local time");
         flags.add_flag('r', "rfc2822", "Display date and time in RFC 2822 format");
         flags.add_flag('I', "iso8601", "Display date in ISO 8601 format");
-        flags.add_value_flag(
+        flags.add_option(
             'z',
             "timezone",
             "Specify the zone (e.g., America/New_York) to display local time",
@@ -24,7 +24,7 @@ impl Date {
         Self { flags }
     }
 
-    fn get_time_in_timezone(&self, zone: &String) -> Result<DateTime<Tz>, String> {
+    fn get_time_in_timezone(&self, zone: &str) -> Result<DateTime<Tz>, String> {
         let tz: Tz = zone
             .parse()
             .map_err(|_| format!("Invalid timezone specified: {}", zone))?;
@@ -49,7 +49,7 @@ impl Exec for Date {
 
     fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(args)?;
+        let _args = flags.parse(args)?;
 
         if flags.is_present("help") {
             println!("Usage: date [OPTIONS]");
@@ -61,9 +61,9 @@ impl Exec for Date {
 
         let use_utc = flags.is_present("utc");
         let timezone = if use_utc {
-            "UTC".to_string()
+            "UTC"
         } else {
-            flags.get_value("timezone").unwrap_or("UTC".to_string())
+            flags.get_option("timezone").unwrap_or("UTC")
         };
 
         let current_time = self.get_time_in_timezone(&timezone)?;

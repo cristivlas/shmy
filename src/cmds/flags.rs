@@ -47,7 +47,7 @@ impl CommandFlags {
     }
 
     /// Add flag that takes a value
-    pub fn add_value_flag(&mut self, short: char, long: &str, help: &str) {
+    pub fn add_option(&mut self, short: char, long: &str, help: &str) {
         self.add(Some(short), long, true, help);
     }
 
@@ -158,8 +158,8 @@ impl CommandFlags {
         self.values.contains_key(name)
     }
 
-    pub fn get_value(&self, name: &str) -> Option<String> {
-        self.values.get(name).cloned()
+    pub fn get_option(&self, name: &str) -> Option<&str> {
+        self.values.get(name).map(|s| s.as_str())
     }
 
     pub fn help(&self) -> String {
