@@ -272,8 +272,8 @@ impl<'a> FileCopier<'a> {
     /// Copy the individual entry: create a dir, symlink or copy regular file.
     /// Update progress indicator in verbose mode.
     fn copy_entry(&mut self, one_of_many: bool, src: &Path, dest: &PathBuf) -> io::Result<bool> {
-        if src.canonicalize()? == dest.canonicalize()? {
-            return Err(self.wrap_error(dest, "Cannot copy onto itself"));
+        if dest.exists() && src.canonicalize()? == dest.canonicalize()? {
+            return Err(self.wrap_error(dest, "Source and destination are the same"));
         }
 
         // Ask for confirmation if needed
