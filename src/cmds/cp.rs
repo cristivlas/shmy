@@ -174,7 +174,7 @@ impl<'a> FileCopier<'a> {
         }
 
         if let Some(pb) = self.progress.as_mut() {
-            pb.finish_with_message("Done");
+            pb.finish_with_message("Collected source file(s)");
         }
         Ok(true)
     }
@@ -199,6 +199,7 @@ impl<'a> FileCopier<'a> {
         let dest_is_dir = self.dest.is_dir();
         // Some sanity checks first...
         if !dest_is_dir {
+            // TODO: if !self.dest.exists() should the user be asked if they want to create it?
             if self.srcs.len() > 1 {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
@@ -265,7 +266,8 @@ impl<'a> FileCopier<'a> {
             }
         }
         if let Some(pb) = self.progress.as_mut() {
-            pb.finish_with_message("Done");
+            pb.finish_with_message("Ok");
+            println!();
         }
         Ok(())
     }
@@ -294,7 +296,7 @@ impl<'a> FileCopier<'a> {
         }
 
         if let Some(pb) = self.progress.as_mut() {
-            pb.set_message(Self::truncate_path(dest));
+            pb.set_message(Self::truncate_path(src));
         }
 
         if src.is_dir() {
