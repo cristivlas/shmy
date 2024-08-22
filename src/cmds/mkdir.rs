@@ -19,10 +19,6 @@ impl Mkdir {
 }
 
 impl Exec for Mkdir {
-    fn is_external(&self) -> bool {
-        false
-    }
-
     fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;

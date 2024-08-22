@@ -27,7 +27,7 @@ impl Sudo {
             "Specify the user to run as (default: Administrator)",
         );
         flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
-        Sudo { flags }
+        Self { flags }
     }
 }
 
@@ -38,7 +38,9 @@ impl Exec for Sudo {
 
         if flags.is_present("help") {
             println!("Usage: sudo [OPTIONS] COMMAND [ARGS]...");
-            println!("Execute a command as another user (without passing environmental variables).");
+            println!(
+                "Execute a command as another user (without passing environmental variables)."
+            );
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
@@ -48,9 +50,7 @@ impl Exec for Sudo {
             return Err("No command specified".to_string());
         }
 
-        let user = flags
-            .get_option("user")
-            .unwrap_or("Administrator");
+        let user = flags.get_option("user").unwrap_or("Administrator");
         let cmd_name = &command_args[0].to_string();
 
         if let Some(additional_args) = flags.get_option("args") {
@@ -117,10 +117,6 @@ impl Exec for Sudo {
         } else {
             Err(format!("Command not found: {}", cmd_name))
         }
-    }
-
-    fn is_external(&self) -> bool {
-        false
     }
 }
 

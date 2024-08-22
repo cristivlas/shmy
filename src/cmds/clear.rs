@@ -34,10 +34,6 @@ impl Exec for Clear {
             Err(e) => Err(format!("Could not clear screen: {}", e)),
         }
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[ctor::ctor]

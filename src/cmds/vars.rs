@@ -67,10 +67,6 @@ impl Exec for Vars {
 
         Ok(Value::success())
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[ctor::ctor]

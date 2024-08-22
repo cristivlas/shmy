@@ -17,10 +17,6 @@ impl Exec for Exit {
 
         process::exit(exit_code);
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[ctor::ctor]

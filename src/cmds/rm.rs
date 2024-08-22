@@ -37,11 +37,11 @@ impl Context {
     }
 }
 
-struct Rm {
+struct Remove {
     flags: CommandFlags,
 }
 
-impl Rm {
+impl Remove {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
@@ -52,7 +52,7 @@ impl Rm {
             "recursive",
             "Remove directories and their contents recursively",
         );
-        Rm { flags }
+        Self { flags }
     }
 
     fn remove_file(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
@@ -108,11 +108,7 @@ impl Rm {
     }
 }
 
-impl Exec for Rm {
-    fn is_external(&self) -> bool {
-        false
-    }
-
+impl Exec for Remove {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;
@@ -157,6 +153,6 @@ impl Exec for Rm {
 fn register() {
     register_command(ShellCommand {
         name: "rm".to_string(),
-        inner: Rc::new(Rm::new()),
+        inner: Rc::new(Remove::new()),
     });
 }

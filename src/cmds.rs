@@ -50,7 +50,9 @@ mod wc;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
-    fn is_external(&self) -> bool;
+    fn is_external(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -221,10 +223,6 @@ impl Exec for External {
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
     }
-
-    fn is_external(&self) -> bool {
-        true
-    }
 }
 
 struct Which {
@@ -269,10 +267,6 @@ impl Exec for Which {
         }
 
         Ok(Value::success())
-    }
-
-    fn is_external(&self) -> bool {
-        false
     }
 }
 

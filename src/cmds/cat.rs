@@ -69,10 +69,6 @@ impl Exec for CatHeadTail {
         }
         Ok(Value::success())
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 fn process_input<R: BufRead>(

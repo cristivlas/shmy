@@ -9,10 +9,6 @@ impl Exec for Echo {
         my_println!("{}", args.join(" "))?;
         Ok(Value::success())
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[ctor::ctor]

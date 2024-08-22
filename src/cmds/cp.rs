@@ -433,10 +433,6 @@ impl Cp {
 }
 
 impl Exec for Cp {
-    fn is_external(&self) -> bool {
-        false
-    }
-
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(args)?;

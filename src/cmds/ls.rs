@@ -147,10 +147,6 @@ impl Exec for Dir {
 
         list_entries(scope, &cmd_args)
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[cfg(windows)]

@@ -4,7 +4,6 @@ use crate::eval::{Scope, Value};
 use colored::*;
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::IsTerminal;
 use std::io::{self, BufRead};
 use std::rc::Rc;
 
@@ -45,19 +44,12 @@ impl Exec for Diff {
         let mut grid = Grid::new();
         diff(&file1, &file2, &mut grid);
 
-        // Print it
-        let color = flags.is_present("color")
-            && scope.lookup("NO_COLOR").is_none()
-            && std::io::stdout().is_terminal();
+        let color = flags.is_present("color") && scope.use_colors(&std::io::stdout());
 
         // UnifiedView only, no context lines.
         print(&grid, &file1, &file2, &filenames[0], &filenames[1], color)?;
 
         Ok(Value::success())
-    }
-
-    fn is_external(&self) -> bool {
-        false
     }
 }
 

@@ -13,7 +13,7 @@ impl Run {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
-        Run { flags }
+        Self { flags }
     }
 }
 
@@ -53,10 +53,6 @@ impl Exec for Run {
         }
 
         Err(format!("Command not found: {}", cmd_name))
-    }
-
-    fn is_external(&self) -> bool {
-        false
     }
 }
 

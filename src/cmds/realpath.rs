@@ -43,11 +43,6 @@ impl Exec for Realpath {
         }
 
         Ok(Value::success())
-
-    }
-
-    fn is_external(&self) -> bool {
-        false
     }
 }
 

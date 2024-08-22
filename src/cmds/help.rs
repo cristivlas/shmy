@@ -201,10 +201,6 @@ impl Exec for Help {
 
         Ok(Value::success())
     }
-
-    fn is_external(&self) -> bool {
-        false
-    }
 }
 
 #[ctor::ctor]

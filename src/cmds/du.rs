@@ -12,10 +12,6 @@ struct DiskUtilization {
 }
 
 impl Exec for DiskUtilization {
-    fn is_external(&self) -> bool {
-        false
-    }
-
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut paths: Vec<String> = flags.parse(args)?;
