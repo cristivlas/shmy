@@ -194,13 +194,9 @@ impl<'a> FileCopier<'a> {
         }
     }
 
-    /// Collect all source files, their total size, re-create all dirs in the
-    /// source(s) and copy the files; symlinks require Admin privilege on Windows.
-    fn copy(&mut self) -> io::Result<()> {
-        assert!(!self.srcs.is_empty());
-
+    fn check_dest_dir(&self) -> io::Result<bool> {
         let dest_is_dir = self.dest.is_dir();
-        // Some sanity checks first...
+
         if !dest_is_dir {
             // TODO: if !self.dest.exists() should the user be asked if they want to create it?
             if self.srcs.len() > 1 {
@@ -217,29 +213,43 @@ impl<'a> FileCopier<'a> {
             }
         }
 
-        // Collect sources and their total size
-        let mut info = (Vec::new(), 0u64);
-        if !self.collect_src_info(&mut info)? {
-            return Ok(());
-        }
+        Ok(dest_is_dir)
+    }
 
+    fn reset_progress_indicator(&mut self, size: u64) {
         if self.progress.is_some() {
-            // Reset the progress indicator.
             let template = if self.scope.use_colors(&std::io::stdout()) {
                 "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} [{bar:45.cyan/blue}] {bytes}/{total_bytes} ({eta})"
             } else {
                 "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
             };
 
-            let pb = ProgressBar::with_draw_target(Some(info.1), ProgressDrawTarget::stdout());
+            let pb = ProgressBar::with_draw_target(Some(size), ProgressDrawTarget::stdout());
             pb.set_style(
                 ProgressStyle::default_bar()
                     .template(&template)
                     .unwrap()
                     .progress_chars("=>-"),
             );
+
             self.progress = Some(pb);
         }
+    }
+
+    /// Collect all source files, their total size, re-create all dirs in the
+    /// source(s) and copy the files; symlinks require Admin privilege on Windows.
+    fn copy(&mut self) -> io::Result<()> {
+        assert!(!self.srcs.is_empty());
+
+        let dest_is_dir = self.check_dest_dir()?;
+
+        // Collect sources and their total size
+        let mut info = (Vec::new(), 0u64);
+        if !self.collect_src_info(&mut info)? {
+            return Ok(());
+        }
+
+        self.reset_progress_indicator(info.1);
 
         let many = info.0.len() > 1;
 
