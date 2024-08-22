@@ -110,9 +110,3 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
         OpenOptions::new().write(true).open("CON")
     }
 }
-
-/// Used by sudo implementation on Windows
-#[cfg(windows)]
-pub fn read_password(prompt: &str) -> io::Result<String> {
-    rpassword::prompt_password(prompt)
-}
