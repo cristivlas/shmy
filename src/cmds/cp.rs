@@ -76,8 +76,11 @@ impl<'a> FileCopier<'a> {
             no_hidden: flags.is_present("no-hidden"),
             preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
-                let template =
-                    "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} {total_bytes}";
+                let template = if scope.use_colors(&std::io::stdout()) {
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} {total_bytes}"
+                } else {
+                    "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
+                };
                 let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
                 pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
                 pb.enable_steady_tick(Duration::from_millis(100));
@@ -222,8 +225,11 @@ impl<'a> FileCopier<'a> {
 
         if self.progress.is_some() {
             // Reset the progress indicator.
-            let template =
-                "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} [{bar:45.cyan/blue}] {bytes}/{total_bytes} ({eta})";
+            let template = if self.scope.use_colors(&std::io::stdout()) {
+                "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} [{bar:45.cyan/blue}] {bytes}/{total_bytes} ({eta})"
+            } else {
+                "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
+            };
 
             let pb = ProgressBar::with_draw_target(Some(info.1), ProgressDrawTarget::stdout());
             pb.set_style(
