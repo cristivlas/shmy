@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -138,23 +139,28 @@ fn locate_executable(name: &str) -> Option<String> {
     }
 }
 
-fn is_executable(path: &std::path::Path) -> bool {
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
     // Check the file's executable permission
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(perms) = fs::metadata(path).map(|m| m.permissions()) {
-            return perms.mode() & 0o111 != 0; // Check if any execute bit is set
-        }
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(perms) = fs::metadata(path).map(|m| m.permissions()) {
+        perms.mode() & 0o111 != 0 // Check if any execute bit is set
+    } else {
         false
     }
+}
 
-    #[cfg(windows)]
-    {
-        // On Windows, we can't check permissions in the same way,
-        // so we consider files with .exe, .bat, .cmd, etc., as executables
-        let extension = path.extension().and_then(std::ffi::OsStr::to_str);
-        return matches!(extension, Some("exe") | Some("bat") | Some("cmd"));
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    // On Windows, check if the file extension is in PATHEXT
+    if let Some(ext) = path.extension().and_then(std::ffi::OsStr::to_str) {
+        let pathext = std::env::var("PATHEXT").unwrap_or_default();
+        let ext_lower = format!(".{}", ext).to_lowercase();
+        let mut extensions = pathext.split(';');
+
+        extensions.any(|e| e.eq_ignore_ascii_case(&ext_lower))
+    } else {
+        false
     }
 }
 
@@ -163,12 +169,41 @@ struct External {
     path: String,
 }
 
+#[cfg(unix)]
+impl External {
+    fn prepare_command(&self, args: &Vec<String>) -> Command {
+        let mut command = Command::new(&self.path);
+        command.args(args);
+        command
+    }
+}
+
+#[cfg(windows)]
+impl External {
+    fn prepare_command(&self, args: &Vec<String>) -> Command {
+        if self.is_script() {
+            let mut command = Command::new("cmd");
+            command.arg("/C").arg(&self.path).args(args);
+            command
+        } else {
+            let mut command = Command::new(&self.path);
+            command.args(args);
+            command
+        }
+    }
+
+    fn is_script(&self) -> bool {
+        let ext = Path::new(&self.path)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        ext.to_lowercase() != "exe"
+    }
+}
+
 impl Exec for External {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
-        let mut command = Command::new(&self.path);
-
-        command.args(args);
-
+        let mut command = self.prepare_command(args);
         copy_vars_to_command_env(&mut command, &scope);
 
         match command.spawn() {
