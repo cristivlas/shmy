@@ -29,25 +29,38 @@ fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
         //
         // ...fails with reparse errors, use Windows APIs instead (Admin required)
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{
             CreateSymbolicLinkW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
             SYMBOLIC_LINK_FLAG_DIRECTORY,
         };
 
         let target = src;
 
-        let dst_wstr: Vec<u16> = dst.as_os_str().encode_wide().chain(Some(0)).collect();
-        let target_wstr: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        let dst_wstr = PCWSTR(
+            dst.as_os_str()
+                .encode_wide()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+                .as_ptr(),
+        );
+        let target_wstr = PCWSTR(
+            target
+                .as_os_str()
+                .encode_wide()
+                .chain(Some(0))
+                .collect::<Vec<u16>>()
+                .as_ptr(),
+        );
 
         let flags = if src.is_dir() {
-            SYMBOLIC_LINK_FLAG_DIRECTORY
+            SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
         } else {
-            0
-        } | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+            SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
+        };
 
-        let result = unsafe { CreateSymbolicLinkW(dst_wstr.as_ptr(), target_wstr.as_ptr(), flags) };
-
-        if result == 0 {
+        let result = unsafe { CreateSymbolicLinkW(dst_wstr, target_wstr, flags) };
+        if result.0 != 0 {
             Err(io::Error::last_os_error())
         } else {
             Ok(())

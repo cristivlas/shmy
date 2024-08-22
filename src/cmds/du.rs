@@ -182,20 +182,23 @@ fn unix_disk_size(
 mod win {
     use super::Options;
     use crate::eval::{Scope, Value};
-    use crate::utils::{root_path, win_get_last_err_msg};
+    use crate::utils::root_path;
     use std::collections::HashSet;
     use std::ffi::OsStr;
     use std::fs;
     use std::fs::OpenOptions;
+    use std::io::Error;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use std::path::Path;
     use std::rc::Rc;
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceW;
-    use windows_sys::Win32::Storage::FileSystem::{
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceW;
+    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    use windows::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
     };
 
@@ -242,16 +245,18 @@ mod win {
 
         unsafe {
             if GetDiskFreeSpaceW(
-                path_wide.as_ptr(),
-                &mut sectors_per_cluster,
-                &mut bytes_per_sector,
-                &mut _free_clusters,
-                &mut _total_clusters,
-            ) == 0
+                PCWSTR(path_wide.as_ptr()),
+                Some(&mut sectors_per_cluster),
+                Some(&mut bytes_per_sector),
+                Some(&mut _free_clusters),
+                Some(&mut _total_clusters),
+            )
+            .is_err()
             {
                 return Err(format!(
-                    "Failed to get disk space info for: {}",
-                    scope.err_path(root_path)
+                    "Failed to get disk space info for {}: {}",
+                    scope.err_path(root_path),
+                    Error::last_os_error()
                 ));
             }
         }
@@ -270,20 +275,20 @@ mod win {
     fn unique_file_id(scope: &Rc<Scope>, path: &Path) -> Result<(u64, u64), String> {
         let file = OpenOptions::new()
             .read(true)
-            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
             .open(path)
             .map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
 
-        let handle = file.as_raw_handle() as HANDLE;
+        let handle = HANDLE(file.as_raw_handle());
         let mut file_info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
 
         let result = unsafe { GetFileInformationByHandle(handle, &mut file_info) };
 
-        if result == 0 {
+        if result.is_err() {
             return Err(format!(
                 "Failed to get file information: {} {}",
                 scope.err_path(path),
-                win_get_last_err_msg()
+                Error::last_os_error()
             ));
         }
 

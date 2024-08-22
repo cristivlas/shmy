@@ -1,12 +1,14 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::utils::{format_size, root_path, win_get_last_err_msg};
+use crate::utils::{format_size, root_path};
 use std::ffi::OsStr;
+use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetLogicalDrives};
+use windows::core::PCWSTR;
+use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetLogicalDrives};
 
 struct DiskFree {
     flags: CommandFlags,
@@ -51,16 +53,17 @@ impl DiskFree {
 
         unsafe {
             if GetDiskFreeSpaceExW(
-                dirname.as_ptr(),
-                free_bytes_available_ptr,
-                total_bytes_ptr,
-                total_free_bytes_ptr,
-            ) == 0
+                PCWSTR(dirname.as_ptr()),
+                Some(free_bytes_available_ptr),
+                Some(total_bytes_ptr),
+                Some(total_free_bytes_ptr),
+            )
+            .is_err()
             {
                 Err(format!(
                     "{}: {}",
                     scope.err_path(path),
-                    win_get_last_err_msg()
+                    Error::last_os_error()
                 ))
             } else {
                 Ok(info)

@@ -2,8 +2,9 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::cmds::get_command;
 use crate::eval::{Scope, Value};
-use crate::utils::{executable, win_get_last_err_msg};
+use crate::utils::executable;
 use std::ffi::OsStr;
+use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
 use std::rc::Rc;
 use windows::core::PCWSTR;
@@ -122,7 +123,12 @@ impl Exec for Sudo {
                         return Err(format!("exit code: {:X}", exit_code));
                     }
                 } else {
-                    return Err(win_get_last_err_msg());
+                    return Err(format!(
+                        "{} {}: {}",
+                        executable,
+                        parameters,
+                        Error::last_os_error()
+                    ));
                 }
             }
 

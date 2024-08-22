@@ -76,7 +76,8 @@ pub(crate) fn format_size(size: u64, block_size: u64, human_readable: bool) -> S
 }
 
 #[cfg(windows)]
-pub(crate) fn win_get_last_err_msg() -> String {
+#[cfg(feature = "deprecated")]
+pub(crate) fn win_last_err() -> String {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use windows::core::PWSTR;
