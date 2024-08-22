@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetLogicalDrives};
 
 struct DiskFree {
     flags: CommandFlags,
@@ -41,11 +41,7 @@ impl DiskFree {
         Self { flags }
     }
 
-    fn get_disk_free_info(
-        &self,
-        scope: &Rc<Scope>,
-        path: &PathBuf,
-    ) -> Result<DiskFreeInfo, String> {
+    fn get_disk_free_info(scope: &Rc<Scope>, path: &Path) -> Result<DiskFreeInfo, String> {
         let dirname: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
         let mut info: DiskFreeInfo = DiskFreeInfo::new();
 
@@ -61,30 +57,67 @@ impl DiskFree {
                 total_free_bytes_ptr,
             ) == 0
             {
-                return Err(format!(
+                Err(format!(
                     "{}: {}",
                     scope.err_path(path),
                     win_get_last_err_msg()
-                ));
+                ))
+            } else {
+                Ok(info)
             }
         }
-        Ok(info)
+    }
+
+    fn print_disk_free(
+        scope: &Rc<Scope>,
+        flags: &CommandFlags,
+        path: &Path,
+        max_len: usize,
+    ) -> Result<(), String> {
+        let info = Self::get_disk_free_info(scope, &path)?;
+
+        let h = flags.is_present("human-readable");
+
+        println!(
+            "{:<max_len$} {:>16} {:>16} {:>16}",
+            path.display(),
+            format_size(info.free_bytes_available, 1, h),
+            format_size(info.total_bytes, 1, h),
+            format_size(info.total_free_bytes, 1, h)
+        );
+        Ok(())
+    }
+    fn print_disk_free_header(len: usize) {
+        println!(
+            "{:<len$} {:>16} {:>16} {:>16}",
+            "Path", "Free", "Total", "Total Free"
+        );
     }
 }
 
-fn get_path_from_arg(scope: &Rc<Scope>, args: &Vec<String>) -> Result<PathBuf, String> {
-    let path = if args.is_empty() {
-        let root = PathBuf::from("/");
-        root.canonicalize().unwrap_or(root)
-    } else {
-        let canonical_path = Path::new(&args[0])
-            .canonicalize()
-            .map_err(|e| format!("{}: {}", scope.err_path_str(&args[0]), e))?;
+fn path_from_str(scope: &Rc<Scope>, path: &str) -> Result<PathBuf, String> {
+    let canonical_path = Path::new(path)
+        .canonicalize()
+        .map_err(|e| format!("{}: {}", scope.err_path_str(&path), e))?;
 
-        root_path(&canonical_path)
-    };
+    Ok(root_path(&canonical_path))
+}
 
-    Ok(path)
+fn enumerate_drives() -> Vec<String> {
+    let mut roots = Vec::new();
+
+    unsafe {
+        let drives = GetLogicalDrives();
+
+        for i in 0..26 {
+            if (drives & (1 << i)) != 0 {
+                let drive_letter = (b'A' + i as u8) as char;
+                roots.push(format!("{}:\\", drive_letter));
+            }
+        }
+    }
+
+    roots
 }
 
 impl Exec for DiskFree {
@@ -94,7 +127,7 @@ impl Exec for DiskFree {
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(args)?;
+        let mut args = flags.parse(args)?;
 
         if flags.is_present("help") {
             println!("Usage: df [OPTIONS] [PATH]");
@@ -104,27 +137,27 @@ impl Exec for DiskFree {
             return Ok(Value::success());
         }
 
-        let path = get_path_from_arg(scope, &args)?;
-        let info = self.get_disk_free_info(scope, &path)?;
+        if args.is_empty() {
+            args = enumerate_drives();
+        }
 
-        let h = flags.is_present("human-readable");
-        let len = path.display().to_string().len();
+        let paths: Vec<PathBuf> = args
+            .iter()
+            .map(|path| path_from_str(scope, path))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        println!(
-            "{:>len$} {:>16} {:>16} {:>16}",
-            path.display(),
-            "Free",
-            "Total",
-            "Total Free"
-        );
-        println!(
-            "{:>len$} {:>16} {:>16} {:>16}",
-            "",
-            format_size(info.free_bytes_available, 1, h),
-            format_size(info.total_bytes, 1, h),
-            format_size(info.total_free_bytes, 1, h)
-        );
+        // Compute the maximum path length across all processed paths
+        let max_len = paths
+            .iter()
+            .map(|p| p.display().to_string().len())
+            .max()
+            .unwrap_or(40);
 
+        Self::print_disk_free_header(max_len);
+
+        for path in &paths {
+            Self::print_disk_free(scope, &flags, &path, max_len)?;
+        }
         Ok(Value::success())
     }
 }
