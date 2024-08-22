@@ -98,6 +98,9 @@ __stdout=some/path/file.txt ls -al;
 - **Variable Expansion in Arithmetic:**
   - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time. When using spaces like this: ```$x * $y``` the evaluation works as expected.
 
+- **Operation Precedence:**
+  - ```echo 2 + 2``` is evaluated as ```(echo 2) + 2```, because the low priority of the addition operator. It is recommended to always use parentheses as in ```echo (2 + 2)```. 
+
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
 
