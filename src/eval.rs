@@ -1,6 +1,6 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::utils::{copy_vars_to_command_env, interpreter_path};
+use crate::utils::{copy_vars_to_command_env, executable};
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -1796,7 +1796,7 @@ impl BinExpr {
         if let Expression::Leaf(lit) = &**rhs {
             // Special case: is the left hand-side expression a pipeline?
             let output = if lhs.is_pipe() {
-                let program = interpreter_path().map_err(|e| EvalError::new(self.loc(), e))?;
+                let program = executable().map_err(|e| EvalError::new(self.loc(), e))?;
 
                 // Get the left hand-side expression as a string
                 let lhs_str = lhs.to_string();
@@ -1873,7 +1873,7 @@ impl BinExpr {
         };
 
         // Get our own program name
-        let program = interpreter_path().map_err(|e| EvalError::new(self.loc(), e))?;
+        let program = executable().map_err(|e| EvalError::new(self.loc(), e))?;
 
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();

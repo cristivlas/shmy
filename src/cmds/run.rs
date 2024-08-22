@@ -46,6 +46,7 @@ impl Exec for Run {
             command_args.remove(0);
 
             if let Some(cmd_flags) = flags.get_option("args") {
+                // Pass all args following -- (or --args) to the command.
                 command_args.extend(cmd_flags.split_ascii_whitespace().map(String::from));
             }
 

@@ -53,6 +53,10 @@ pub trait Exec {
     fn is_external(&self) -> bool {
         false
     }
+    #[allow(dead_code)]
+    fn is_script(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]
@@ -77,8 +81,13 @@ impl Exec for ShellCommand {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
     }
+
     fn is_external(&self) -> bool {
         self.inner.is_external()
+    }
+
+    fn is_script(&self) -> bool {
+        self.inner.is_script()
     }
 }
 
@@ -193,14 +202,6 @@ impl External {
             command
         }
     }
-
-    fn is_script(&self) -> bool {
-        let ext = Path::new(&self.path)
-            .extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .unwrap_or_default();
-        ext.to_lowercase() != "exe"
-    }
 }
 
 impl Exec for External {
@@ -222,6 +223,29 @@ impl Exec for External {
             },
             Err(e) => Err(format!("Failed to execute command: {}", e)),
         }
+    }
+
+    /// External commands that are not EXEs are launched via CMD.EXE
+    /// This is a simpler approach than looking up file associations
+    /// in the registry.
+    #[cfg(windows)]
+    fn is_script(&self) -> bool {
+        let ext = Path::new(&self.path)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        ext.to_lowercase() != "exe"
+    }
+
+    /// Looks like (at least on Linux) the shebang just works
+    /// and there is no need for special handling of scripts.
+    #[cfg(unix)]
+    fn is_script(&self) -> bool {
+        false
+    }
+
+    fn is_external(&self) -> bool {
+        true
     }
 }
 

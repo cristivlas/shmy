@@ -30,7 +30,7 @@ pub(crate) fn copy_vars_to_command_env(command: &mut std::process::Command, scop
 }
 
 /// Get our own path
-pub(crate) fn interpreter_path() -> Result<String, String> {
+pub(crate) fn executable() -> Result<String, String> {
     match env::current_exe() {
         Ok(p) => {
             #[cfg(test)]
