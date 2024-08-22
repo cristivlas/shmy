@@ -28,6 +28,12 @@ impl Find {
         if scope.is_interrupted() {
             return Ok(());
         }
+
+        // Check if the current directory or file matches the pattern
+        if regex.is_match(&file_name.to_string_lossy()) {
+            println!("{}", path.display());
+        }
+
         if path.is_dir() {
             match fs::read_dir(path) {
                 Ok(entries) => {
@@ -46,17 +52,8 @@ impl Find {
                     my_warning!(scope, "{}: {}", scope.err_path(path), e);
                 }
             }
-        } else {
-            let file_name_str = file_name.to_string_lossy().to_string();
-            match regex.find(&file_name_str.as_str()) {
-                Some(m) => {
-                    if m.as_str() == file_name_str {
-                        my_println!("{}", path.display())?;
-                    }
-                }
-                _ => {}
-            }
         }
+
         Ok(())
     }
 }

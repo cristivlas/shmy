@@ -45,7 +45,7 @@ impl ChangeDir {
                     println!("Change the current directory to DIR.");
                 }
                 "pushd" => {
-                    println!("Usage: pushd [DIR]");
+                    println!("Usage: pushd <DIR>");
                     println!("Push the current directory onto the stack and change to DIR.");
                 }
                 "popd" => {
