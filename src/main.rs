@@ -301,7 +301,7 @@ impl Shell {
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         let mut quit = false;
         if self.interactive {
-            println!("Welcome to mysh. (c) 2024 Cristian Vlasceanu.");
+            println!("Welcome to mysh.");
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
