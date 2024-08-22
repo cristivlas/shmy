@@ -79,24 +79,26 @@ pub(crate) fn format_size(size: u64, block_size: u64, human_readable: bool) -> S
 pub(crate) fn win_get_last_err_msg() -> String {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::Foundation::GetLastError;
-    use windows_sys::Win32::System::Diagnostics::Debug::*;
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::GetLastError;
+    use windows::Win32::System::Diagnostics::Debug::*;
+
     unsafe {
         let error_code = GetLastError();
         let mut buffer: Vec<u16> = Vec::with_capacity(512);
 
         let length = FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            std::ptr::null(),
-            error_code,
+            None,
+            error_code.0,
             0,
-            buffer.as_mut_ptr(),
+            PWSTR::null(),
             buffer.capacity() as u32,
-            std::ptr::null_mut(),
+            None,
         );
 
         if length == 0 {
-            return format!("Unknown error: {}", error_code);
+            return format!("Unknown error: {}", error_code.0);
         }
 
         // Resize the buffer to the correct length

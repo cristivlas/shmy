@@ -12,7 +12,7 @@ use windows::Win32::System::Registry::HKEY;
 use windows::Win32::UI::Shell::{
     ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, SHELLEXECUTEINFOW_0,
 };
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
 
 struct Sudo {
     flags: CommandFlags,
@@ -50,9 +50,12 @@ impl Exec for Sudo {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 
+        let mut n_show = SW_SHOWNORMAL.0;
+
         let (executable, parameters) = if let Some(cmd) = get_command(&cmd_name) {
             if cmd.is_external() {
                 if cmd.is_script() {
+                    n_show = SW_HIDE.0;
                     (
                         "cmd.exe".to_string(),
                         format!("/C {} {}", cmd_name, command_args.join(" ")),
@@ -89,7 +92,7 @@ impl Exec for Sudo {
             lpFile: PCWSTR(file.as_ptr()),
             lpParameters: PCWSTR(params.as_ptr()),
             lpDirectory: PCWSTR::null(),
-            nShow: SW_SHOWNORMAL.0 as i32,
+            nShow: n_show,
             hInstApp: HINSTANCE::default(),
             lpIDList: std::ptr::null_mut(),
             lpClass: PCWSTR::null(),
@@ -116,7 +119,7 @@ impl Exec for Sudo {
 
                     result.map_err(|e| e.to_string())?;
                     if exit_code != 0 {
-                        return Err(format!("exit code: {}", exit_code));
+                        return Err(format!("exit code: {:X}", exit_code));
                     }
                 } else {
                     return Err(win_get_last_err_msg());
