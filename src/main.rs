@@ -290,7 +290,7 @@ impl Shell {
             .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
     }
 
-    fn read_input(&mut self) -> Result<(), String> {
+    fn eval_input(&mut self) -> Result<(), String> {
         if let Some(reader) = self.source.take() {
             self.read_lines(reader)
         } else {
@@ -301,6 +301,7 @@ impl Shell {
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         let mut quit = false;
         if self.interactive {
+            println!("Welcome to mysh. (c) 2024 Cristian Vlasceanu.");
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
@@ -420,7 +421,7 @@ fn main() -> Result<(), ()> {
         Err(e) => {
             eprint!("Command line error: {}.", e);
         }
-        Ok(shell) => match shell.read_input() {
+        Ok(shell) => match shell.eval_input() {
             Err(e) => {
                 eprintln!("{}", e);
             }
