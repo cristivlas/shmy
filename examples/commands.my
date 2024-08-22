@@ -38,5 +38,5 @@ echo Errors: $__errors;
 LS="ls"; $LS;
 
 # Workaround: use the 'run' command.
-LS="ls -al"; run $LS -- -h .;
+LS="ls -- -al"; run $LS -h .;
 
