@@ -118,38 +118,43 @@ impl CommandFlags {
         arg: &str,
         args_iter: &mut std::iter::Peekable<std::slice::Iter<String>>,
     ) -> Result<(), String> {
-        for (pos, c) in arg[1..].chars().enumerate() {
+        let chars: Vec<char> = arg[1..].chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
             if let Some(flag) = self.flags.values().find(|f| f.short == Some(c)) {
                 if flag.takes_value {
-                    if pos + 2 < arg.len() {
-                        return Err(format!(
-                            "Short flag -{} that requires a value should be last in group",
-                            c
-                        ));
-                    } else if let Some(value) = args_iter.next() {
-                        // Special case -- consumes all flags
-                        let next = if c == '-' {
-                            std::iter::once(value.clone())
-                                .chain(args_iter.cloned())
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        } else {
-                            value.clone()
-                        };
-                        self.values.insert(flag.long.clone(), next);
+                    let value = if i + 1 < chars.len() {
+                        // Case: -d2
+                        chars[i + 1..].iter().collect::<String>()
+                    } else if let Some(next_arg) = args_iter.next() {
+                        // Case: -d 2
+                        next_arg.clone()
                     } else {
                         return Err(format!("Flag -{} requires a value", c));
-                    }
+                    };
+                    // Special case -- consumes all flags
+                    let final_value = if c == '-' {
+                        std::iter::once(value)
+                            .chain(args_iter.cloned())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    } else {
+                        value
+                    };
+
+                    self.values.insert(flag.long.clone(), final_value);
+                    break; // Exit the loop as we've consumed the rest of the argument
                 } else {
                     self.values.insert(flag.long.clone(), "true".to_string());
                 }
             } else {
                 return Err(format!("Unknown flag: -{}", c));
             }
+            i += 1;
         }
         Ok(())
     }
-
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }

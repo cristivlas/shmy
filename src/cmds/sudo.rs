@@ -3,7 +3,7 @@ use crate::cmds::flags::CommandFlags;
 use crate::cmds::get_command;
 use crate::eval::{Scope, Value};
 use crate::prompt::read_password;
-use crate::utils::get_own_path;
+use crate::utils::interpreter_path;
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::rc::Rc;
@@ -65,7 +65,7 @@ impl Exec for Sudo {
                 command_args.join(" ")
             } else {
                 let own_path =
-                    get_own_path().map_err(|e| format!("Failed to get own path: {}", e))?;
+                    interpreter_path().map_err(|e| format!("Failed to get own path: {}", e))?;
                 format!("{} -c {}", own_path, command_args.join(" "))
             };
 

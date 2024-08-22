@@ -1,6 +1,6 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::utils::{copy_vars_to_command_env, get_own_path};
+use crate::utils::{copy_vars_to_command_env, interpreter_path};
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -283,6 +283,18 @@ impl FromStr for Value {
         }
     }
 }
+
+impl TryFrom<Value> for u64 {
+    type Error = String;
+
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        match v {
+            Value::Int(i) => Ok(i as _),
+            _ => Err(format!("{} is not integer", v)),
+        }
+    }
+}
+// TODO: add other similar traits as needed
 
 impl Value {
     pub fn success() -> Self {
@@ -1784,7 +1796,7 @@ impl BinExpr {
         if let Expression::Leaf(lit) = &**rhs {
             // Special case: is the left hand-side expression a pipeline?
             let output = if lhs.is_pipe() {
-                let program = get_own_path().map_err(|e| EvalError::new(self.loc(), e))?;
+                let program = interpreter_path().map_err(|e| EvalError::new(self.loc(), e))?;
 
                 // Get the left hand-side expression as a string
                 let lhs_str = lhs.to_string();
@@ -1861,7 +1873,7 @@ impl BinExpr {
         };
 
         // Get our own program name
-        let program = get_own_path().map_err(|e| EvalError::new(self.loc(), e))?;
+        let program = interpreter_path().map_err(|e| EvalError::new(self.loc(), e))?;
 
         // Get the right-hand side expression as a string
         let rhs_str = rhs.to_string();

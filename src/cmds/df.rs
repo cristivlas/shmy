@@ -1,14 +1,12 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use crate::utils::format_size;
-use std::ffi::{OsStr, OsString};
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use crate::utils::{format_size, root_path, win_get_last_err_msg};
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-use windows_sys::Win32::System::Diagnostics::Debug::*;
 
 struct DiskFree {
     flags: CommandFlags,
@@ -28,36 +26,6 @@ impl DiskFreeInfo {
             total_bytes: 0,
             total_free_bytes: 0,
         }
-    }
-}
-
-fn get_last_err_str() -> String {
-    unsafe {
-        let error_code = GetLastError();
-        let mut buffer: Vec<u16> = Vec::with_capacity(512);
-
-        let length = FormatMessageW(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            std::ptr::null(),
-            error_code,
-            0,
-            buffer.as_mut_ptr(),
-            buffer.capacity() as u32,
-            std::ptr::null_mut(),
-        );
-
-        if length == 0 {
-            return format!("Unknown error: {}", error_code);
-        }
-
-        // Resize the buffer to the correct length
-        buffer.set_len(length as usize);
-
-        // Convert the UTF-16 buffer to an OsString
-        let message = OsString::from_wide(&buffer);
-
-        // Convert OsString to String, falling back to a lossy conversion if needed
-        message.to_string_lossy().into_owned()
     }
 }
 
@@ -86,15 +54,19 @@ impl DiskFree {
         let total_free_bytes_ptr = &mut info.total_free_bytes;
 
         unsafe {
-            GetDiskFreeSpaceExW(
+            if GetDiskFreeSpaceExW(
                 dirname.as_ptr(),
                 free_bytes_available_ptr,
                 total_bytes_ptr,
                 total_free_bytes_ptr,
-            );
-        }
-        if info.total_bytes == 0 {
-            return Err(format!("{}: {}", scope.err_path(path), get_last_err_str()));
+            ) == 0
+            {
+                return Err(format!(
+                    "{}: {}",
+                    scope.err_path(path),
+                    win_get_last_err_msg()
+                ));
+            }
         }
         Ok(info)
     }
@@ -109,13 +81,7 @@ fn get_path_from_arg(scope: &Rc<Scope>, args: &Vec<String>) -> Result<PathBuf, S
             .canonicalize()
             .map_err(|e| format!("{}: {}", scope.err_path_str(&args[0]), e))?;
 
-        // Extract the first component
-        if let Some(component) = canonical_path.components().next() {
-            // Append "/"" in case prefix is just the drive.
-            PathBuf::from(component.as_os_str()).join("/")
-        } else {
-            return Err(format!("{}: path has no components", args[0]));
-        }
+        root_path(&canonical_path)
     };
 
     Ok(path)
