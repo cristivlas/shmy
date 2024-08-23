@@ -50,12 +50,18 @@ mod wc;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
+
     fn is_external(&self) -> bool {
         false
     }
+
     #[allow(dead_code)]
     fn is_script(&self) -> bool {
         false
+    }
+
+    fn path(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -89,6 +95,10 @@ impl Exec for ShellCommand {
     fn is_script(&self) -> bool {
         self.inner.is_script()
     }
+
+    fn path(&self) -> Option<&str> {
+        self.inner.path()
+    }
 }
 
 unsafe impl Send for ShellCommand {}
@@ -111,7 +121,9 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
         if let Some(path) = locate_executable(name) {
             register_command(ShellCommand {
                 name: name.to_string(),
-                inner: Rc::new(External { path }),
+                inner: Rc::new(External {
+                    path: path.to_lowercase(),
+                }),
             });
             cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
         }
@@ -234,7 +246,8 @@ impl Exec for External {
             .extension()
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or_default();
-        ext.to_lowercase() != "exe"
+
+        !matches!(ext, "exe")
     }
 
     /// Looks like (at least on Linux) the shebang just works
@@ -246,6 +259,10 @@ impl Exec for External {
 
     fn is_external(&self) -> bool {
         true
+    }
+
+    fn path(&self) -> Option<&str> {
+        Some(&self.path)
     }
 }
 

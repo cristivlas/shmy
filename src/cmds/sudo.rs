@@ -1,6 +1,5 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::cmds::get_command;
+use crate::cmds::{flags::CommandFlags, get_command};
 use crate::eval::{Scope, Value};
 use crate::utils::executable;
 use std::ffi::OsStr;
@@ -10,10 +9,11 @@ use std::rc::Rc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
 use windows::Win32::System::Registry::HKEY;
+use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Shell::{
     ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, SHELLEXECUTEINFOW_0,
 };
-use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 struct Sudo {
     flags: CommandFlags,
@@ -25,6 +25,51 @@ impl Sudo {
         flags.add_flag('?', "help", "Display this help message");
         flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
         Self { flags }
+    }
+
+    fn runas(&self, exe: &str, args: &str) -> Result<Value, String> {
+        let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
+        let file: Vec<u16> = OsStr::new(&exe).encode_wide().chain(Some(0)).collect();
+        let params: Vec<u16> = OsStr::new(&args).encode_wide().chain(Some(0)).collect();
+
+        let mut sei = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOCLOSEPROCESS,
+            hwnd: HWND::default(),
+            lpVerb: PCWSTR(verb.as_ptr()),
+            lpFile: PCWSTR(file.as_ptr()),
+            lpParameters: PCWSTR(params.as_ptr()),
+            lpDirectory: PCWSTR::null(),
+            nShow: SW_SHOWNORMAL.0,
+            hInstApp: HINSTANCE::default(),
+            lpIDList: std::ptr::null_mut(),
+            lpClass: PCWSTR::null(),
+            hkeyClass: HKEY::default(),
+            dwHotKey: 0,
+            Anonymous: SHELLEXECUTEINFOW_0::default(),
+            hProcess: HANDLE::default(),
+        };
+
+        unsafe {
+            if ShellExecuteExW(&mut sei).is_err() {
+                return Err(format!("ShellExecuteExW: {}", Error::last_os_error()));
+            } else if sei.hProcess.is_invalid() {
+                return Err(format!("{} {}: {}", exe, args, Error::last_os_error()));
+            } else {
+                WaitForSingleObject(sei.hProcess, INFINITE);
+                let mut exit_code = 0;
+                let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
+
+                CloseHandle(sei.hProcess).map_err(|e| e.to_string())?;
+
+                result.map_err(|e| e.to_string())?;
+
+                if exit_code != 0 {
+                    return Err(format!("exit code: {:X}", exit_code));
+                }
+            }
+        }
+        Ok(Value::success())
     }
 }
 
@@ -51,89 +96,51 @@ impl Exec for Sudo {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 
-        let mut n_show = SW_SHOWNORMAL.0;
-
         let (executable, parameters) = if let Some(cmd) = get_command(&cmd_name) {
+            let cur_dir =
+                std::env::current_dir().map_err(|e| format!("Could not get current dir: {}", e))?;
+
             if cmd.is_external() {
-                if cmd.is_script() {
-                    n_show = SW_HIDE.0;
+                let path = cmd
+                    .path()
+                    .map(|p| p.to_owned())
+                    .unwrap_or(cmd_name.to_string());
+
+                if cmd.is_script() && !path.ends_with(".msc") {
+                    // Not an EXE file. Execute via cmd.exe, avoiding the extra work
+                    // of looking up the file extension associations in the registry.
                     (
-                        "cmd.exe".to_string(),
-                        format!("/C {} {}", cmd_name, command_args.join(" ")),
+                        "cmd.exe".to_owned(),
+                        format!(
+                            "/K cd {} && {} {}",
+                            cur_dir.display(),
+                            cmd_name,
+                            command_args.join(" ")
+                        ),
                     )
                 } else {
-                    (cmd_name, command_args.join(" "))
+                    (path, command_args.join(" "))
                 }
             } else {
-                let interp = executable().map_err(|e| format!("Failed to get own path: {}", e))?;
+                // Internal command, run it via an instance of this shell.
+                // Spawn the shell via cmd.exe (for now) for the /K option.
+                let interp = executable().map_err(|e| format!("Could not get own path: {}", e))?;
                 (
-                    interp,
-                    format!("-c {} {}", cmd_name, command_args.join(" ")),
+                    "cmd.exe".to_owned(),
+                    format!(
+                        "/K cd {} && set NO_COLOR=_ && {} -c {} {}",
+                        cur_dir.display(),
+                        interp,
+                        cmd_name,
+                        command_args.join(" ")
+                    ),
                 )
             }
         } else {
             return Err(format!("Command not found: {}", cmd_name));
         };
 
-        let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
-        let file: Vec<u16> = OsStr::new(&executable)
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-        let params: Vec<u16> = OsStr::new(&parameters)
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-
-        let mut sei = SHELLEXECUTEINFOW {
-            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-            fMask: SEE_MASK_NOCLOSEPROCESS,
-            hwnd: HWND::default(),
-            lpVerb: PCWSTR(verb.as_ptr()),
-            lpFile: PCWSTR(file.as_ptr()),
-            lpParameters: PCWSTR(params.as_ptr()),
-            lpDirectory: PCWSTR::null(),
-            nShow: n_show,
-            hInstApp: HINSTANCE::default(),
-            lpIDList: std::ptr::null_mut(),
-            lpClass: PCWSTR::null(),
-            hkeyClass: HKEY::default(),
-            dwHotKey: 0,
-            Anonymous: SHELLEXECUTEINFOW_0::default(),
-            hProcess: HANDLE::default(),
-        };
-
-        unsafe {
-            if ShellExecuteExW(&mut sei).is_ok() {
-                if !sei.hProcess.is_invalid() {
-                    windows::Win32::System::Threading::WaitForSingleObject(
-                        sei.hProcess,
-                        windows::Win32::System::Threading::INFINITE,
-                    );
-                    let mut exit_code = 0;
-                    let result = windows::Win32::System::Threading::GetExitCodeProcess(
-                        sei.hProcess,
-                        &mut exit_code,
-                    );
-
-                    CloseHandle(sei.hProcess).map_err(|e| e.to_string())?;
-
-                    result.map_err(|e| e.to_string())?;
-                    if exit_code != 0 {
-                        return Err(format!("exit code: {:X}", exit_code));
-                    }
-                } else {
-                    return Err(format!(
-                        "{} {}: {}",
-                        executable,
-                        parameters,
-                        Error::last_os_error()
-                    ));
-                }
-            }
-
-            Ok(Value::success())
-        }
+        self.runas(&executable, &parameters)
     }
 }
 
