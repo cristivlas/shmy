@@ -222,7 +222,13 @@ impl Status {
     fn check_result(result: EvalResult<Value>, as_arg: bool) -> EvalResult<Value> {
         match &result {
             Ok(Value::Stat(status)) => {
-                if as_arg {
+                if as_arg && status.borrow().result.is_ok() {
+                    // Take a page from Rust's nanny philosophy, and do not let the user do what *we*
+                    // think is bad for them; this is consistent with not allowing assigning the cmd
+                    // status to a variable. The command status is supposed to be checked in IF exprs.,
+                    // but passing "0" to other commands or FOR expressions can result in confusion given
+                    // the reversed boolean logic (0 means success).
+                    // If status.result.is_err() then the error propagates normally.
                     return error(&*status.borrow(), "Command status argument is not allowed");
                 }
 

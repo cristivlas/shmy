@@ -251,22 +251,13 @@ mod tests {
 
     #[test]
     fn test_status_as_arg() {
+        assert_eval_err!("for i in (cp); ()", "Missing source and destination");
+        assert_eval_err!("for i in (cp); (echo $i)", "Missing source and destination");
+        assert_eval_err!("for i in (cp --bug); ()", "Unknown flag: --bug");
         assert_eval_err!(
-            "for i in (cp); ()",
+            "for i in (echo ok) foo; (echo $i)",
             "Command status argument is not allowed"
         );
-        assert_eval_err!(
-            "for i in (cp); (echo $i)",
-            "Command status argument is not allowed"
-        );
-        assert_eval_err!(
-            "for i in (cp); ()",
-            "Command status argument is not allowed"
-        );
-        // assert_eval_err!(
-        //     "for i in (cp; foo); (echo $i)",
-        //     "Command status argument is not allowed"
-        // );
     }
 
     #[test]
