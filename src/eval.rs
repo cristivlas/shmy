@@ -284,7 +284,7 @@ impl FromStr for Value {
     }
 }
 
-impl TryFrom<Value> for u64 {
+impl TryFrom<Value> for i64 {
     type Error = String;
 
     fn try_from(v: Value) -> Result<Self, Self::Error> {
@@ -294,7 +294,28 @@ impl TryFrom<Value> for u64 {
         }
     }
 }
-// TODO: add other similar traits as needed
+
+impl TryFrom<Value> for f64 {
+    type Error = String;
+
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        match v {
+            Value::Real(f) => Ok(f),
+            _ => Err(format!("{} is not a number", v)),
+        }
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = String;
+
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        match v {
+            Value::Str(s) => Ok(s),
+            _ => Err(format!("{} is not a string", v)),
+        }
+    }
+}
 
 impl Value {
     pub fn success() -> Self {

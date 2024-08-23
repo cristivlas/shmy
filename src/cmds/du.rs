@@ -230,7 +230,7 @@ mod win {
     fn block_size(scope: &Rc<Scope>, root_path: &Path) -> Result<u64, String> {
         let cache_var = format!("blksz_{}", root_path.display());
         if let Some(v) = scope.lookup_value(&cache_var) {
-            return u64::try_from(v);
+            return Ok(i64::try_from(v)? as _);
         }
 
         let path_wide: Vec<u16> = OsStr::new(root_path)
