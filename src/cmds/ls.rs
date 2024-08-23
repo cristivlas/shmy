@@ -151,23 +151,20 @@ impl Exec for Dir {
 
 #[cfg(windows)]
 mod win {
+    use std::cmp::min;
     use std::fs::{self, OpenOptions};
     use std::os::windows::prelude::*;
     use std::path::PathBuf;
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::{HANDLE, WIN32_ERROR};
+    use windows::core::{PCWSTR, PWSTR};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT,
+        ConvertSidToStringSidW, ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
     };
+    use windows::Win32::Security::{LookupAccountSidW, SID_NAME_USE};
     use windows::Win32::Security::{
         GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
-    use windows_sys::Win32::Foundation::LocalFree;
-
-    use std::cmp::min;
-    use std::ffi::c_void;
-    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
-    use windows_sys::Win32::Security::LookupAccountSidW;
 
     use super::OWNER_MAX_LEN;
 
@@ -177,11 +174,14 @@ mod win {
     ) -> (Option<String>, Option<String>) {
         let get_sid_string = |psid: PSID| unsafe {
             let mut sid_string_ptr = PWSTR::null();
+
             if ConvertSidToStringSidW(psid, &mut sid_string_ptr).is_ok() {
                 let sid_string = sid_string_ptr
                     .to_string()
                     .unwrap_or_else(|_| "?".to_string());
+
                 LocalFree(sid_string_ptr.0 as _);
+
                 Some(sid_string)
             } else {
                 None
@@ -206,9 +206,9 @@ mod win {
         let handle = HANDLE(file.as_raw_handle());
 
         unsafe {
-            let mut psid_owner: PSID = PSID::default();
-            let mut psid_group: PSID = PSID::default();
-            let mut sd: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
+            let mut psid_owner = PSID::default();
+            let mut psid_group = PSID::default();
+            let mut sd = PSECURITY_DESCRIPTOR::default();
 
             let result = GetSecurityInfo(
                 handle,
@@ -221,39 +221,40 @@ mod win {
                 Some(&mut sd),
             );
 
-            if result != WIN32_ERROR(0) {
-                LocalFree(sd.0);
-            } else {
+            if result.0 == 0 {
                 let owner = get_sid_string(psid_owner);
                 let group = get_sid_string(psid_group);
 
-                return (owner, group);
+                LocalFree(sd.0);
+
+                (owner, group)
+            } else {
+                (None, None)
             }
-            return (None, None);
         }
     }
 
     fn name_from_sid(opt_sid: Option<String>) -> String {
         if let Some(sid) = opt_sid {
             unsafe {
-                let mut psid: *mut c_void = std::ptr::null_mut();
+                let mut psid = PSID::default();
                 let wide_sid: Vec<u16> = sid.encode_utf16().chain(std::iter::once(0)).collect();
 
-                if ConvertStringSidToSidW(wide_sid.as_ptr(), &mut psid) == 0 {
+                if ConvertStringSidToSidW(PCWSTR(wide_sid.as_ptr()), &mut psid).is_err() {
                     return sid[..OWNER_MAX_LEN].to_string();
                 }
 
                 let mut name_size: u32 = 0;
                 let mut domain_size: u32 = 0;
-                let mut sid_use: i32 = 0;
+                let mut sid_use = SID_NAME_USE::default();
 
-                // First call to get buffer sizes
-                LookupAccountSidW(
-                    std::ptr::null(),
+                // First call to get buffer sizes, ignore result
+                _ = LookupAccountSidW(
+                    PWSTR::null(),
                     psid,
-                    std::ptr::null_mut(),
+                    PWSTR::null(),
                     &mut name_size,
-                    std::ptr::null_mut(),
+                    PWSTR::null(),
                     &mut domain_size,
                     &mut sid_use,
                 );
@@ -262,21 +263,23 @@ mod win {
                 let mut domain = vec![0u16; domain_size as usize];
 
                 // Second call to get actual data
-                if LookupAccountSidW(
-                    std::ptr::null(),
+                let success = LookupAccountSidW(
+                    PWSTR::null(),
                     psid,
-                    name.as_mut_ptr(),
+                    PWSTR(name.as_mut_ptr()),
                     &mut name_size,
-                    domain.as_mut_ptr(),
+                    PWSTR(domain.as_mut_ptr()),
                     &mut domain_size,
                     &mut sid_use,
-                ) != 0
-                {
-                    LocalFree(psid);
+                )
+                .is_ok();
+
+                LocalFree(psid.0);
+
+                if success {
                     name_size = min(name_size, OWNER_MAX_LEN as u32);
                     String::from_utf16_lossy(&name[..name_size as usize])
                 } else {
-                    LocalFree(psid);
                     sid[..OWNER_MAX_LEN].to_string()
                 }
             }
