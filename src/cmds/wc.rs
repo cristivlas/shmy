@@ -139,6 +139,17 @@ impl Exec for WordCount {
         } else {
             for file in &args {
                 let path = Path::new(&file);
+
+                if path.is_dir() {
+                    my_warning!(scope, "{}: Is a directory", scope.err_path(&path));
+                    continue;
+                }
+
+                if path.is_symlink() {
+                    my_warning!(scope, "{}: Is a symbolic link", scope.err_path(&path));
+                    continue;
+                }
+
                 match WordCount::count_file(path) {
                     Ok(result) => {
                         WordCount::print_result(&result, Some(&file), &flags)?;
