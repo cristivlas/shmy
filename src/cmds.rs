@@ -10,10 +10,8 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
 use which::which;
-
 mod flags;
 use flags::CommandFlags;
-
 // Built-in commands
 mod basename;
 mod cat;
@@ -21,14 +19,11 @@ mod cd;
 mod chmod;
 mod clear;
 mod cp;
-
 #[cfg(windows)]
 mod date;
-
+mod defined;
 #[cfg(windows)]
 mod df;
-
-mod defined;
 mod diff;
 mod du;
 mod echo;
@@ -42,10 +37,8 @@ mod mv;
 mod realpath;
 mod rm;
 mod run;
-
 #[cfg(windows)]
 mod sudo;
-
 mod vars;
 mod wc;
 
