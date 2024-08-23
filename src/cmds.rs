@@ -55,6 +55,7 @@ pub trait Exec {
         false
     }
 
+    /// Return true if command needs a shell to launch.
     #[allow(dead_code)]
     fn is_script(&self) -> bool {
         false

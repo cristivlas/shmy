@@ -107,8 +107,6 @@ impl Exec for Sudo {
                     .unwrap_or(cmd_name.to_string());
 
                 if cmd.is_script() && !path.ends_with(".msc") {
-                    // Not an EXE file. Execute via cmd.exe, avoiding the extra work
-                    // of looking up the file extension associations in the registry.
                     (
                         "cmd.exe".to_owned(),
                         format!(
