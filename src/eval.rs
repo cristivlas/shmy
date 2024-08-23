@@ -178,7 +178,6 @@ pub struct Status {
     cmd: String,
     negated: bool,
     result: EvalResult<Value>,
-    scope: Rc<Scope>,
 }
 
 fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
@@ -193,13 +192,12 @@ fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
 }
 
 impl Status {
-    fn new(cmd: String, result: &EvalResult<Value>, scope: &Rc<Scope>) -> Rc<RefCell<Self>> {
+    fn new(cmd: String, result: &EvalResult<Value>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
             cmd,
             negated: false,
             result: result.clone(),
-            scope: Rc::clone(&scope),
         }))
     }
 
@@ -1805,7 +1803,7 @@ impl BinExpr {
             ))
         };
 
-        Ok(Value::Stat(Status::new(cmd, &result, &self.scope)))
+        Ok(Value::Stat(Status::new(cmd, &result)))
     }
 
     fn eval_pipe_to_var(
@@ -2330,7 +2328,7 @@ impl Eval for Command {
             eprintln!("^C");
         }
         let cmd = self.to_string();
-        Ok(Value::Stat(Status::new(cmd, &result, &self.scope)))
+        Ok(Value::Stat(Status::new(cmd, &result)))
     }
 }
 
