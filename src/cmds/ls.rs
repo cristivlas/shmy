@@ -156,7 +156,6 @@ mod win {
     use std::os::windows::prelude::*;
     use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
-    use windows_sys::Win32::Foundation::LocalFree;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
@@ -165,6 +164,7 @@ mod win {
     use windows::Win32::Security::{
         GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
+    use windows_sys::Win32::Foundation::LocalFree;
 
     use super::OWNER_MAX_LEN;
 
