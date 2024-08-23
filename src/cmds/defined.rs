@@ -1,14 +1,13 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Scope, Value};
-use clearscreen;
 use std::rc::Rc;
 
-struct Clear {
+struct Defined {
     flags: CommandFlags,
 }
 
-impl Clear {
+impl Defined {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
@@ -17,35 +16,32 @@ impl Clear {
     }
 }
 
-impl Exec for Clear {
-    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+impl Exec for Defined {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(args)?;
 
         if flags.is_present("help") {
-            println!("Usage: clear");
-            println!("Clear the terminal screen.");
+            println!("Usage: defined NAME...");
+            println!("Check the existence of variable(s) with the given name(s).");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
         }
-
-        match clearscreen::clear() {
-            Ok(_) => Ok(Value::success()),
-            Err(e) => Err(format!("Could not clear screen: {}", e)),
+        for a in args {
+            if scope.lookup(&a).is_none() {
+                return Err(format!("{} is undefined", a));
+            }
         }
+
+        Ok(Value::success())
     }
 }
 
 #[ctor::ctor]
 fn register() {
     register_command(ShellCommand {
-        name: "clear".to_string(),
-        inner: Rc::new(Clear::new()),
-    });
-
-    register_command(ShellCommand {
-        name: "cls".to_string(),
-        inner: Rc::new(Clear::new()),
+        name: "defined".to_string(),
+        inner: Rc::new(Defined::new()),
     });
 }

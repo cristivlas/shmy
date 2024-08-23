@@ -28,6 +28,7 @@ mod date;
 #[cfg(windows)]
 mod df;
 
+mod defined;
 mod diff;
 mod du;
 mod echo;
