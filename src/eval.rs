@@ -178,7 +178,10 @@ pub struct Status {
     cmd: String,
     negated: bool,
     result: EvalResult<Value>,
+    loc: Location,
 }
+
+derive_has_location!(Status);
 
 fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
     match &scope.lookup_local(var_name) {
@@ -192,12 +195,13 @@ fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
 }
 
 impl Status {
-    fn new(cmd: String, result: &EvalResult<Value>) -> Rc<RefCell<Self>> {
+    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
             checked: false,
             cmd,
             negated: false,
             result: result.clone(),
+            loc: loc.clone(),
         }))
     }
 
@@ -215,9 +219,13 @@ impl Status {
         }
     }
 
-    fn check_result(result: EvalResult<Value>) -> EvalResult<Value> {
+    fn check_result(result: EvalResult<Value>, as_arg: bool) -> EvalResult<Value> {
         match &result {
             Ok(Value::Stat(status)) => {
+                if as_arg {
+                    return error(&*status.borrow(), "Command status argument is not allowed");
+                }
+
                 if !status.borrow().checked {
                     status.borrow_mut().checked = true;
                     return status.borrow().result.clone();
@@ -225,6 +233,7 @@ impl Status {
             }
             _ => {} // Propagate the error
         }
+
         result
     }
 }
@@ -1450,7 +1459,7 @@ impl Expression {
                 let mut tokens = Vec::new();
 
                 for expr in &args.borrow().content {
-                    let val = Status::check_result(expr.eval())?;
+                    let val = Status::check_result(expr.eval(), true)?;
 
                     // Preserve quotes
                     if let Expression::Leaf(tok) = &**expr {
@@ -1780,7 +1789,7 @@ impl BinExpr {
         let mut redirect =
             BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
-        Status::check_result(expr.eval())?;
+        Status::check_result(expr.eval(), false)?;
 
         let mut str_buf = String::new();
         redirect
@@ -1803,7 +1812,7 @@ impl BinExpr {
             ))
         };
 
-        Ok(Value::Stat(Status::new(cmd, &result)))
+        Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
     }
 
     fn eval_pipe_to_var(
@@ -1916,7 +1925,7 @@ impl BinExpr {
             })?;
 
         // Left-side evaluation's stdout goes into the pipe.
-        let lhs_result = Status::check_result(lhs.eval());
+        let lhs_result = Status::check_result(lhs.eval(), false);
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
@@ -2111,7 +2120,7 @@ impl Eval for GroupExpr {
 
         for e in &self.content {
             // Check the previous result for unhandled command errors
-            result = Status::check_result(result);
+            result = Status::check_result(result, false);
 
             if result.is_ok() {
                 let temp = e.eval();
@@ -2328,7 +2337,7 @@ impl Eval for Command {
             eprintln!("^C");
         }
         let cmd = self.to_string();
-        Ok(Value::Stat(Status::new(cmd, &result)))
+        Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
     }
 }
 
@@ -2499,7 +2508,7 @@ macro_rules! eval_iteration {
         }
 
         // Evaluate the loop body, checking for command status
-        $result = Status::check_result($self.body.eval());
+        $result = Status::check_result($self.body.eval(), false);
 
         // Check for break and continue
         if let Err(e) = &$result {
@@ -2702,7 +2711,7 @@ impl Interp {
             dbg!(&ast);
         }
 
-        Status::check_result(ast.eval())
+        Status::check_result(ast.eval(), false)
     }
 
     fn parse(&self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {

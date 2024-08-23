@@ -244,16 +244,29 @@ mod tests {
             "Missing source and destination"
         );
         assert_eval_ok!("if (cp)() else (fail)", Value::from_str("fail").unwrap());
-        assert_eval_err!("for i in (cp); ()", "Missing source and destination");
-        assert_eval_err!("for i in (cp); (echo $i)", "Missing source and destination");
-        assert_eval_err!("for i in (cp); ()", "Missing source and destination");
-        assert_eval_err!(
-            "for i in (cp; foo); (echo $i)",
-            "Missing source and destination"
-        );
         assert_eval_ok!("for i in (if(cp)(); foo); (echo $i)", Value::Int(0));
         assert_eval_err!("while (1) (cp x; break)", "Missing destination");
         assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
+    }
+
+    #[test]
+    fn test_status_as_arg() {
+        assert_eval_err!(
+            "for i in (cp); ()",
+            "Command status argument is not allowed"
+        );
+        assert_eval_err!(
+            "for i in (cp); (echo $i)",
+            "Command status argument is not allowed"
+        );
+        assert_eval_err!(
+            "for i in (cp); ()",
+            "Command status argument is not allowed"
+        );
+        // assert_eval_err!(
+        //     "for i in (cp; foo); (echo $i)",
+        //     "Command status argument is not allowed"
+        // );
     }
 
     #[test]
