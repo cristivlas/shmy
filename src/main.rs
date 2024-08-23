@@ -299,7 +299,6 @@ impl Shell {
     }
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
-        let mut quit = false;
         if self.interactive {
             println!("Welcome to mysh.");
             // Set up rustyline
@@ -309,7 +308,7 @@ impl Shell {
             rl.set_helper(Some(h));
             rl.load_history(&self.get_history_path()?).unwrap();
 
-            while !quit {
+            while !self.interp.quit {
                 // run interactive read-evaluate loop
                 let readline = rl.readline(self.prompt());
                 match readline {
@@ -321,7 +320,7 @@ impl Shell {
                                 rl.add_history_entry(&history_entry)
                                     .map_err(|e| e.to_string())?;
                                 // Evaluate the line from history
-                                self.eval(&mut quit, &history_entry);
+                                self.eval(&history_entry);
                             } else {
                                 println!("No match.");
                             }
@@ -330,7 +329,7 @@ impl Shell {
                                 .map_err(|e| e.to_string())?;
 
                             self.save_history(&mut rl)?;
-                            self.eval(&mut quit, &line);
+                            self.eval(&line);
                         }
                     }
                     Err(ReadlineError::Interrupted) => {
@@ -346,7 +345,7 @@ impl Shell {
             let mut script: String = String::new();
             match reader.read_to_string(&mut script) {
                 Ok(_) => {
-                    self.eval(&mut quit, &script);
+                    self.eval(&script);
                 }
                 Err(e) => return Err(format!("Failed to read input: {}", e)),
             }
@@ -354,10 +353,10 @@ impl Shell {
         Ok(())
     }
 
-    fn eval(&mut self, quit: &mut bool, input: &String) {
+    fn eval(&mut self, input: &String) {
         INTERRUPT.store(false, SeqCst);
 
-        match &self.interp.eval(quit, input) {
+        match &self.interp.eval(input, None) {
             Ok(result) => {
                 my_dbg!(&result);
             }

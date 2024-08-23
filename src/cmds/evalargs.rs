@@ -1,0 +1,60 @@
+use super::{register_command, Exec, ShellCommand};
+use crate::cmds::flags::CommandFlags;
+use crate::eval::{Interp, Scope, Value};
+use std::rc::Rc;
+
+struct Evaluate {
+    flags: CommandFlags,
+}
+
+impl Evaluate {
+    fn new() -> Self {
+        let mut flags = CommandFlags::new();
+        flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('x', "export", "Export variables to environment");
+
+        Self { flags }
+    }
+}
+
+impl Exec for Evaluate {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+        let mut flags = self.flags.clone();
+        let args = flags.parse(args)?;
+
+        if flags.is_present("help") {
+            println!("Usage: eval EXPR...");
+            println!("Evaluate each argument as an expression, stopping at the first error.");
+            println!("\nOptions:");
+            print!("{}", flags.help());
+            return Ok(Value::success());
+        }
+
+        let mut interp = Interp::new();
+
+        for expr in args {
+            let value = interp
+                .eval(&expr, Some(Rc::clone(scope)))
+                .map_err(|e| e.to_string())?;
+
+            my_println!("{}", value)?;
+
+            if flags.is_present("export") {
+                let global_scope = scope.global();
+                for (key, var) in scope.vars.borrow().iter() {
+                    global_scope.insert(key.to_string(), var.value());
+                }
+            }
+        }
+
+        Ok(Value::success())
+    }
+}
+
+#[ctor::ctor]
+fn register() {
+    register_command(ShellCommand {
+        name: "eval".to_string(),
+        inner: Rc::new(Evaluate::new()),
+    });
+}

@@ -472,13 +472,9 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
-    fn new(input: T, interp_scope: &Rc<Scope>, file: Option<Rc<String>>) -> Self {
+    fn new(input: T, scope: &Rc<Scope>, file: Option<Rc<String>>) -> Self {
         let empty = Rc::new(Expression::Empty);
         let loc = Location::with_file(file);
-
-        // Create a child scope of the interpreter scope; the interp scope contains
-        // the environmental vars, which should not be cleared between evaluations.
-        let scope = Scope::new(Some(Rc::clone(&interp_scope)));
 
         Self {
             chars: input.peekable(),
@@ -1253,6 +1249,15 @@ impl Scope {
                 _ => None,
             },
         }
+    }
+
+    /// Return the global scope
+    pub fn global(&self) -> Rc<Scope> {
+        let mut current = self.parent.as_ref().unwrap();
+        while let Some(parent) = &current.parent {
+            current = &parent;
+        }
+        Rc::clone(&current)
     }
 
     /// The evaluation scope is passed to commands via the Exec trait;
@@ -2688,6 +2693,7 @@ impl Eval for Expression {
 pub struct Interp {
     scope: Rc<Scope>,
     file: Option<Rc<String>>,
+    pub quit: bool,
 }
 
 fn new_args(loc: &Location, scope: &Rc<Scope>) -> Rc<Expression> {
@@ -2707,11 +2713,12 @@ impl Interp {
         Self {
             scope: Scope::with_env_vars(),
             file: None,
+            quit: false,
         }
     }
 
-    pub fn eval(&self, quit: &mut bool, input: &str) -> EvalResult<Value> {
-        let ast = self.parse(quit, input)?;
+    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+        let ast = self.parse(input, scope)?;
 
         if self.scope.lookup("DUMP_AST").is_some() {
             dbg!(&ast);
@@ -2720,9 +2727,20 @@ impl Interp {
         Status::check_result(ast.eval(), false)
     }
 
-    fn parse(&self, quit: &mut bool, input: &str) -> EvalResult<Rc<Expression>> {
-        let mut parser = Parser::new(input.chars(), &self.scope, self.file.clone());
-        parser.parse(quit)
+    fn parse(&mut self, input: &str, eval_scope: Option<Rc<Scope>>) -> EvalResult<Rc<Expression>> {
+        let scope = {
+            if let Some(scope) = eval_scope {
+                scope
+            } else {
+                // Create a child scope of the global scope; the global scope contains
+                // the environmental vars, which should be preserved between evaluations.
+                Scope::new(Some(Rc::clone(&self.scope)))
+            }
+        };
+
+        let mut parser = Parser::new(input.chars(), &scope, self.file.clone());
+
+        parser.parse(&mut self.quit)
     }
 
     pub fn set_var(&mut self, name: &str, value: String) {

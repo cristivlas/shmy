@@ -7,9 +7,8 @@ mod tests {
         // Workaround for cargo test using stdout redirection
         let __stdout = io::stdout().lock();
 
-        let interp = Interp::new();
-        let mut quit = false;
-        let result = interp.eval(&mut quit, input);
+        let mut interp = Interp::new();
+        let result = interp.eval(input, None);
         my_dbg!(&result);
         result
     }
@@ -103,12 +102,11 @@ mod tests {
 
     #[test]
     fn test_for_tilde() {
-        let interp = Interp::new();
-        let mut quit = false;
+        let mut interp = Interp::new();
         interp
             .get_scope()
             .insert("HOME".to_string(), Value::from_str("abc").unwrap());
-        let result = interp.eval(&mut quit, "for i in ~/foo; ($i)");
+        let result = interp.eval("for i in ~/foo; ($i)", None);
         dbg!(&result);
         assert!(matches!(result, Ok(ref v) if v.to_string() == "abc/foo"));
     }

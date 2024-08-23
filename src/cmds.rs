@@ -27,6 +27,7 @@ mod df;
 mod diff;
 mod du;
 mod echo;
+mod evalargs;
 mod exit;
 mod find;
 mod grep;
