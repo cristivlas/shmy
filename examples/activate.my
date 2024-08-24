@@ -1,0 +1,37 @@
+# Activate / deactivate Python virtual environment.
+# From within the interactive shell, type:
+# eval --source activate.my
+
+# Run again to deactivate the virtual env (i.e. restore saved environment vars.)
+
+if (defined __OLD_PATH) (
+    # Restore (deactivate)
+
+    # Use raw string to prevent $__OLD_PATH expansion before being passed to
+    # the eval command (and pass backslash path delimiters through as-in)
+    # eval --export r"PATH = $__OLD_PATH";
+
+    # Or, variables that already exist can be modified directly.
+    $PATH = $__OLD_PATH;
+
+    # Erase variables that are no longer needed.
+    $VIRTUAL_ENV = ;
+    $__OLD_PATH = ;
+
+) else (
+    # Activate
+
+    eval --export "VIRTUAL_ENV = C:\\Users\\crist\\Projects\\venv312-chess";
+    eval --export r"(__OLD_PATH = $PATH)";
+
+    # Use raw string r"(...)" to prevent the semicolon from being interpreted as
+    # end of statement, and to pass variable names directly to the eval command,
+    # without expanding.
+    # eval --export r"(PATH = "${VIRTUAL_ENV}\\Scripts\;$PATH")";
+
+    # Or, since PATH is already an environment variable, it can be modified
+    # directly (```eval --export``` is required only for creating new variables).
+    $PATH = r"(${VIRTUAL_ENV}\\Scripts\;$PATH)";
+
+    echo "VIRTUAL_ENV=${VIRTUAL_ENV}";
+);
