@@ -6,31 +6,37 @@ use std::rc::Rc;
 
 /// Copy variables from the current scope outwards into the environment of the
 /// command to be executed, but do not carry over special redirect variables.
-pub(crate) fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<Scope>) {
+pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<Scope>) {
     // Override existing environment variables
     command.env_clear();
 
-    let mut current_scope = scope;
-    loop {
-        for (key, variable) in current_scope.vars.borrow().iter() {
-            if key.view() != "__stdout" && key.view() != "__stderr" {
+    let mut current_scope = Some(scope);
+    while let Some(scope) = &current_scope {
+        for (key, variable) in scope.vars.borrow().iter() {
+            if !key.is_special_var() {
                 command.env(&key.view(), variable.value().to_string());
             }
         }
-        // Walk up the enclosing scope
-        match &current_scope.parent {
-            None => {
-                break;
-            }
-            Some(scope) => {
-                current_scope = scope;
-            }
-        }
+        current_scope = scope.parent.as_ref();
+    }
+}
+
+pub fn sync_env_vars(scope: &Rc<Scope>) {
+    // Collect all environment variable keys
+    let vars: Vec<String> = env::vars().map(|(key, _)| key).collect();
+
+    // Remove each environment variable
+    for var in vars {
+        env::remove_var(var);
+    }
+
+    for (key, var) in scope.vars.borrow().iter() {
+        env::set_var(key.as_str(), var.to_string());
     }
 }
 
 /// Get our own path
-pub(crate) fn executable() -> Result<String, String> {
+pub fn executable() -> Result<String, String> {
     match env::current_exe() {
         Ok(p) => {
             #[cfg(test)]
@@ -58,7 +64,7 @@ pub(crate) fn executable() -> Result<String, String> {
     }
 }
 
-pub(crate) fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
+pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
     if !human_readable {
         return (size / block_size).to_string();
     }
@@ -77,7 +83,7 @@ pub(crate) fn format_size(size: u64, block_size: u64, human_readable: bool) -> S
 
 #[cfg(windows)]
 #[cfg(feature = "deprecated")]
-pub(crate) fn win_last_err() -> String {
+pub fn win_last_err() -> String {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use windows::core::PWSTR;
@@ -114,7 +120,7 @@ pub(crate) fn win_last_err() -> String {
 }
 
 #[cfg(windows)]
-pub(crate) fn root_path(path: &Path) -> PathBuf {
+pub fn root_path(path: &Path) -> PathBuf {
     let mut path = path.to_path_buf();
 
     if let Some(root) = path.components().next() {

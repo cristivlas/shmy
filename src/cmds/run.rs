@@ -30,12 +30,6 @@ impl Exec for Run {
             return Ok(Value::success());
         }
 
-        command_args = command_args
-            .iter()
-            .flat_map(|s| s.split_ascii_whitespace())
-            .map(String::from)
-            .collect();
-
         if command_args.is_empty() {
             return Err("No command specified".to_string());
         }

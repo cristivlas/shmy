@@ -2,6 +2,7 @@ use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Ident, Scope, Value, Variable};
 use std::collections::HashMap;
+use std::env;
 use std::rc::Rc;
 
 struct Vars {
@@ -37,7 +38,7 @@ impl Vars {
 }
 
 impl Exec for Vars {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(args)?;
 
@@ -51,20 +52,28 @@ impl Exec for Vars {
 
         let local_only = flags.is_present("local");
 
-        // Collect variables
-        let vars = Self::collect_vars(scope, local_only);
+        if !local_only && name == "env" {
+            // Print the environment directly.
+            let vars: Vec<String> = env::vars().map(|(key, _)| key).collect();
 
-        // Collect keys and sort them
-        let mut keys: Vec<Ident> = vars.keys().cloned().collect();
-        keys.sort(); // Sort the keys lexicographically
+            for key in vars {
+                my_println!("{}={}", key, env::var(&key).map_err(|e| e.to_string())?)?;
+            }
+        } else {
+            // Collect variables
+            let vars = Self::collect_vars(scope, local_only);
 
-        // Iterate over sorted keys
-        for key in keys {
-            if let Some(variable) = vars.get(&key) {
-                println!("{}={}", key, variable);
+            // Collect keys and sort them
+            let mut keys: Vec<Ident> = vars.keys().cloned().collect();
+            keys.sort();
+
+            // Iterate over sorted keys
+            for key in keys {
+                if let Some(variable) = vars.get(&key) {
+                    my_println!("{}={}", key, variable)?;
+                }
             }
         }
-
         Ok(Value::success())
     }
 }

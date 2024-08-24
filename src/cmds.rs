@@ -1,6 +1,5 @@
 use crate::eval::{Scope, Value};
 use crate::utils::copy_vars_to_command_env;
-
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -57,7 +56,7 @@ pub trait Exec {
     }
 
     #[allow(dead_code)]
-    fn path(&self) -> Option<&str> {
+    fn path(&self) -> Option<String> {
         None
     }
 }
@@ -93,7 +92,7 @@ impl Exec for ShellCommand {
         self.inner.is_script()
     }
 
-    fn path(&self) -> Option<&str> {
+    fn path(&self) -> Option<String> {
         self.inner.path()
     }
 }
@@ -115,11 +114,12 @@ pub fn register_command(command: ShellCommand) {
 pub fn get_command(name: &str) -> Option<ShellCommand> {
     let mut cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
     if cmd.is_none() {
-        if let Some(path) = locate_executable(name) {
+        if let Some(_) = locate_executable(name) {
+            // Do not cache the path, as $PATH may change later.
             register_command(ShellCommand {
                 name: name.to_string(),
                 inner: Rc::new(External {
-                    path: path.to_lowercase(),
+                    name: name.to_string(),
                 }),
             });
             cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
@@ -186,13 +186,18 @@ fn is_executable(path: &Path) -> bool {
 
 // Wrap execution of an external program.
 struct External {
-    path: String,
+    name: String,
 }
 
+impl External {
+    fn path(&self) -> String {
+        locate_executable(&self.name).unwrap_or(self.name.clone())
+    }
+}
 #[cfg(unix)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
-        let mut command = Command::new(&self.path);
+        let mut command = Command::new(self.path());
         command.args(args);
         command
     }
@@ -201,12 +206,13 @@ impl External {
 #[cfg(windows)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
+        let path = self.path();
         if self.is_script() {
             let mut command = Command::new("cmd");
-            command.arg("/C").arg(&self.path).args(args);
+            command.arg("/C").arg(path).args(args);
             command
         } else {
-            let mut command = Command::new(&self.path);
+            let mut command = Command::new(path);
             command.args(args);
             command
         }
@@ -239,7 +245,8 @@ impl Exec for External {
     /// in the registry.
     #[cfg(windows)]
     fn is_script(&self) -> bool {
-        let ext = Path::new(&self.path)
+        let path = self.path();
+        let ext = Path::new(&path)
             .extension()
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or_default();
@@ -258,8 +265,8 @@ impl Exec for External {
         true
     }
 
-    fn path(&self) -> Option<&str> {
-        Some(&self.path)
+    fn path(&self) -> Option<String> {
+        Some(self.path())
     }
 }
 
@@ -277,7 +284,7 @@ impl Which {
 }
 
 impl Exec for Which {
-    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(args)?;
 

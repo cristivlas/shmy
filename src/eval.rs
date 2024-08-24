@@ -1266,9 +1266,13 @@ impl fmt::Display for Ident {
     }
 }
 
-impl std::borrow::Borrow<str> for Ident {
-    fn borrow(&self) -> &str {
+impl Ident {
+    pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn is_special_var(&self) -> bool {
+        matches!(self.as_str(), "__errors" | "__stderr" | "__stdout")
     }
 }
 
