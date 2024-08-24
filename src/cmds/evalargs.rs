@@ -81,8 +81,10 @@ impl Exec for Evaluate {
             }
         }
 
-        // Synchronize environment with global scope
-        sync_env_vars(&global_scope);
+        if source || export {
+            // Synchronize environment with global scope
+            sync_env_vars(&global_scope);
+        }
 
         Ok(Value::success())
     }
