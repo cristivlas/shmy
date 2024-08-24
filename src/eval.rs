@@ -111,10 +111,33 @@ impl Op {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+struct Text {
+    value: String,
+    quoted: bool,
+    raw: bool,
+}
+
+impl Text {
+    fn new(value: String, quoted: bool, raw: bool) -> Self {
+        Self { value, quoted, raw }
+    }
+}
+
+impl From<String> for Token {
+    fn from(value: String) -> Self {
+        Token::Literal(Text {
+            value,
+            quoted: false,
+            raw: false,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum Token {
     End,
     Keyword(String),
-    Literal((String, bool)),
+    Literal(Text),
     Operator(Op),
     LeftParen,
     RightParen,
@@ -416,6 +439,7 @@ struct Parser<I: Iterator<Item = char>> {
     globbed_tokens: Vec<String>,
     text: String,
     quoted: bool,
+    raw: bool,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -495,6 +519,7 @@ where
             globbed_tokens: Vec::new(),
             text: String::new(),
             quoted: false,
+            raw: false,
         }
     }
 
@@ -518,7 +543,7 @@ where
                 _ => false,
             }
         } else {
-            const DELIMITERS: &str = " \t\n\r()+=;|&<>";
+            const DELIMITERS: &str = " \t\n\r()+=;|&<>#";
             DELIMITERS.contains(c)
         }
     }
@@ -554,24 +579,31 @@ where
                         .collect();
 
                     if !self.globbed_tokens.is_empty() {
-                        return Ok(Token::Literal((self.globbed_tokens.remove(0), false)));
+                        return Ok(Token::from(self.globbed_tokens.remove(0)));
                     }
                 }
                 Err(_) => {} // Ignore glob errors and treat as literal
             }
         }
-        Ok(Token::Literal((self.text.clone(), self.quoted)))
+        Ok(Token::Literal(Text::new(
+            self.text.clone(),
+            self.quoted,
+            self.raw,
+        )))
     }
 
     #[rustfmt::skip]
     pub fn next_token(&mut self) -> EvalResult<Token> {
 
         if !self.globbed_tokens.is_empty() {
-            return Ok(Token::Literal((self.globbed_tokens.remove(0), false)));
+            return Ok(Token::from(self.globbed_tokens.remove(0)));
         }
 
         let mut tok = Token::End;
+
         self.quoted = false;
+        self.raw = false;
+
         self.text.clear();
 
         while let Some(c) = self.chars.peek().cloned() {
@@ -674,7 +706,7 @@ where
                             self.escaped = false;
                         } else if next_c == '\\' {
                             self.next();
-                            if self.in_quotes {
+                            if self.in_quotes && !self.raw {
                                 // Escapes only work inside quotes, to avoid
                                 // issues with path delimiters under Windows
                                 self.escaped = true;
@@ -682,9 +714,36 @@ where
                                 self.text.push('\\');
                             }
                         } else if next_c == '"' {
-                            self.quoted = true;
-                            self.in_quotes ^= true;
                             self.next();
+
+                            if self.raw {
+                                self.text.push(next_c);
+                            } else {
+                                // Detect start of C++ style raw string  r"(...)"
+                                if self.text == "r" {
+                                    if let Some(next_c) = self.chars.peek() {
+                                        if *next_c == '(' {
+                                            self.raw = true;
+                                            self.text.remove(0);
+                                            self.next();
+                                        }
+                                    }
+                                }
+                                self.quoted = true;
+                                self.in_quotes ^= true;
+                            }
+                        } else if next_c == ')' && self.raw {
+                            // Check for end of raw string
+                            self.next();
+
+                            if let Some(next_c) = self.chars.peek() {
+                                if *next_c == '"' {
+                                    self.in_quotes = false;
+                                    self.next();
+                                    break;
+                                }
+                            }
+                            self.text.push(next_c);
                         } else {
                             if self.in_quotes || !self.is_delimiter(&self.text, next_c) {
                                 self.text.push(next_c);
@@ -988,17 +1047,16 @@ where
                         self.add_expr(&expr)?;
                     } else if word == "BREAK" || word == "CONTINUE" {
                         let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
-                            tok: word.clone(),
-                            quoted: false,
+                            text: Text::new(word.to_owned(), false, false),
                             loc: self.prev_loc.clone(),
                             scope: Rc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     }
                 }
-                Token::Literal((s, quoted)) => {
-                    if !quoted && !self.group.is_args() {
-                        if let Some(cmd) = get_command(s) {
+                Token::Literal(text) => {
+                    if !text.quoted && !self.group.is_args() {
+                        if let Some(cmd) = get_command(&text.value) {
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
                                 args: self.empty(),
@@ -1014,10 +1072,8 @@ where
                         }
                     }
                     // Identifiers and literals.
-                    // TODO: handle variables (identifiers) separately?
                     let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
-                        tok: s.clone(),
-                        quoted: *quoted,
+                        text: text.clone(),
                         loc: self.prev_loc.clone(),
                         scope: Rc::clone(&self.scope),
                     })));
@@ -1543,17 +1599,26 @@ impl Expression {
                 let mut tokens = Vec::new();
 
                 for expr in &args.borrow().content {
-                    let val = Status::check_result(expr.eval(), true)?;
-
-                    // Preserve quotes
-                    if let Expression::Leaf(tok) = &**expr {
-                        if tok.quoted {
-                            tokens.push(val.to_string());
+                    let quoted = if let Expression::Leaf(lit) = &**expr {
+                        if lit.text.raw {
+                            assert!(lit.text.quoted);
+                            tokens.push(lit.text.value.clone());
                             continue;
                         }
+                        lit.text.quoted
+                    } else {
+                        false
+                    };
+
+                    // Evaluate the argument expression
+                    let val = Status::check_result(expr.eval(), true)?;
+
+                    if quoted {
+                        tokens.push(val.to_string());
+                    } else {
+                        // If not quoted, split at ASCII whitespace
+                        tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
                     }
-                    // If not quoted, split at ASCII whitespace
-                    tokens.extend(val.to_string().split_ascii_whitespace().map(String::from));
                 }
 
                 // Read from stdin if args consist of one single dash, allowing arguments to be piped
@@ -1730,7 +1795,7 @@ impl BinExpr {
                     &format!("{} {} | {};", ASSIGN_STATUS_ERROR, stat.borrow().cmd, lhs),
                 );
             }
-            let var_name = &lit.tok;
+            let var_name = &lit.text.value;
 
             if var_name.starts_with('$') {
                 // Assigning to an already-defined variable, as in: $i = $i + 1?
@@ -1956,7 +2021,7 @@ impl BinExpr {
                 self.eval_redirect(lhs)?
             };
             let value = Value::from_str(output.trim())?;
-            self.scope.insert(lit.tok.clone(), value.clone());
+            self.scope.insert(lit.text.value.clone(), value.clone());
 
             return Ok(Some(value));
         }
@@ -2053,7 +2118,7 @@ impl BinExpr {
     /// Lookup and erase the variable named by the left hand-side expression
     fn eval_erase(&self) -> EvalResult<Value> {
         if let Expression::Leaf(lit) = &*self.lhs {
-            let var_name = &lit.tok;
+            let var_name = &lit.text.value;
 
             if var_name.starts_with('$') {
                 if let Some(var) = lit.scope.erase(&var_name[1..]) {
@@ -2550,8 +2615,7 @@ impl fmt::Display for BranchExpr {
 
 #[derive(Debug)]
 struct Literal {
-    tok: String,
-    quoted: bool,
+    text: Text,
     loc: Location,
     scope: Rc<Scope>,
 }
@@ -2560,16 +2624,20 @@ derive_has_location!(Literal);
 
 impl Eval for Literal {
     fn eval(&self) -> EvalResult<Value> {
-        parse_value(&self.tok, &self.loc, &self.scope)
+        parse_value(&self.text.value, &self.loc, &self.scope)
     }
 }
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.quoted {
-            write!(f, "\"{}\"", &self.tok)
+        if self.text.quoted {
+            if self.text.raw {
+                write!(f, "r\"({})\"", &self.text.value)
+            } else {
+                write!(f, "\"{}\"", &self.text.value)
+            }
         } else {
-            write!(f, "{}", &self.tok)
+            write!(f, "{}", &self.text.value)
         }
     }
 }
@@ -2691,7 +2759,7 @@ impl ExprNode for ForExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
             if let Expression::Leaf(lit) = &**child {
-                self.var = lit.tok.clone();
+                self.var = lit.text.value.clone();
                 return Ok(());
             }
             return error(self, "Expecting identifier in FOR expression");

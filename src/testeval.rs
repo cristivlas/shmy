@@ -342,4 +342,18 @@ mod tests {
     fn test_pass_vars_thru_pipes() {
         assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
     }
+
+    #[test]
+    fn test_hash_tag() {
+        assert_eval_ok!("x = hey#world; $x", Value::from_str("hey").unwrap());
+        assert_eval_ok!(
+            "x = \"hey#world\"; $x",
+            Value::from_str("hey#world").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_raw_strings() {
+        assert_eval_ok!("r\"(_;)( \" )\"", Value::from_str("_;)( \" ").unwrap());
+    }
 }
