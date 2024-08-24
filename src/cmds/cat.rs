@@ -1,6 +1,5 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};

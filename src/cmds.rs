@@ -1,5 +1,5 @@
-use crate::eval::{Scope, Value};
 use crate::utils::copy_vars_to_command_env;
+use crate::{eval::Value, scope::Scope};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::Debug;

@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::{format_size, root_path};
+use crate::{eval::Value, scope::Scope};
 use std::ffi::OsStr;
 use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
@@ -43,7 +42,7 @@ impl DiskFree {
         Self { flags }
     }
 
-    fn get_disk_free_info(scope: &Rc<Scope>, path: &Path) -> Result<DiskFreeInfo, String> {
+    fn disk_free_info(scope: &Rc<Scope>, path: &Path) -> Result<DiskFreeInfo, String> {
         let dirname: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
         let mut info: DiskFreeInfo = DiskFreeInfo::new();
 
@@ -77,7 +76,7 @@ impl DiskFree {
         path: &Path,
         max_len: usize,
     ) -> Result<(), String> {
-        let info = Self::get_disk_free_info(scope, &path)?;
+        let info = Self::disk_free_info(scope, &path)?;
 
         let h = flags.is_present("human-readable");
 

@@ -1,6 +1,5 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Ident, Scope, Value, Variable};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::{eval::Value, scope::Ident, scope::Scope, scope::Variable};
 use std::collections::HashMap;
 use std::env;
 use std::rc::Rc;

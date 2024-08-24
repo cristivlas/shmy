@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Interp, Scope, Value};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::sync_env_vars;
+use crate::{eval::Interp, eval::Value, scope::Scope};
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;

@@ -1,5 +1,5 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::eval::{Scope, Value};
+use crate::{eval::Value, scope::Scope};
 use std::process;
 use std::rc::Rc;
 

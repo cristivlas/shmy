@@ -1,11 +1,12 @@
 use cmds::{get_command, list_registered_commands};
 use directories::UserDirs;
-use eval::{EvalError, Interp, Scope, KEYWORDS};
+use eval::{EvalError, Interp, KEYWORDS};
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
 use rustyline::history::{DefaultHistory, SearchDirection};
 use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
+use scope::Scope;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
@@ -19,6 +20,7 @@ mod macros;
 mod cmds;
 mod eval;
 mod prompt;
+mod scope;
 mod testeval;
 mod utils;
 

@@ -1,10 +1,5 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::{
-    cmds::flags::CommandFlags,
-    current_dir,
-    eval::{Scope, Value},
-};
-
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::{current_dir, eval::Value, scope::Scope};
 use std::cell::RefCell;
 use std::env;
 use std::rc::Rc;

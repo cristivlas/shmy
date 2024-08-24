@@ -1,4 +1,4 @@
-use crate::eval::Scope;
+use crate::scope::Scope;
 use std::env;
 #[cfg(windows)]
 use std::path::{Path, PathBuf};

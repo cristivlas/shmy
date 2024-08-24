@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_size;
+use crate::{eval::Value, scope::Scope};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -180,8 +179,7 @@ fn unix_disk_size(
 
 #[cfg(windows)]
 mod win {
-    use super::Options;
-    use crate::eval::{Scope, Value};
+    use super::{Options, Path, Rc, Scope, Value};
     use crate::utils::root_path;
     use std::collections::HashSet;
     use std::ffi::OsStr;
@@ -192,8 +190,6 @@ mod win {
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
-    use std::path::Path;
-    use std::rc::Rc;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceW;

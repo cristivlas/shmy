@@ -1,4 +1,4 @@
-use crate::eval::Scope;
+use crate::scope::Scope;
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},

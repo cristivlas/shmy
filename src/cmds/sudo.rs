@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::{flags::CommandFlags, get_command};
-use crate::eval::{Scope, Value};
+use super::{flags::CommandFlags, get_command, register_command, Exec, ShellCommand};
 use crate::utils::executable;
+use crate::{eval::Value, scope::Scope};
 use std::ffi::OsStr;
 use std::io::Error;
 use std::os::windows::ffi::OsStrExt;

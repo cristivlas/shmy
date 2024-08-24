@@ -1,6 +1,8 @@
-use super::{get_command, list_registered_commands, register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use super::{
+    flags::CommandFlags, get_command, list_registered_commands, register_command, Exec,
+    ShellCommand,
+};
+use crate::{eval::Value, scope::Scope};
 use gag::BufferRedirect;
 use std::io::Read;
 use std::rc::Rc;

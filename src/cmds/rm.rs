@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
+use crate::{eval::Value, scope::Scope};
 use std::collections::HashSet;
 use std::fs;
 use std::io;

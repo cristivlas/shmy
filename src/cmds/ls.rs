@@ -1,7 +1,6 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_size;
+use crate::{eval::Value, scope::Scope};
 use chrono::DateTime;
 use colored::*;
 use core::fmt;
