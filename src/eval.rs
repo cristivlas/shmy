@@ -1161,7 +1161,7 @@ pub struct Ident(String);
 #[cfg(windows)]
 impl Ident {
     pub fn view(&self) -> String {
-        self.0.to_lowercase()
+        self.0.to_uppercase()
     }
 }
 
@@ -1291,7 +1291,7 @@ impl Scope {
         let mut keys = Vec::new();
 
         for key in self.vars.borrow().keys() {
-            if key.view().starts_with(&var_name.0) {
+            if key.view().starts_with(&var_name.view()) {
                 keys.push(key.0.clone())
             }
         }
@@ -2337,7 +2337,7 @@ impl Redirection {
             // Lookup if the other stream is also redirected
             if let Some(v) = scope.lookup(other) {
                 let desc = if other_desc == "1" { "2" } else { "1" };
-                let other_path = v.to_string();
+                let other_path = v.to_string(); // TODO: case-insensitive comparison on Windows!
                 if other_path == name || &other_path == path || other_path == desc {
                     return Err(format!("Cyclical {} redirection", name));
                 }
