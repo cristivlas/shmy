@@ -1,4 +1,5 @@
 use crate::eval::Value;
+use crate::utils::executable;
 use colored::*;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -7,7 +8,7 @@ use std::env;
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -137,15 +138,11 @@ impl Scope {
     }
 
     pub fn with_env_vars() -> Rc<Scope> {
-        let mut vars: HashMap<Ident, Variable> = env::vars()
+        env::set_var("SHELL", executable().unwrap_or("mysh".to_string()));
+
+        let vars: HashMap<Ident, Variable> = env::vars()
             .map(|(key, value)| (Ident(key), Variable::from(value.as_str())))
             .collect::<HashMap<_, _>>();
-
-        let shell = env::current_exe().unwrap_or(PathBuf::from("mysh"));
-        vars.insert(
-            Ident::from("SHELL"),
-            Variable::from(shell.to_string_lossy().to_string().as_str()),
-        );
 
         Rc::new(Scope {
             parent: None,

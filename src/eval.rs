@@ -1,7 +1,7 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::utils::{copy_vars_to_command_env, executable};
 use crate::scope::Scope;
+use crate::utils::{copy_vars_to_command_env, executable};
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -353,6 +353,22 @@ impl TryFrom<Value> for String {
 impl Value {
     pub fn success() -> Self {
         Value::Int(0)
+    }
+
+    pub fn as_str(&mut self) -> &str {
+        match self {
+            Value::Str(s) => s.as_str(),
+            _ => {
+                // Convert non-Str variants to Str and return the string slice
+                let s = format!("{}", self);
+                *self = Value::Str(s); // Replace `self` with the new `Value::Str`
+                if let Value::Str(ref s) = *self {
+                    s.as_str()
+                } else {
+                    unreachable!() // This should never happen
+                }
+            }
+        }
     }
 }
 
@@ -2638,7 +2654,7 @@ impl Interp {
         self.scope.insert(name.to_string(), Value::Str(value))
     }
 
-    pub fn get_scope(&self) -> Rc<Scope> {
+    pub fn scope(&self) -> Rc<Scope> {
         Rc::clone(&self.scope)
     }
 

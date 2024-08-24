@@ -246,7 +246,14 @@ impl Shell {
     }
 
     fn prompt(&mut self) -> &str {
-        self.prompt = format!("{}> ", current_dir().unwrap_or(String::default()));
+        let prompt_spec = if let Some(prompt) = self.interp.scope().lookup_value("__prompt") {
+            prompt.to_string()
+        } else if let Some(mut prompt) = self.interp.scope().lookup_value("PROMPT") {
+            prompt::convert_dos_prompt_spec(prompt.as_str())
+        } else {
+            "\\u@\\h:\\w$ ".to_string()
+        };
+        self.prompt = prompt::construct_prompt(&prompt_spec);
         &self.prompt
     }
 
@@ -306,7 +313,7 @@ impl Shell {
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
-            let h = CmdLineHelper::new(self.interp.get_scope());
+            let h = CmdLineHelper::new(self.interp.scope());
             rl.set_helper(Some(h));
             rl.load_history(&self.get_history_path()?).unwrap();
 

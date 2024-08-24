@@ -4,7 +4,9 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use std::env;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(PartialEq)]
@@ -108,5 +110,115 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
     {
         use std::fs::OpenOptions;
         OpenOptions::new().write(true).open("CON")
+    }
+}
+
+/// Retrieves the current username, checking USER, then USERNAME.
+fn get_username() -> String {
+    env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .unwrap_or_default()
+}
+
+/// Retrieves the current hostname, checking HOSTNAME, then USERDOMAIN, then COMPUTERNAME.
+fn get_hostname() -> String {
+    env::var("HOSTNAME")
+        .or_else(|_| env::var("USERDOMAIN"))
+        .or_else(|_| env::var("COMPUTERNAME"))
+        .or_else(|_| env::var("NAME"))
+        .unwrap_or_default()
+}
+
+/// Retrieves the current directory as a string.
+fn get_current_dir() -> String {
+    env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("/"))
+        .display()
+        .to_string()
+}
+
+/// Constructs a prompt from a bash-like spec.
+pub fn construct_prompt(spec: &str) -> String {
+    let mut prompt = String::new();
+    let mut chars = spec.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next_ch) = chars.next() {
+                match next_ch {
+                    'u' => prompt.push_str(&get_username()),    // Username
+                    'h' => prompt.push_str(&get_hostname()),    // Hostname
+                    'w' => prompt.push_str(&get_current_dir()), // Current directory
+                    '$' => prompt.push(if get_username() == "root" { '#' } else { '$' }), // Show `#` if root, else `$`
+                    _ => prompt.push_str(&format!("\\{}", next_ch)), // Handle unknown sequences
+                }
+            }
+        } else {
+            prompt.push(ch); // Regular characters
+        }
+    }
+
+    prompt
+}
+
+/// Converts a DOS cmd.exe prompt spec to a Bash-like prompt spec
+pub fn convert_dos_prompt_spec(dos_spec: &str) -> String {
+    let mut bash_spec = String::new();
+    let mut chars = dos_spec.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            if let Some(next_ch) = chars.next() {
+                match next_ch {
+                    'U' => bash_spec.push_str("\\u"), // Current use
+                    'P' => bash_spec.push_str("\\w"), // Current working directory
+                    'G' => bash_spec.push('>'),       // '>' character
+                    'N' => bash_spec.push_str("\\h"), // Hostname (closest equivalent)
+                    'V' => bash_spec.push_str("\\v"), // Bash version
+                    'D' => bash_spec.push_str("\\d"), // Date
+                    _ => bash_spec.push_str(&format!("${}", next_ch)), // Unknown code, preserve it
+                }
+            }
+        } else {
+            bash_spec.push(ch); // Regular characters
+        }
+    }
+
+    bash_spec
+}
+
+// Unit tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_dos_to_bash_spec() {
+        assert_eq!(convert_dos_prompt_spec("$P$G"), "\\w>"); // Path followed by '>'
+        assert_eq!(convert_dos_prompt_spec("$N$G"), "\\h>"); // Hostname followed by '>'
+        assert_eq!(convert_dos_prompt_spec("($P)"), "(\\w)"); // Path enclosed in parentheses
+        assert_eq!(convert_dos_prompt_spec("$V"), "\\v"); // Bash version
+        assert_eq!(convert_dos_prompt_spec("$D"), "\\d"); // Date
+        assert_eq!(convert_dos_prompt_spec("Hello $P"), "Hello \\w"); // Mixed text and spec
+        assert_eq!(convert_dos_prompt_spec("$X"), "$X"); // Unmapped code preserved
+    }
+
+    #[test]
+    fn test_construct_prompt() {
+        // Get real environment variables and current directory
+        let username = get_username();
+        let hostname = get_hostname();
+        let current_dir = get_current_dir();
+
+        assert_eq!(
+            construct_prompt("\\u@\\h:\\w\\$ "),
+            format!("{}@{}:{}$ ", username, hostname, current_dir)
+        );
+        assert_eq!(construct_prompt("\\w>"), format!("{}>", current_dir));
+        assert_eq!(
+            construct_prompt("\\h:\\w$ "),
+            format!("{}:{}$ ", hostname, current_dir)
+        );
+        assert_eq!(construct_prompt("(\\w)"), format!("({})", current_dir));
     }
 }
