@@ -13,8 +13,8 @@ pub(crate) fn copy_vars_to_command_env(command: &mut std::process::Command, scop
     let mut current_scope = scope;
     loop {
         for (key, variable) in current_scope.vars.borrow().iter() {
-            if key != "__stdout" && key != "__stderr" {
-                command.env(key, variable.value().to_string());
+            if key.view() != "__stdout" && key.view() != "__stderr" {
+                command.env(&key.view(), variable.value().to_string());
             }
         }
         // Walk up the enclosing scope

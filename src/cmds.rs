@@ -56,6 +56,7 @@ pub trait Exec {
         false
     }
 
+    #[allow(dead_code)]
     fn path(&self) -> Option<&str> {
         None
     }

@@ -1,6 +1,9 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
 use crate::eval::{Interp, Scope, Value};
+use std::borrow::Borrow;
+use std::fs::File;
+use std::io::Read;
 use std::rc::Rc;
 
 struct Evaluate {
@@ -12,6 +15,7 @@ impl Evaluate {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('x', "export", "Export variables to environment");
+        flags.add_flag('s', "source", "Treat the arguments as file paths");
 
         Self { flags }
     }
@@ -31,19 +35,41 @@ impl Exec for Evaluate {
         }
 
         let mut interp = Interp::new();
+        let eval_scope = Some(Rc::clone(&scope));
+        let global_scope = scope.global();
 
-        for expr in args {
+        for arg in args {
+            let input = if flags.is_present("source") {
+                // Treat arg as the name of a source file
+                let mut file = File::open(&arg)
+                    .map_err(|e| format!("Could not open {}: {}", scope.err_path_str(&arg), e))?;
+
+                let mut source = String::new();
+                file.read_to_string(&mut source)
+                    .map_err(|e| format!("Could not read {}: {}", scope.err_path_str(&arg), e))?;
+
+                source
+            } else {
+                arg.to_owned()
+            };
+
             let value = interp
-                .eval(&expr, Some(Rc::clone(scope)))
+                .eval(&input, eval_scope.to_owned())
                 .map_err(|e| e.to_string())?;
 
-            my_println!("{}", value)?;
-
             if flags.is_present("export") {
-                let global_scope = scope.global();
                 for (key, var) in scope.vars.borrow().iter() {
+                    // TODO: is_special_var()
+
+                    if matches!(key.borrow(), "__errors" | "__stderr" | "__stdout") {
+                        continue;
+                    }
+
                     global_scope.insert(key.to_string(), var.value());
+                    std::env::set_var(key.to_string(), var.to_string());
                 }
+            } else {
+                my_println!("{}", value)?;
             }
         }
 

@@ -1,6 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::cmds::flags::CommandFlags;
-use crate::eval::{Scope, Value, Variable};
+use crate::eval::{Ident, Scope, Value, Variable};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -16,7 +16,7 @@ impl Vars {
         Vars { flags }
     }
 
-    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> HashMap<String, Variable> {
+    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> HashMap<Ident, Variable> {
         let mut all_vars = HashMap::new();
         let mut current_scope = Some(Rc::clone(scope));
 
@@ -55,7 +55,7 @@ impl Exec for Vars {
         let vars = Self::collect_vars(scope, local_only);
 
         // Collect keys and sort them
-        let mut keys: Vec<String> = vars.keys().cloned().collect();
+        let mut keys: Vec<Ident> = vars.keys().cloned().collect();
         keys.sort(); // Sort the keys lexicographically
 
         // Iterate over sorted keys
