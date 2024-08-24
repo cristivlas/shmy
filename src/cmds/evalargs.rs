@@ -48,10 +48,16 @@ impl Exec for Evaluate {
                 file.read_to_string(&mut source)
                     .map_err(|e| format!("Could not read {}: {}", scope.err_path_str(&arg), e))?;
 
+                interp.set_file(Some(Rc::new(arg)));
+
                 source
             } else {
+                interp.set_file(None);
+
                 arg.to_owned()
             };
+
+            // TODO: error handling
 
             let value = interp
                 .eval(&input, eval_scope.to_owned())
@@ -66,6 +72,7 @@ impl Exec for Evaluate {
                     }
 
                     global_scope.insert(key.to_string(), var.value());
+
                     std::env::set_var(key.to_string(), var.to_string());
                 }
             } else {
