@@ -161,31 +161,43 @@ pub fn construct_prompt(spec: &str) -> String {
     prompt
 }
 
-/// Converts a DOS cmd.exe prompt spec to a Bash-like prompt spec
-pub fn convert_dos_prompt_spec(dos_spec: &str) -> String {
-    let mut bash_spec = String::new();
-    let mut chars = dos_spec.chars().peekable();
+pub struct PromptBuilder {
+    spec: String,
+}
 
-    while let Some(ch) = chars.next() {
-        if ch == '$' {
-            if let Some(next_ch) = chars.next() {
-                match next_ch {
-                    'U' => bash_spec.push_str("\\u"), // Current use
-                    'P' => bash_spec.push_str("\\w"), // Current working directory
-                    'G' => bash_spec.push('>'),       // '>' character
-                    'N' => bash_spec.push_str("\\h"), // Hostname (closest equivalent)
-                    'V' => bash_spec.push_str("\\v"), // Bash version
-                    'D' => bash_spec.push_str("\\d"), // Date
-                    _ => bash_spec.push_str(&format!("${}", next_ch)), // Unknown code, preserve it
-                }
-            }
-        } else {
-            bash_spec.push(ch); // Regular characters
+impl PromptBuilder {
+    pub fn new() -> Self {
+        Self {
+            spec: String::new(),
         }
     }
 
-    bash_spec
+    pub fn convert<'a>(&'a mut self, dos_spec: &str) -> &'a str {
+        self.spec.clear();
+        let mut chars = dos_spec.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' {
+                if let Some(next_ch) = chars.next() {
+                    match next_ch {
+                        'U' => self.spec.push_str("\\u"), // Current user
+                        'P' => self.spec.push_str("\\w"), // Current working directory
+                        'G' => self.spec.push('>'),       // '>' character
+                        'N' => self.spec.push_str("\\h"), // Hostname (closest equivalent)
+                        'V' => self.spec.push_str("\\v"), // Bash version
+                        'D' => self.spec.push_str("\\d"), // Date
+                        _ => self.spec.push_str(&format!("${}", next_ch)), // Unknown code, preserve it
+                    }
+                }
+            } else {
+                self.spec.push(ch); // Regular characters
+            }
+        }
+
+        &self.spec
+    }
 }
+
 
 // Unit tests
 #[cfg(test)]
@@ -194,13 +206,14 @@ mod tests {
 
     #[test]
     fn test_convert_dos_to_bash_spec() {
-        assert_eq!(convert_dos_prompt_spec("$P$G"), "\\w>"); // Path followed by '>'
-        assert_eq!(convert_dos_prompt_spec("$N$G"), "\\h>"); // Hostname followed by '>'
-        assert_eq!(convert_dos_prompt_spec("($P)"), "(\\w)"); // Path enclosed in parentheses
-        assert_eq!(convert_dos_prompt_spec("$V"), "\\v"); // Bash version
-        assert_eq!(convert_dos_prompt_spec("$D"), "\\d"); // Date
-        assert_eq!(convert_dos_prompt_spec("Hello $P"), "Hello \\w"); // Mixed text and spec
-        assert_eq!(convert_dos_prompt_spec("$X"), "$X"); // Unmapped code preserved
+        let mut converter = PromptBuilder::new();
+        assert_eq!(converter.convert("$P$G"), "\\w>"); // Path followed by '>'
+        assert_eq!(converter.convert("$N$G"), "\\h>"); // Hostname followed by '>'
+        assert_eq!(converter.convert("($P)"), "(\\w)"); // Path enclosed in parentheses
+        assert_eq!(converter.convert("$V"), "\\v"); // Bash version
+        assert_eq!(converter.convert("$D"), "\\d"); // Date
+        assert_eq!(converter.convert("Hello $P"), "Hello \\w"); // Mixed text and spec
+        assert_eq!(converter.convert("$X"), "$X"); // Unmapped code preserved
     }
 
     #[test]

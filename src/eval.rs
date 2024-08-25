@@ -5,6 +5,7 @@ use crate::utils::{copy_vars_to_command_env, executable};
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
@@ -203,17 +204,6 @@ pub struct Status {
 
 derive_has_location!(Status);
 
-fn collect_var(scope: &Rc<Scope>, var_name: &str, info: String) {
-    match &scope.lookup_local(var_name) {
-        Some(v) => {
-            v.assign(Value::Str(format!("{}\n{}", v.to_string(), info)));
-        }
-        _ => {
-            scope.insert(var_name.to_string(), Value::Str(info));
-        }
-    }
-}
-
 impl Status {
     fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self {
@@ -227,7 +217,7 @@ impl Status {
 
     fn as_bool(&mut self, scope: &Rc<Scope>) -> bool {
         if let Err(e) = &self.result {
-            collect_var(scope, "__errors", format!("{}: {}", self.cmd, e.message));
+            Self::append_line_to(scope, "__errors", format!("{}: {}", self.cmd, &e.message));
         }
 
         self.checked = true;
@@ -262,6 +252,17 @@ impl Status {
 
         result
     }
+
+    fn append_line_to(scope: &Rc<Scope>, var_name: &str, info: String) {
+        match &scope.lookup_local(var_name) {
+            Some(v) => {
+                v.assign(Value::new_str(format!("{}\n{}", v.value().as_str(), info)));
+            }
+            _ => {
+                scope.insert(var_name.to_string(), Value::new_str(info));
+            }
+        }
+    }
 }
 
 impl fmt::Display for Status {
@@ -274,13 +275,13 @@ impl fmt::Display for Status {
 pub enum Value {
     Int(i64),
     Real(f64),
-    Str(String),
+    Str(Rc<String>),
     Stat(Rc<RefCell<Status>>),
 }
 
 impl Default for Value {
     fn default() -> Self {
-        Value::Str(String::default())
+        Value::Str(Rc::new(String::default()))
     }
 }
 
@@ -312,7 +313,7 @@ impl FromStr for Value {
         } else if let Ok(f) = s.parse::<f64>() {
             Ok(Value::Real(f))
         } else {
-            Ok(Value::Str(s.to_string()))
+            Ok(Value::new_str(s.to_string()))
         }
     }
 }
@@ -339,36 +340,20 @@ impl TryFrom<Value> for f64 {
     }
 }
 
-impl TryFrom<Value> for String {
-    type Error = String;
-
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        match v {
-            Value::Str(s) => Ok(s),
-            _ => Err(format!("{} is not a string", v)),
+impl Value {
+    pub fn as_str(&self) -> Cow<'_, str> {
+        match self {
+            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Cow::Owned(self.to_string()),
+            Value::Str(s) => Cow::Borrowed(s.as_str()),
         }
     }
-}
 
-impl Value {
+    pub fn new_str(value: String) -> Self {
+        Value::Str(Rc::new(value))
+    }
+
     pub fn success() -> Self {
         Value::Int(0)
-    }
-
-    pub fn as_str(&mut self) -> &str {
-        match self {
-            Value::Str(s) => s.as_str(),
-            _ => {
-                // Convert non-Str variants to Str and return the string slice
-                let s = format!("{}", self);
-                *self = Value::Str(s); // Replace `self` with the new `Value::Str`
-                if let Value::Str(ref s) = *self {
-                    s.as_str()
-                } else {
-                    unreachable!() // This should never happen
-                }
-            }
-        }
     }
 }
 
@@ -579,7 +564,7 @@ where
 
             if self.text.starts_with("~") {
                 if let Some(v) = self.scope.lookup("HOME") {
-                    self.text = format!("{}{}", v.value().to_string(), &self.text[1..]);
+                    self.text = format!("{}{}", v.value().as_str(), &self.text[1..]);
                 }
             }
 
@@ -1479,7 +1464,7 @@ impl fmt::Display for BinExpr {
     }
 }
 
-/// Division evaluator helper
+/// Division eval helper
 macro_rules! div_match {
     ($self:expr, $i:expr, $rhs:expr) => {
         match $rhs {
@@ -1497,7 +1482,7 @@ macro_rules! div_match {
                     Ok(Value::Real(($i as f64) / j))
                 }
             }
-            Value::Str(s) => Ok(Value::Str(format!("{}/{}", $i, s))),
+            Value::Str(s) => Ok(Value::new_str(format!("{}/{}", $i, s.as_str()))),
             Value::Stat(_) => error($self, "Cannot divide by command status"),
         }
     };
@@ -1566,8 +1551,7 @@ impl BinExpr {
             if var_name.starts_with('$') {
                 // Assigning to an already-defined variable, as in: $i = $i + 1?
                 if let Some(var) = lit.scope.lookup(&var_name[1..]) {
-                    var.assign(rhs);
-                    return Ok(var.value());
+                    return Ok(var.assign(rhs).clone());
                 } else {
                     return error(self, &format!("Variable not found: {}", var_name));
                 }
@@ -1631,8 +1615,10 @@ impl BinExpr {
             Value::Int(i) => div_match!(self, i, rhs),
             Value::Real(i) => div_match!(self, i, rhs),
             Value::Str(s1) => match rhs {
-                Value::Int(_) | Value::Real(_) => Ok(Value::Str(format!("{}/{}", s1, rhs))),
-                Value::Str(s2) => Ok(Value::Str(format!("{}/{}", s1, s2))),
+                Value::Int(_) | Value::Real(_) => {
+                    Ok(Value::new_str(format!("{}/{}", s1.as_str(), rhs.as_str())))
+                }
+                Value::Str(s2) => Ok(Value::new_str(format!("{}/{}", s1.as_str(), s2.as_str()))),
                 Value::Stat(_) => error(self, "Cannot divide by command status"),
             },
             Value::Stat(_) => error(self, "Cannot divide command status"),
@@ -1867,16 +1853,16 @@ impl BinExpr {
             Value::Int(i) => match rhs {
                 Value::Int(j) => Ok(Value::Int(i + j)),
                 Value::Real(j) => Ok(Value::Real(i as f64 + j)),
-                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+                Value::Str(ref s) => Ok(Value::new_str(format!("{}{}", i, s.as_str()))),
                 Value::Stat(_) => error(self, "Cannot add number and command status"),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i + j as f64)),
                 Value::Real(j) => Ok(Value::Real(i + j)),
-                Value::Str(ref s) => Ok(Value::Str(format!("{}{}", i, s))),
+                Value::Str(ref s) => Ok(Value::new_str(format!("{}{}", i, s.as_str()))),
                 Value::Stat(_) => error(self, "Cannot add number and command status"),
             },
-            Value::Str(s) => Ok(Value::Str(format!("{}{}", s, rhs))),
+            Value::Str(s) => Ok(Value::new_str(format!("{}{}", s.as_str(), rhs.as_str()))),
             Value::Stat(_) => error(self, "Cannot add command statuses"),
         }
     }
@@ -1888,7 +1874,7 @@ impl BinExpr {
 
             if var_name.starts_with('$') {
                 if let Some(var) = lit.scope.erase(&var_name[1..]) {
-                    return Ok(var.value()); // Return the erased value
+                    return Ok(var.value().clone()); // Return the erased value
                 } else {
                     return error(self, &format!("Variable not found: {}", var_name));
                 }
@@ -2044,14 +2030,14 @@ impl Eval for GroupExpr {
                     // BREAK and CONTINUE are "caught" by eval_iteration,
                     // if inside a legite loop; otherwise will propagate
                     // up as errors (break / continue outside of a loop).
-                    if word == "BREAK" {
+                    if word.as_str() == "BREAK" {
                         result = Err(EvalError {
                             loc: e.loc(),
                             message: "BREAK outside loop".to_string(),
                             jump: Some(Jump::Break(result.unwrap())),
                         });
                         break;
-                    } else if word == "CONTINUE" {
+                    } else if word.as_str() == "CONTINUE" {
                         result = Err(EvalError {
                             loc: e.loc(),
                             message: "CONTINUE outside loop".to_string(),
@@ -2301,7 +2287,7 @@ fn hoist(scope: &Rc<Scope>, var_name: &str) {
         if let Some(parent) = &scope.parent {
             // topmost scope is for environment vars
             if parent.parent.is_some() {
-                parent.insert(var_name.to_string(), v.value());
+                parent.insert(var_name.to_string(), v.value().clone());
             }
         }
     }
@@ -2563,7 +2549,7 @@ fn eval_unary<T: HasLocation>(
         Op::Minus => match val {
             Value::Int(i) => Ok(Value::Int(-i)),
             Value::Real(r) => Ok(Value::Real(-r)),
-            Value::Str(s) => Ok(Value::Str(format!("-{}", s))),
+            Value::Str(s) => Ok(Value::new_str(format!("-{}", s))),
             Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
         Op::Not => {
@@ -2651,7 +2637,7 @@ impl Interp {
     }
 
     pub fn set_var(&mut self, name: &str, value: String) {
-        self.scope.insert(name.to_string(), Value::Str(value))
+        self.scope.insert(name.to_string(), Value::new_str(value))
     }
 
     pub fn scope(&self) -> Rc<Scope> {

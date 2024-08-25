@@ -1,7 +1,7 @@
 use crate::eval::Value;
 use crate::utils::executable;
 use colored::*;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
@@ -14,29 +14,30 @@ use std::sync::atomic::Ordering::SeqCst;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Variable {
-    val: Rc<RefCell<Value>>,
+    val: RefCell<Value>,
 }
 
 impl Variable {
     pub fn new(val: Value) -> Self {
         Self {
-            val: Rc::new(RefCell::new(val)),
+            val: RefCell::new(val),
         }
     }
 
-    pub fn assign(&self, val: Value) {
+    pub fn assign(&self, val: Value) -> Ref<Value> {
         *self.val.borrow_mut() = val;
+        self.val.borrow()
     }
 
-    pub fn value(&self) -> Value {
-        self.val.borrow().clone()
+    pub fn value(&self) -> Ref<Value> {
+        Ref::map(self.val.borrow(), |v| v)
     }
 }
 
 impl From<&str> for Variable {
     fn from(value: &str) -> Self {
         Variable {
-            val: Rc::new(RefCell::new(value.parse::<Value>().unwrap())),
+            val: RefCell::new(value.parse::<Value>().unwrap()),
         }
     }
 }
@@ -164,22 +165,22 @@ impl Scope {
             .insert(Ident(name), Variable::new(val));
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Variable> {
+    pub fn lookup(&self, name: &str) -> Option<Ref<Variable>> {
         self.lookup_by_ident(&Ident::from(name))
     }
 
-    fn lookup_by_ident(&self, ident: &Ident) -> Option<Variable> {
-        match self.vars.borrow().get(ident) {
-            Some(v) => Some(v.clone()),
-            None => match &self.parent {
-                Some(scope) => scope.lookup_by_ident(ident),
-                _ => None,
-            },
-        }
+    fn lookup_by_ident(&self, ident: &Ident) -> Option<Ref<Variable>> {
+        Ref::filter_map(self.vars.borrow(), |vars| vars.get(ident))
+            .ok()
+            .or_else(|| {
+                self.parent
+                    .as_ref()
+                    .and_then(|scope| scope.lookup_by_ident(ident))
+            })
     }
 
-    pub fn lookup_local(&self, name: &str) -> Option<Variable> {
-        self.vars.borrow().get(&Ident::from(name)).cloned()
+    pub fn lookup_local(&self, name: &str) -> Option<Ref<Variable>> {
+        Ref::filter_map(self.vars.borrow(), |vars| vars.get(&Ident::from(name))).ok()
     }
 
     pub fn lookup_starting_with(&self, name: &str) -> Vec<String> {
@@ -194,11 +195,8 @@ impl Scope {
         keys
     }
 
-    pub fn lookup_value(&self, var_name: &str) -> Option<Value> {
-        match self.lookup(var_name) {
-            Some(v) => Some(v.value()),
-            None => None,
-        }
+    pub fn lookup_value(&self, name: &str) -> Option<Value> {
+        self.lookup(name).map(|v| v.value().clone())
     }
 
     /// Lookup and erase a variable
