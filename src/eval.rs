@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 use std::iter::Peekable;
 use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
@@ -177,6 +177,23 @@ impl Location {
     fn next_line(&mut self) {
         self.line += 1;
         self.col = 0;
+    }
+
+    pub fn colored<T: IsTerminal>(&self, scope: &Rc<Scope>, message: &str, output: &T) -> String {
+        if scope.use_colors(output) {
+            match &self.file {
+                Some(file) => format!(
+                    "{}:{}:{} {}",
+                    scope.err_path_str(file),
+                    self.line,
+                    self.col,
+                    message.red()
+                ),
+                None => format!("{}:{}", self, message.red()),
+            }
+        } else {
+            format!("{}: {}", self, message)
+        }
     }
 }
 
@@ -389,42 +406,28 @@ impl EvalError {
     }
 
     /// Show error details, with colors. TODO: clean up.
-    pub fn show(&self, scope: &Rc<Scope>, input: &String) {
-        let line = self.loc.line as usize;
-        let col = self.loc.col as usize;
+    pub fn show(&self, scope: &Rc<Scope>, input: &str) {
+        let stderr = std::io::stderr();
+        eprintln!("{}", self.loc.colored(scope, &self.message, &stderr));
 
-        if !scope.use_colors(&std::io::stderr()) {
-            eprintln!("{}", &self);
-        } else {
-            match &self.loc.file {
-                Some(file) => eprintln!(
-                    "{}:{}:{} {}",
-                    scope.err_path_str(&*file),
-                    self.loc.line,
-                    self.loc.col,
-                    self.message.red()
-                ),
-                None => eprintln!("{}:{}", self.loc, self.message.red()),
+        let (line, col) = (self.loc.line as usize, self.loc.col as usize);
+
+        // Retrieve and trim the line with the error
+        if let Some(mut error_line) = input.lines().nth(line - 1).map(|l| l.to_string()) {
+            let terminal_width = terminal_size()
+                .map(|(Width(w), _)| w as usize)
+                .unwrap_or(80)
+                .saturating_sub(5);
+
+            let max_width = col.max(terminal_width);
+            if error_line.len() > max_width {
+                error_line.truncate(max_width);
+                error_line.push_str("...");
             }
+
+            eprintln!("{}", error_line);
+            eprintln!("{}", "-".repeat(col - 1) + "^\n");
         }
-        // Get the problematic line from the input
-        let lines: Vec<&str> = input.lines().collect();
-        let mut error_line = lines.get(line - 1).unwrap_or(&"").to_string();
-
-        let terminal_width = terminal_size()
-            .map_or(80, |(Width(w), _)| w as usize)
-            .saturating_sub(5);
-
-        let max_width = std::cmp::max(col, terminal_width);
-
-        // Trim error_line if it's longer than max_width
-        if error_line.len() > max_width {
-            error_line.truncate(max_width);
-            error_line.push_str("...");
-        }
-
-        eprintln!("{}", error_line);
-        eprintln!("{}", "-".repeat(col - 1) + "^\n");
     }
 }
 
