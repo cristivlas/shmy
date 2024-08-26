@@ -1,7 +1,7 @@
 use cmds::{get_command, list_registered_commands};
 use directories::UserDirs;
 use eval::{EvalError, Interp, KEYWORDS};
-use prompt::{construct_prompt, PromptBuilder};
+use prompt::PromptBuilder;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
@@ -207,8 +207,7 @@ struct Shell {
     home_dir: Option<PathBuf>,
     history_path: Option<PathBuf>,
     edit_config: rustyline::config::Config,
-    prompt: String,
-    prompt_helper: prompt::PromptBuilder,
+    prompt_builder: prompt::PromptBuilder,
 }
 
 fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Option<String> {
@@ -229,10 +228,14 @@ impl Shell {
             })
             .expect("Error setting Ctrl+C handler");
         }
+
+        let interp = Interp::new();
+        let scope = interp.scope();
+
         Self {
             source: None,
             interactive: true,
-            interp: Interp::new(),
+            interp,
             home_dir: None,
             history_path: None,
             edit_config: rustyline::Config::builder()
@@ -243,20 +246,12 @@ impl Shell {
                 .max_history_size(1024)
                 .unwrap()
                 .build(),
-            prompt: String::default(),
-            prompt_helper: PromptBuilder::new(),
+            prompt_builder: PromptBuilder::with_scope(&scope),
         }
     }
 
     fn prompt(&mut self) -> &str {
-        if let Some(v) = self.interp.scope().lookup("__prompt") {
-            self.prompt = construct_prompt(&v.value().as_str());
-        } else if let Some(v) = self.interp.scope().lookup("PROMPT") {
-            self.prompt = construct_prompt(self.prompt_helper.convert(&v.value().as_str()));
-        } else {
-            self.prompt = construct_prompt("\\u@\\h:\\w$ ");
-        };
-        &self.prompt
+        &self.prompt_builder.prompt()
     }
 
     // Retrieve the path to the file where history is saved.

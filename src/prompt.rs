@@ -1,4 +1,4 @@
-use crate::scope::Scope;
+use crate::{eval::Value, scope::Scope};
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -6,7 +6,6 @@ use crossterm::{
 };
 use std::env;
 use std::io::{self, Write};
-use std::path::PathBuf;
 use std::rc::Rc;
 
 #[derive(PartialEq)]
@@ -113,125 +112,144 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
     }
 }
 
-/// Retrieves the current username, checking USER, then USERNAME.
-fn get_username() -> String {
-    env::var("USER")
-        .or_else(|_| env::var("USERNAME"))
-        .unwrap_or_default()
-}
-
-/// Retrieves the current hostname, checking HOSTNAME, then USERDOMAIN, then COMPUTERNAME.
-fn get_hostname() -> String {
-    env::var("HOSTNAME")
-        .or_else(|_| env::var("USERDOMAIN"))
-        .or_else(|_| env::var("COMPUTERNAME"))
-        .or_else(|_| env::var("NAME"))
-        .unwrap_or_default()
-}
-
-/// Retrieves the current directory as a string.
-fn get_current_dir() -> String {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("/"))
-        .display()
-        .to_string()
-}
-
-/// Constructs a prompt from a bash-like spec.
-pub fn construct_prompt(spec: &str) -> String {
-    let mut prompt = String::new();
-    let mut chars = spec.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(next_ch) = chars.next() {
-                match next_ch {
-                    'u' => prompt.push_str(&get_username()),    // Username
-                    'h' => prompt.push_str(&get_hostname()),    // Hostname
-                    'w' => prompt.push_str(&get_current_dir()), // Current directory
-                    '$' => prompt.push(if get_username() == "root" { '#' } else { '$' }), // Show `#` if root, else `$`
-                    _ => prompt.push_str(&format!("\\{}", next_ch)), // Handle unknown sequences
-                }
-            }
-        } else {
-            prompt.push(ch); // Regular characters
-        }
-    }
-
-    prompt
-}
-
 pub struct PromptBuilder {
-    spec: String,
+    scope: Rc<Scope>,
+    prompt: String,
 }
 
 impl PromptBuilder {
-    pub fn new() -> Self {
+    pub fn with_scope(scope: &Rc<Scope>) -> Self {
         Self {
-            spec: String::new(),
+            scope: Rc::clone(&scope),
+            prompt: String::new(),
         }
     }
 
-    pub fn convert<'a>(&'a mut self, dos_spec: &str) -> &'a str {
-        self.spec.clear();
-        let mut chars = dos_spec.chars().peekable();
+    #[cfg(test)]
+    pub fn new() -> Self {
+        Self::with_scope(&Scope::with_env_vars())
+    }
+
+    pub fn prompt(&mut self) -> &str {
+        let spec = Self::prompt_spec(&self.scope);
+        self.build(spec.as_str())
+    }
+
+    fn prompt_spec(scope: &Rc<Scope>) -> Rc<String> {
+        if let Some(var) = scope.lookup("__prompt") {
+            var.value().to_rc_string()
+        } else {
+            // Create default prompt specification and insert into the scope.
+            let spec = Rc::new("\\u@\\h:\\w\\$ ".to_string());
+            scope.insert("__prompt".to_string(), Value::Str(Rc::clone(&spec)));
+
+            spec
+        }
+    }
+
+    fn username(&self) -> Rc<String> {
+        if let Some(var) = self
+            .scope
+            .lookup("USER")
+            .or_else(|| self.scope.lookup("USERNAME"))
+        {
+            var.value().to_rc_string()
+        } else {
+            Rc::default()
+        }
+    }
+
+    fn is_root(&self) -> bool {
+        self.username().as_str() == "root"
+    }
+
+    fn push_username(&mut self) {
+        self.prompt.push_str(&self.username())
+    }
+
+    fn push_hostname(&mut self) {
+        if let Some(hostname) = self
+            .scope
+            .lookup("HOSTNAME")
+            .or_else(|| self.scope.lookup("USERDOMAIN"))
+            .or_else(|| self.scope.lookup("COMPUTERNAME"))
+            .or_else(|| self.scope.lookup("NAME"))
+        {
+            self.prompt.push_str(&hostname.value().as_str());
+        }
+    }
+
+    fn push_current_dir(&mut self) {
+        self.prompt
+            .push_str(&env::current_dir().unwrap_or_default().display().to_string());
+    }
+
+    pub fn build(&mut self, spec: &str) -> &str {
+        self.prompt.clear();
+
+        let mut chars = spec.chars().peekable();
 
         while let Some(ch) = chars.next() {
-            if ch == '$' {
+            if ch == '\\' {
                 if let Some(next_ch) = chars.next() {
                     match next_ch {
-                        'U' => self.spec.push_str("\\u"), // Current user
-                        'P' => self.spec.push_str("\\w"), // Current working directory
-                        'G' => self.spec.push('>'),       // '>' character
-                        'N' => self.spec.push_str("\\h"), // Hostname (closest equivalent)
-                        'V' => self.spec.push_str("\\v"), // Bash version
-                        'D' => self.spec.push_str("\\d"), // Date
-                        _ => self.spec.push_str(&format!("${}", next_ch)), // Unknown code, preserve it
+                        'u' => self.push_username(),
+                        'h' => self.push_hostname(),
+                        'w' => self.push_current_dir(),
+                        '$' => self.prompt.push(if self.is_root() { '#' } else { '$' }),
+                        _ => {}
                     }
                 }
             } else {
-                self.spec.push(ch); // Regular characters
+                self.prompt.push(ch);
             }
         }
 
-        &self.spec
+        &self.prompt
     }
 }
-
 
 // Unit tests
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_convert_dos_to_bash_spec() {
-        let mut converter = PromptBuilder::new();
-        assert_eq!(converter.convert("$P$G"), "\\w>"); // Path followed by '>'
-        assert_eq!(converter.convert("$N$G"), "\\h>"); // Hostname followed by '>'
-        assert_eq!(converter.convert("($P)"), "(\\w)"); // Path enclosed in parentheses
-        assert_eq!(converter.convert("$V"), "\\v"); // Bash version
-        assert_eq!(converter.convert("$D"), "\\d"); // Date
-        assert_eq!(converter.convert("Hello $P"), "Hello \\w"); // Mixed text and spec
-        assert_eq!(converter.convert("$X"), "$X"); // Unmapped code preserved
+    fn get_username() -> String {
+        env::var("USER")
+            .or_else(|_| env::var("USERNAME"))
+            .unwrap_or_default()
+    }
+
+    fn get_hostname() -> String {
+        env::var("HOSTNAME")
+            .or_else(|_| env::var("USERDOMAIN"))
+            .or_else(|_| env::var("COMPUTERNAME"))
+            .or_else(|_| env::var("NAME"))
+            .unwrap_or_default()
+    }
+
+    fn get_current_dir() -> String {
+        env::current_dir().unwrap_or_default().display().to_string()
     }
 
     #[test]
-    fn test_construct_prompt() {
+    fn test_build() {
         // Get real environment variables and current directory
         let username = get_username();
         let hostname = get_hostname();
         let current_dir = get_current_dir();
 
+        let mut builder = PromptBuilder::new();
+
         assert_eq!(
-            construct_prompt("\\u@\\h:\\w\\$ "),
+            builder.build("\\u@\\h:\\w\\$ "),
             format!("{}@{}:{}$ ", username, hostname, current_dir)
         );
-        assert_eq!(construct_prompt("\\w>"), format!("{}>", current_dir));
+        assert_eq!(builder.build("\\w>"), format!("{}>", current_dir));
         assert_eq!(
-            construct_prompt("\\h:\\w$ "),
+            builder.build("\\h:\\w$ "),
             format!("{}:{}$ ", hostname, current_dir)
         );
-        assert_eq!(construct_prompt("(\\w)"), format!("({})", current_dir));
+        assert_eq!(builder.build("(\\w)"), format!("({})", current_dir));
     }
 }

@@ -281,7 +281,7 @@ pub enum Value {
 
 impl Default for Value {
     fn default() -> Self {
-        Value::Str(Rc::new(String::default()))
+        Value::Str(Rc::default())
     }
 }
 
@@ -354,6 +354,13 @@ impl Value {
 
     pub fn success() -> Self {
         Value::Int(0)
+    }
+
+    pub fn to_rc_string(&self) -> Rc<String> {
+        match self {
+            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Rc::new(self.to_string()),
+            Value::Str(s) => Rc::clone(&s),
+        }
     }
 }
 
