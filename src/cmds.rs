@@ -1,10 +1,12 @@
 use crate::utils::copy_vars_to_command_env;
 use crate::{eval::Value, scope::Scope};
 use lazy_static::lazy_static;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -55,9 +57,8 @@ pub trait Exec {
         false
     }
 
-    #[allow(dead_code)]
-    fn path(&self) -> Option<String> {
-        None
+    fn path(&self) -> Cow<'_, Path> {
+        unreachable!()
     }
 }
 
@@ -92,7 +93,7 @@ impl Exec for ShellCommand {
         self.inner.is_script()
     }
 
-    fn path(&self) -> Option<String> {
+    fn path(&self) -> Cow<'_, Path> {
         self.inner.path()
     }
 }
@@ -114,12 +115,12 @@ pub fn register_command(command: ShellCommand) {
 pub fn get_command(name: &str) -> Option<ShellCommand> {
     let mut cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
     if cmd.is_none() {
-        if let Some(_) = locate_executable(name) {
+        if let Some(_) = which_executable(Path::new(name)) {
             // Do not cache the path, as $PATH may change later.
             register_command(ShellCommand {
                 name: name.to_string(),
                 inner: Rc::new(External {
-                    name: name.to_string(),
+                    path: PathBuf::from(name),
                 }),
             });
             cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
@@ -144,13 +145,13 @@ pub fn list_registered_commands(internal: bool) -> Vec<String> {
     commands
 }
 
-fn locate_executable(name: &str) -> Option<String> {
-    match which(name) {
+fn which_executable<T: AsRef<OsStr>>(path: T) -> Option<PathBuf> {
+    match which(path) {
         Ok(path) => {
             // Check if the path is an executable
             if let Ok(metadata) = fs::metadata(&path) {
                 if metadata.is_file() && is_executable(&path) {
-                    return Some(path.to_string_lossy().to_string());
+                    return Some(path);
                 }
             }
             None
@@ -186,18 +187,25 @@ fn is_executable(path: &Path) -> bool {
 
 // Wrap execution of an external program.
 struct External {
-    name: String,
+    path: PathBuf,
 }
 
 impl External {
-    fn path(&self) -> String {
-        locate_executable(&self.name).unwrap_or(self.name.clone())
+    fn which_path(&self) -> Cow<'_, Path> {
+        if self.path.is_absolute() {
+            Cow::Borrowed(&self.path)
+        } else if let Some(path) = which_executable(&self.path) {
+            Cow::Owned(path)
+        } else {
+            Cow::Borrowed(&self.path)
+        }
     }
 }
+
 #[cfg(unix)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
-        let mut command = Command::new(self.path());
+        let mut command = Command::new(self.path().as_os_str());
         command.args(args);
         command
     }
@@ -206,13 +214,13 @@ impl External {
 #[cfg(windows)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
-        let path = self.path();
+        let path = self.which_path();
         if self.is_script() {
             let mut command = Command::new("cmd");
-            command.arg("/C").arg(path).args(args);
+            command.arg("/C").arg(path.as_os_str()).args(args);
             command
         } else {
-            let mut command = Command::new(path);
+            let mut command = Command::new(path.as_os_str());
             command.args(args);
             command
         }
@@ -245,8 +253,8 @@ impl Exec for External {
     /// in the registry.
     #[cfg(windows)]
     fn is_script(&self) -> bool {
-        let path = self.path();
-        let ext = Path::new(&path)
+        let path = self.which_path();
+        let ext = path
             .extension()
             .and_then(std::ffi::OsStr::to_str)
             .unwrap_or_default();
@@ -265,8 +273,8 @@ impl Exec for External {
         true
     }
 
-    fn path(&self) -> Option<String> {
-        Some(self.path())
+    fn path(&self) -> Cow<'_, Path> {
+        self.which_path()
     }
 }
 
@@ -306,8 +314,8 @@ impl Exec for Which {
                     my_println!("{}: built-in", command)?;
                 }
             }
-            if let Some(path) = locate_executable(command) {
-                my_println!("{}", path)?;
+            if let Some(path) = which_executable(command) {
+                my_println!("{}", path.display())?;
             }
         }
 

@@ -100,10 +100,7 @@ impl Exec for Sudo {
                 std::env::current_dir().map_err(|e| format!("Could not get current dir: {}", e))?;
 
             if cmd.is_external() {
-                let path = cmd
-                    .path()
-                    .map(|p| p.to_owned())
-                    .unwrap_or(cmd_name.to_string());
+                let path = cmd.path().to_string_lossy().to_string();
 
                 if cmd.is_script() && !path.ends_with(".msc") {
                     (
