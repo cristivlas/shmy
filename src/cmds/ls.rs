@@ -110,7 +110,7 @@ impl Dir {
 
     fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<Options, String> {
         let mut flags = self.flags.clone();
-        let parsed_args = flags.parse(args)?;
+        let parsed_args = flags.parse(scope, args)?;
 
         let cmd_args = Options {
             all_files: flags.is_present("all"),

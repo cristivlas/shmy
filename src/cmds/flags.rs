@@ -1,4 +1,6 @@
+use crate::scope::Scope;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Clone)]
 struct Flag {
@@ -12,13 +14,17 @@ struct Flag {
 pub struct CommandFlags {
     flags: HashMap<String, Flag>,
     values: HashMap<String, String>,
+    index: usize,
 }
+
+type ArgsIter<'a> = std::iter::Peekable<std::iter::Enumerate<std::slice::Iter<'a, String>>>;
 
 impl CommandFlags {
     pub fn new() -> Self {
         CommandFlags {
             flags: HashMap::new(),
             values: HashMap::new(),
+            index: 0,
         }
     }
 
@@ -32,7 +38,7 @@ impl CommandFlags {
                         short,
                         long: long.to_string(),
                         help: help.to_string(),
-                        takes_value: takes_value,
+                        takes_value,
                     },
                 )
                 .is_some()
@@ -51,15 +57,16 @@ impl CommandFlags {
         self.add(Some(short), long, true, help);
     }
 
-    pub fn parse(&mut self, args: &[String]) -> Result<Vec<String>, String> {
-        let mut args_iter = args.iter().peekable();
+    pub fn parse(&mut self, scope: &Rc<Scope>, args: &[String]) -> Result<Vec<String>, String> {
+        let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
 
-        while let Some(arg) = args_iter.next() {
+        while let Some((i, arg)) = args_iter.next() {
+            self.index = i;
             if arg.starts_with("--") && arg != "--" {
-                self.handle_long_flag(arg, &mut args_iter)?;
+                self.handle_long_flag(scope, arg, &mut args_iter)?;
             } else if arg.starts_with('-') && arg != "-" {
-                self.handle_short_flags(arg, &mut args_iter)?;
+                self.handle_short_flags(scope, arg, &mut args_iter)?;
             } else {
                 non_flag_args.push(arg.clone());
             }
@@ -70,17 +77,18 @@ impl CommandFlags {
 
     /// Parse flags ignoring unrecognized flags.
     /// Useful when command needs to process arguments containing dashes, e.g. ```chmod a-w```
-    pub fn parse_all(&mut self, args: &[String]) -> Vec<String> {
-        let mut args_iter = args.iter().peekable();
+    pub fn parse_all(&mut self, scope: &Rc<Scope>, args: &[String]) -> Vec<String> {
+        let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
 
-        while let Some(arg) = args_iter.next() {
+        while let Some((i, arg)) = args_iter.next() {
+            self.index = i;
             if arg.starts_with("--") && arg != "--" {
-                if !self.handle_long_flag(arg, &mut args_iter).is_ok() {
+                if !self.handle_long_flag(scope, arg, &mut args_iter).is_ok() {
                     non_flag_args.push(arg.clone());
                 }
             } else if arg.starts_with('-') && arg != "-" {
-                if !self.handle_short_flags(arg, &mut args_iter).is_ok() {
+                if !self.handle_short_flags(scope, arg, &mut args_iter).is_ok() {
                     non_flag_args.push(arg.clone());
                 }
             } else {
@@ -93,21 +101,25 @@ impl CommandFlags {
 
     fn handle_long_flag(
         &mut self,
+        scope: &Rc<Scope>,
         arg: &str,
-        args_iter: &mut std::iter::Peekable<std::slice::Iter<String>>,
+        args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
         let flag_name = &arg[2..];
         if let Some(flag) = self.flags.get(flag_name) {
             if flag.takes_value {
-                if let Some(value) = args_iter.next() {
+                if let Some((i, value)) = args_iter.next() {
+                    self.index = i;
                     self.values.insert(flag.long.clone(), value.clone());
                 } else {
+                    scope.set_err_arg(self.index);
                     return Err(format!("Flag --{} requires a value", flag_name));
                 }
             } else {
                 self.values.insert(flag.long.clone(), "true".to_string());
             }
         } else {
+            scope.set_err_arg(self.index);
             return Err(format!("Unknown flag: {}", arg));
         }
         Ok(())
@@ -115,8 +127,9 @@ impl CommandFlags {
 
     fn handle_short_flags(
         &mut self,
+        scope: &Rc<Scope>,
         arg: &str,
-        args_iter: &mut std::iter::Peekable<std::slice::Iter<String>>,
+        args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
         let chars: Vec<char> = arg[1..].chars().collect();
         let mut i = 0;
@@ -127,16 +140,18 @@ impl CommandFlags {
                     let value = if i + 1 < chars.len() {
                         // Case: -d2
                         chars[i + 1..].iter().collect::<String>()
-                    } else if let Some(next_arg) = args_iter.next() {
+                    } else if let Some((i, next_arg)) = args_iter.next() {
                         // Case: -d 2
+                        self.index = i;
                         next_arg.clone()
                     } else {
+                        scope.set_err_arg(self.index);
                         return Err(format!("Flag -{} requires a value", c));
                     };
                     // Special case -- consumes all flags
                     let final_value = if c == '-' {
                         std::iter::once(value)
-                            .chain(args_iter.cloned())
+                            .chain(args_iter.map(|(_, arg)| arg.clone()))
                             .collect::<Vec<_>>()
                             .join(" ")
                     } else {
@@ -149,12 +164,14 @@ impl CommandFlags {
                     self.values.insert(flag.long.clone(), "true".to_string());
                 }
             } else {
+                scope.set_err_arg(self.index);
                 return Err(format!("Unknown flag: -{}", c));
             }
             i += 1;
         }
         Ok(())
     }
+
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }

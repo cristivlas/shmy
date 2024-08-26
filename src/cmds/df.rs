@@ -125,7 +125,7 @@ fn enumerate_drives() -> Vec<String> {
 impl Exec for DiskFree {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut args = flags.parse(args)?;
+        let mut args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: df [OPTIONS] [PATH]");

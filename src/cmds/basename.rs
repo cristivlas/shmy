@@ -16,9 +16,9 @@ impl Basename {
 }
 
 impl Exec for Basename {
-    fn exec(&self, _name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        flags.parse(args)?;
+        flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: basename [OPTION]... [NAME]...");

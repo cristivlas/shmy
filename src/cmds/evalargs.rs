@@ -23,7 +23,7 @@ impl Evaluate {
 impl Exec for Evaluate {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(args)?;
+        let args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: eval EXPR...");
@@ -37,10 +37,11 @@ impl Exec for Evaluate {
         let source = flags.is_present("source");
 
         let mut interp = Interp::new();
-        let eval_scope = Some(Rc::clone(&scope));
         let global_scope = scope.global();
 
         for arg in &args {
+            let eval_scope = Some(Rc::clone(&scope));
+
             let input = if source {
                 // Treat arg as the name of a source file.
                 let mut file = File::open(&arg)
@@ -59,7 +60,7 @@ impl Exec for Evaluate {
                 arg.to_owned()
             };
 
-            match interp.eval(&input, eval_scope.to_owned()) {
+            match interp.eval(&input, eval_scope) {
                 Err(e) => {
                     e.show(&input);
                     return Err(format!("Error evaluating '{}'", scope.err_path_str(&arg)));

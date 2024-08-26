@@ -22,7 +22,7 @@ impl Diff {
 impl Exec for Diff {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let filenames = flags.parse(args)?;
+        let filenames = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... FILE1 FILE2", name);

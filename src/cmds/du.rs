@@ -13,7 +13,7 @@ struct DiskUtilization {
 impl Exec for DiskUtilization {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut paths: Vec<String> = flags.parse(args)?;
+        let mut paths: Vec<String> = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: du [OPTIONS] [PATH...]");

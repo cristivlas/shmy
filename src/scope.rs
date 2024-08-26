@@ -117,6 +117,7 @@ impl Ident {
 pub struct Scope {
     pub parent: Option<Rc<Scope>>,
     pub vars: RefCell<HashMap<Ident, Variable>>,
+    err_arg: RefCell<usize>, // TODO: pass &mut Rc<Scope> to Exec::exec
 }
 
 impl Debug for Scope {
@@ -135,6 +136,7 @@ impl Scope {
         Rc::new(Self {
             parent,
             vars: RefCell::new(HashMap::new()),
+            err_arg: RefCell::default(),
         })
     }
 
@@ -148,6 +150,7 @@ impl Scope {
         Rc::new(Scope {
             parent: None,
             vars: RefCell::new(vars),
+            err_arg: RefCell::default(),
         })
     }
 
@@ -157,6 +160,7 @@ impl Scope {
 
     pub fn clear(&self) {
         self.vars.borrow_mut().clear();
+        *self.err_arg.borrow_mut() = 0;
     }
 
     pub fn insert(&self, name: String, val: Value) {
@@ -221,6 +225,14 @@ impl Scope {
             current = &parent;
         }
         Rc::clone(&current)
+    }
+
+    pub fn err_arg(&self) -> usize {
+        *self.err_arg.borrow()
+    }
+
+    pub fn set_err_arg(&self, index: usize) {
+        *self.err_arg.borrow_mut() = index + 1;
     }
 
     /// The evaluation scope is passed to commands via the Exec trait;

@@ -60,7 +60,7 @@ impl Find {
 impl Exec for Find {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(args)?;
+        let args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: find [OPTIONS] [DIRS...] PATTERN");

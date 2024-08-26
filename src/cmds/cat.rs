@@ -38,9 +38,9 @@ impl CatHeadTail {
 }
 
 impl Exec for CatHeadTail {
-    fn exec(&self, name: &str, args: &Vec<String>, _: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let filenames = flags.parse(args)?;
+        let filenames = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... [FILE]...", name);

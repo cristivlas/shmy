@@ -2221,6 +2221,28 @@ impl Redirection {
     }
 }
 
+impl Command {
+    /// Inspect the scope for err_arg which is either zero or the 1-based index of
+    /// an argument, if the error is related to one of the arguments, return the
+    /// location of the corresponding expression.
+    fn err_loc(&self) -> Location {
+        let mut index = self.scope.err_arg();
+        if index > 0 {
+            index -= 1;
+            match &*self.args {
+                Expression::Args(a) => {
+                    if index < a.borrow().content.len() {
+                        return a.borrow().content[index].loc();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        self.args.loc()
+    }
+}
+
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
         // Redirect stdout if a $__stdout variable found in scope.
@@ -2239,7 +2261,7 @@ impl Eval for Command {
         let result = self
             .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
-            .map_err(|e| EvalError::new(self.args.loc(), e));
+            .map_err(|e| EvalError::new(self.err_loc(), e));
 
         if self.scope.is_interrupted() {
             eprintln!("^C");

@@ -42,9 +42,9 @@ impl Date {
 }
 
 impl Exec for Date {
-    fn exec(&self, _name: &str, args: &Vec<String>, _scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let _args = flags.parse(args)?;
+        let _args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: date [OPTIONS]");
