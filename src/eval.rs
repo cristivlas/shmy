@@ -1,7 +1,7 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
-use crate::utils::{copy_vars_to_command_env, executable};
+use crate::utils::{copy_vars_to_command_env, executable, sync_env_vars};
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -1908,6 +1908,7 @@ impl BinExpr {
 
             if var_name.starts_with('$') {
                 if let Some(var) = lit.scope.erase(&var_name[1..]) {
+                    sync_env_vars(&self.scope.global());
                     return Ok(var.value().clone()); // Return the erased value
                 } else {
                     return error(self, &format!("Variable not found: {}", var_name));
