@@ -11,9 +11,9 @@ if (defined __OLD_PATH) (
     # the eval command (and pass backslash path delimiters through as-in)
     eval --export r"(PATH = $__OLD_PATH)";
 
-    # Erase variables that are no longer needed.
-    $VIRTUAL_ENV = ;
-    $__OLD_PATH = ;
+    # Erase variables that are no longer needed
+    eval --export r"($VIRTUAL_ENV = )";
+    eval --export r"($__OLD_PATH = )";
 
 ) else (
     # Activate

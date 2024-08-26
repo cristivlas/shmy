@@ -41,8 +41,6 @@ impl Exec for Evaluate {
         let global_scope = scope.global();
 
         for arg in &args {
-            let eval_scope = Some(Rc::clone(&scope));
-
             let input = if source {
                 // Treat arg as the name of a source file.
                 let mut file = File::open(&arg)
@@ -61,7 +59,7 @@ impl Exec for Evaluate {
                 arg.to_owned()
             };
 
-            match interp.eval(&input, eval_scope) {
+            match interp.eval(&input, Some(Rc::clone(&scope))) {
                 Err(e) => {
                     e.show(scope, &input);
                     let err_expr = if scope.use_colors(&std::io::stderr()) {

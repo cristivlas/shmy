@@ -2188,7 +2188,7 @@ impl Redirection {
             // Lookup if the other stream is also redirected
             if let Some(v) = scope.lookup(other) {
                 let desc = if other_desc == "1" { "2" } else { "1" };
-                let other_path = v.to_string(); // TODO: case-insensitive comparison on Windows!
+                let other_path = v.to_string();
                 if other_path == name || &other_path == path || other_path == desc {
                     return Err(format!("Cyclical {} redirection", name));
                 }

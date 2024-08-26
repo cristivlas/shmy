@@ -138,10 +138,10 @@ impl completion::Completer for CmdLineHelper {
         if tail.starts_with("~") {
             // TODO: revisit; this may conflict with the rustyline built-in TAB completion, which
             // uses home_dir, while here the value of $HOME is used (and the user can change it).
-            if let Some(v) = self.scope.lookup_value("HOME") {
+            if let Some(v) = self.scope.lookup("HOME") {
                 keywords.push(completion::Pair {
                     display: String::default(),
-                    replacement: format!("{}{}{}", head, v, &tail[1..]),
+                    replacement: format!("{}{}{}", head, v.value().as_str(), &tail[1..]),
                 });
                 kw_pos = 0;
             }

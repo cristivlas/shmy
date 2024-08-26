@@ -22,13 +22,8 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<
 }
 
 pub fn sync_env_vars(scope: &Rc<Scope>) {
-    // Collect all environment variable keys
-    let vars: Vec<String> = env::vars().map(|(key, _)| key).collect();
-
     // Remove each environment variable
-    for var in vars {
-        env::remove_var(var);
-    }
+    env::vars().for_each(|(key, _)| env::remove_var(key));
 
     for (key, var) in scope.vars.borrow().iter() {
         env::set_var(key.as_str(), var.to_string());
