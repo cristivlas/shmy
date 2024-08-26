@@ -80,7 +80,7 @@ impl Exec for Evaluate {
             }
         }
 
-        if source || export {
+        if export {
             // Synchronize environment with global scope
             sync_env_vars(&global_scope);
         }
