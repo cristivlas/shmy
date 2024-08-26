@@ -1,6 +1,7 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::sync_env_vars;
 use crate::{eval::Interp, eval::Value, scope::Scope};
+use colored::*;
 use std::fs::File;
 use std::io::Read;
 use std::rc::Rc;
@@ -62,8 +63,13 @@ impl Exec for Evaluate {
 
             match interp.eval(&input, eval_scope) {
                 Err(e) => {
-                    e.show(&input);
-                    return Err(format!("Error evaluating '{}'", scope.err_path_str(&arg)));
+                    e.show(scope, &input);
+                    let err_expr = if scope.use_colors(&std::io::stderr()) {
+                        arg.bright_cyan()
+                    } else {
+                        arg.normal()
+                    };
+                    return Err(format!("Error evaluating '{}'", err_expr));
                 }
 
                 Ok(value) => {

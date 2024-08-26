@@ -2,6 +2,7 @@ use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
 use crate::utils::{copy_vars_to_command_env, executable};
+use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
 use regex::Regex;
@@ -16,6 +17,7 @@ use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
+use terminal_size::{terminal_size, Width};
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
@@ -386,21 +388,43 @@ impl EvalError {
         }
     }
 
-    /// Provide a visual indication of the error locus.
-    pub fn show(&self, input: &String) {
-        // TODO: deal with wrap around?
+    /// Show error details, with colors. TODO: clean up.
+    pub fn show(&self, scope: &Rc<Scope>, input: &String) {
         let line = self.loc.line as usize;
         let col = self.loc.col as usize;
 
-        eprintln!("{}", &self);
+        if !scope.use_colors(&std::io::stderr()) {
+            eprintln!("{}", &self);
+        } else {
+            match &self.loc.file {
+                Some(file) => eprintln!(
+                    "{}:{}:{} {}",
+                    scope.err_path_str(&*file),
+                    self.loc.line,
+                    self.loc.col,
+                    self.message.red()
+                ),
+                None => eprintln!("{}:{}", self.loc, self.message.red()),
+            }
+        }
         // Get the problematic line from the input
         let lines: Vec<&str> = input.lines().collect();
-        let error_line = lines.get(line - 1).unwrap_or(&"");
-        eprintln!("{}", error_line);
+        let mut error_line = lines.get(line - 1).unwrap_or(&"").to_string();
 
-        // Create the error indicator
-        let indicator = "-".repeat(col - 1) + "^\n";
-        eprintln!("{}", indicator);
+        let terminal_width = terminal_size()
+            .map_or(80, |(Width(w), _)| w as usize)
+            .saturating_sub(5);
+
+        let max_width = std::cmp::max(col, terminal_width);
+
+        // Trim error_line if it's longer than max_width
+        if error_line.len() > max_width {
+            error_line.truncate(max_width);
+            error_line.push_str("...");
+        }
+
+        eprintln!("{}", error_line);
+        eprintln!("{}", "-".repeat(col - 1) + "^\n");
     }
 }
 

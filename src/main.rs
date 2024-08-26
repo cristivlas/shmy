@@ -376,7 +376,7 @@ impl Shell {
     }
 
     fn show_error(&self, input: &String, e: &EvalError) {
-        e.show(input);
+        e.show(&self.interp.scope(), input);
     }
 }
 
