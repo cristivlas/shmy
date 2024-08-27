@@ -1,7 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::eval::Value;
-use crate::scope::Scope;
-use colored::*;
+use crate::{eval::Value, scope::Scope};
 use open;
 use std::rc::Rc;
 
@@ -13,11 +11,7 @@ impl Open {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag(
-            'a',
-            "application",
-            "Specify the application to use for opening",
-        );
+        flags.add_option('a', "application", "Application to open with");
 
         Self { flags }
     }
@@ -50,12 +44,7 @@ impl Exec for Open {
             };
 
             if let Err(e) = result {
-                let err_path = if scope.use_colors(&std::io::stderr()) {
-                    arg.bright_cyan()
-                } else {
-                    arg.normal()
-                };
-                return Err(format!("Failed to open '{}': {}", err_path, e));
+                return Err(format!("Failed to open {}: {}", scope.err_path_str(arg), e));
             }
         }
 
