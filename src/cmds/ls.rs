@@ -1,7 +1,7 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_size;
 use crate::{eval::Value, scope::Scope};
-use chrono::DateTime;
+use chrono::{DateTime, Local, Utc};
 use colored::*;
 use core::fmt;
 use std::fs::{self, DirEntry, Metadata};
@@ -92,6 +92,7 @@ struct Options {
     help: bool,
     paths: Vec<String>,
     colors: ColorScheme,
+    use_utc: bool,
 }
 
 impl Dir {
@@ -104,7 +105,9 @@ impl Dir {
             "human-readable",
             "Print sizes in human readable format (e.g., 1K, 234M, 2G)",
         );
+        flags.add_flag('u', "utc", "Show file times in UTC");
         flags.add_flag('?', "help", "Display this help and exit");
+
         Self { flags }
     }
 
@@ -123,6 +126,7 @@ impl Dir {
                 parsed_args
             },
             colors: ColorScheme::with_scope(&scope),
+            use_utc: flags.is_present("utc"),
         };
 
         Ok(cmd_args)
@@ -525,7 +529,7 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &Options) -> Result<
             base_name.to_string()
         };
 
-        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH));
+        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH), args.use_utc);
         let (owner, group) = get_owner_and_group(Path::new(path).to_path_buf(), &metadata);
 
         my_println!(
@@ -562,10 +566,15 @@ fn format_file_type(metadata: &fs::Metadata) -> &'static str {
     }
 }
 
-fn format_time(time: SystemTime) -> String {
+fn format_time(time: SystemTime, use_utc: bool) -> String {
     let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
     if let Some(datetime) = DateTime::from_timestamp(duration.as_secs() as i64, 0) {
-        datetime.format("%b %d %H:%M").to_string()
+        let formatted = if use_utc {
+            datetime.with_timezone(&Utc).format("%b %d %H:%M")
+        } else {
+            datetime.with_timezone(&Local).format("%b %d %H:%M")
+        };
+        formatted.to_string()
     } else {
         "?".to_owned()
     }
