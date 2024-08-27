@@ -405,7 +405,7 @@ impl EvalError {
         }
     }
 
-    /// Show error details, with colors. TODO: clean up.
+    /// Show error details, with colors.
     pub fn show(&self, scope: &Rc<Scope>, input: &str) {
         let stderr = std::io::stderr();
         eprintln!("{}", self.loc.colored(scope, &self.message, &stderr));

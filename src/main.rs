@@ -1,6 +1,6 @@
 use cmds::{get_command, list_registered_commands};
 use directories::UserDirs;
-use eval::{EvalError, Interp, KEYWORDS};
+use eval::{Interp, KEYWORDS};
 use prompt::PromptBuilder;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
@@ -361,22 +361,19 @@ impl Shell {
 
     fn eval(&mut self, input: &String) {
         INTERRUPT.store(false, SeqCst);
+        let scope = Scope::new(Some(Rc::clone(&self.interp.scope())));
 
-        match &self.interp.eval(input, None) {
+        match &self.interp.eval(input, Some(Rc::clone(&scope))) {
             Ok(result) => {
                 my_dbg!(&result);
             }
             Err(e) => {
-                self.show_error(input, &e);
+                e.show(&scope, input);
                 if !self.interactive {
                     std::process::exit(500);
                 }
             }
         }
-    }
-
-    fn show_error(&self, input: &String, e: &EvalError) {
-        e.show(&self.interp.scope(), input);
     }
 }
 
