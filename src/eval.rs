@@ -579,9 +579,9 @@ where
         }
     }
 
-    fn next(&mut self) {
+    fn next(&mut self) -> Option<char> {
         self.loc.col += 1;
-        self.chars.next();
+        self.chars.next()
     }
 
     fn glob_literal(&mut self) -> EvalResult<Token> {
@@ -621,6 +621,24 @@ where
             self.quoted,
             self.raw,
         )))
+    }
+
+    fn try_hex_escape(&mut self) {
+        self.next();
+        let mut chars = vec!['x'];
+
+        if let (Some(c1), Some(&c2)) = (self.next(), self.chars.peek()) {
+            chars.extend([c1, c2]);
+
+            if let (Some(d1), Some(d2)) = (c1.to_digit(16), c2.to_digit(16)) {
+                if let Some(ch) = char::from_u32(16 * d1 + d2) {
+                    self.text.push(ch);
+                    return;
+                }
+            }
+        }
+        // If reached here, not a valid hex escape, so put the chars in the text.
+        self.text.extend(chars);
     }
 
     #[rustfmt::skip]
@@ -734,6 +752,7 @@ where
                                 'n' => self.text.push('\n'),
                                 't' => self.text.push('\t'),
                                 'r' => self.text.push('\r'),
+                                'x' => self.try_hex_escape(),
                                 _ => self.text.push(next_c),
                             }
                             self.next();

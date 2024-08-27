@@ -140,7 +140,7 @@ impl PromptBuilder {
             var.value().to_rc_string()
         } else {
             // Create default prompt specification and insert into the scope.
-            let spec = Rc::new("\\u@\\h:\\w\\$ ".to_string());
+            let spec = Rc::new("\\u@\\h|\\w\\$ ".to_string());
             scope.insert("__prompt".to_string(), Value::Str(Rc::clone(&spec)));
 
             spec
