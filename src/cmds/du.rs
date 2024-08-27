@@ -34,7 +34,7 @@ impl Exec for DiskUtilization {
             human: flags.is_present("human-readable"),
             block_size: 1024,
             max_depth: flags
-                .get_option("max-depth")
+                .option("max-depth")
                 .map(|s| s.parse().unwrap_or(usize::MAX)),
         };
 

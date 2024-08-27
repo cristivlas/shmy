@@ -91,7 +91,7 @@ impl Exec for Sudo {
 
         let cmd_name = command_args.remove(0);
 
-        if let Some(additional_args) = flags.get_option("args") {
+        if let Some(additional_args) = flags.option("args") {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 

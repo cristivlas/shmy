@@ -180,7 +180,7 @@ impl CommandFlags {
         self.values.contains_key(name)
     }
 
-    pub fn get_option(&self, name: &str) -> Option<&str> {
+    pub fn option(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(|s| s.as_str())
     }
 

@@ -52,7 +52,7 @@ impl Exec for CatHeadTail {
 
         let line_numbers: bool = flags.is_present("number");
         let lines = flags
-            .get_option("lines")
+            .option("lines")
             .map(|v| v.parse::<usize>().map_err(|e| e.to_string()))
             .unwrap_or(Ok(10))?;
 

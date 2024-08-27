@@ -61,7 +61,7 @@ impl Exec for Date {
         let formatted_time = if flags.is_present("utc") {
             let utc_time = Utc::now();
             self.format_time(utc_time, &flags)
-        } else if let Some(tz) = flags.get_option("timezone") {
+        } else if let Some(tz) = flags.option("timezone") {
             let tz_time = self.get_time_in_timezone(tz)?;
             self.format_time(tz_time, &flags)
         } else {
