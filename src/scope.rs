@@ -206,7 +206,13 @@ impl Scope {
     /// Lookup and erase a variable
     fn erase_by_ident(&self, name: &Ident) -> Option<Variable> {
         match self.vars.borrow_mut().remove(name) {
-            Some(var) => Some(var),
+            Some(var) => {
+                if self.parent.is_none() {
+                    // The top-most scope (global scope) shadows the environment.
+                    env::remove_var(name.as_str());
+                }
+                Some(var)
+            }
             None => match &self.parent {
                 Some(scope) => scope.erase_by_ident(name),
                 _ => None,

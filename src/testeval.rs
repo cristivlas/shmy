@@ -356,4 +356,27 @@ mod tests {
     fn test_raw_strings() {
         assert_eval_ok!("r\"(_;)( \" )\"", Value::from_str("_;)( \" ").unwrap());
     }
+
+    #[test]
+    fn test_trailing_equals() {
+        assert_eval_err!("FOO=", "Variable expected on left hand-side of assignment");
+    }
+
+    #[test]
+    fn test_export() {
+        assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
+        // Expect value to be preserved across evals.
+        assert_eval_ok!("$FOO", Value::Int(123));
+        // Expect to find it in the environment
+        assert_eval_ok!(
+            "env | grep FOO | bar; $bar",
+            Value::from_str("FOO=123").unwrap()
+        );
+        // Erase it
+        assert_eval_ok!("$FOO =", Value::Int(123));
+        // Should be gone from the env.
+        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from_str("").unwrap());
+        // Should not be found (not expanded)
+        assert_eval_ok!("$FOO", Value::from_str("$FOO").unwrap());
+    }
 }
