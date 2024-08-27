@@ -368,10 +368,11 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(scope: &Rc<Scope>, args: &Options) -> Result<Value, String> {
-    for path_arg in &args.paths {
-        let path = Path::new(&path_arg)
+    for path in &args.paths {
+        let path = Path::new(&path)
             .canonicalize()
-            .map_err(|e| format!("Cannot canonicalize {}: {}", path_arg, e))?;
+            .map_err(|e| format!("{}: {}", scope.err_path_str(path), e))?;
+
         match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {

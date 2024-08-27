@@ -117,7 +117,7 @@ impl Exec for Mv {
         for src in sources {
             let src_path = Path::new(src)
                 .canonicalize()
-                .map_err(|e| format!("Cannot canonicalize: {}: {}", src, e))?;
+                .map_err(|e| format!("{}: {}", scope.err_path_str(src), e))?;
 
             if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)
