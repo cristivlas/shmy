@@ -637,7 +637,7 @@ where
                 }
             }
         }
-        // If reached here, not a valid hex escape, so put the chars in the text.
+        // reached here? not a valid hex escape, add the chars to the text
         self.text.extend(chars);
     }
 
