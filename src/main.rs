@@ -31,22 +31,23 @@ struct CmdLineHelper {
     completer: FilenameCompleter,
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
-    keywords: Vec<String>,
     scope: Rc<Scope>,
 }
 
 impl CmdLineHelper {
     fn new(scope: Rc<Scope>) -> Self {
-        let mut keywords = list_registered_commands(false);
-
-        keywords.extend(KEYWORDS.iter().map(|s| s.to_string()));
-
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
-            keywords,
             scope: Rc::clone(&scope),
         }
+    }
+
+    fn keywords(&self) -> Vec<String> {
+        list_registered_commands(false)
+            .into_iter()
+            .chain(KEYWORDS.iter().map(|s| s.to_string()))
+            .collect()
     }
 
     // https://github.com/kkawakam/rustyline/blob/master/src/hint.rs#L66
@@ -161,7 +162,7 @@ impl completion::Completer for CmdLineHelper {
                 // Expand keywords and commands if the line does not start with a command
                 kw_pos = 0;
 
-                for kw in &self.keywords {
+                for kw in self.keywords() {
                     if kw.to_lowercase().starts_with(&tail) {
                         let repl = format!("{}{} ", head, kw);
                         keywords.push(completion::Pair {
