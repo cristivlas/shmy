@@ -118,12 +118,13 @@ impl completion::Completer for CmdLineHelper {
         }
         // Expand !... TAB from history.
         if line.starts_with("!") {
+            // TODO: return all candidates
             if let Some(entry) = self.search_history(&line[1..], pos - 1, ctx) {
                 let repl = format!("{}{}", &line[1..], entry);
                 return Ok((
                     0,
                     vec![Self::Candidate {
-                        display: String::default(),
+                        display: repl.clone(),
                         replacement: repl,
                     }],
                 ));
@@ -152,7 +153,7 @@ impl completion::Completer for CmdLineHelper {
             keywords.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
                 Self::Candidate {
                     replacement: format!("${}", k),
-                    display: String::default(),
+                    display: format!("${}", k),
                 }
             }));
         } else {
@@ -166,7 +167,7 @@ impl completion::Completer for CmdLineHelper {
                     if kw.to_lowercase().starts_with(&tail) {
                         let repl = format!("{}{} ", head, kw);
                         keywords.push(completion::Pair {
-                            display: String::default(),
+                            display: repl.clone(),
                             replacement: repl,
                         });
                     }
@@ -242,6 +243,7 @@ impl Shell {
             edit_config: rustyline::Config::builder()
                 .edit_mode(rustyline::EditMode::Emacs)
                 .behavior(rustyline::Behavior::PreferTerm)
+                .completion_type(rustyline::CompletionType::List)
                 .history_ignore_dups(true)
                 .unwrap()
                 .max_history_size(1024)

@@ -2691,7 +2691,7 @@ impl Interp {
     pub fn eval_unchecked(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
-        if self.scope.lookup("DUMP_AST").is_some() {
+        if self.scope.lookup("__dump_ast").is_some() {
             dbg!(&ast);
         }
         ast.eval()
