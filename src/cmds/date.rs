@@ -1,6 +1,7 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
-use chrono::{DateTime, Utc};
+use chrono::prelude::*;
+use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
 use std::rc::Rc;
 
@@ -30,7 +31,10 @@ impl Date {
         Ok(Utc::now().with_timezone(&tz))
     }
 
-    fn format_time(&self, time: DateTime<Tz>, flags: &CommandFlags) -> String {
+    fn format_time<Tz: TimeZone>(&self, time: DateTime<Tz>, flags: &CommandFlags) -> String
+    where
+        Tz::Offset: std::fmt::Display,
+    {
         if flags.is_present("rfc2822") {
             time.to_rfc2822()
         } else if flags.is_present("iso8601") {
@@ -54,15 +58,16 @@ impl Exec for Date {
             return Ok(Value::success());
         }
 
-        let use_utc = flags.is_present("utc");
-        let timezone = if use_utc {
-            "UTC"
+        let formatted_time = if flags.is_present("utc") {
+            let utc_time = Utc::now();
+            self.format_time(utc_time, &flags)
+        } else if let Some(tz) = flags.get_option("timezone") {
+            let tz_time = self.get_time_in_timezone(tz)?;
+            self.format_time(tz_time, &flags)
         } else {
-            flags.get_option("timezone").unwrap_or("UTC")
+            let local_time = Local::now();
+            self.format_time(local_time, &flags)
         };
-
-        let current_time = self.get_time_in_timezone(&timezone)?;
-        let formatted_time = self.format_time(current_time, &flags);
 
         println!("{}", formatted_time);
         Ok(Value::success())
