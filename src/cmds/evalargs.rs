@@ -59,7 +59,7 @@ impl Exec for Evaluate {
                 arg.to_owned()
             };
 
-            match interp.eval(&input, Some(Rc::clone(&scope))) {
+            match interp.eval_unchecked(&input, Some(Rc::clone(&scope))) {
                 Err(e) => {
                     e.show(scope, &input);
                     let err_expr = if scope.use_colors(&std::io::stderr()) {
@@ -71,6 +71,15 @@ impl Exec for Evaluate {
                 }
 
                 Ok(value) => {
+                    let mut command = false;
+                    // Did the expression eval result in running a command? Check for errors.
+                    if let Value::Stat(status) = &value {
+                        if let Err(e) = &status.borrow().result {
+                            return Err(e.to_string());
+                        }
+                        command = true;
+                    }
+
                     if export {
                         // Export variables from the eval scope to the global scope
                         for (key, var) in scope.vars.borrow().iter() {
@@ -78,7 +87,7 @@ impl Exec for Evaluate {
                                 global_scope.insert(key.to_string(), var.value().clone());
                             }
                         }
-                    } else {
+                    } else if !command {
                         my_println!("{}", value)?;
                     }
                 }

@@ -217,7 +217,7 @@ pub struct Status {
     checked: bool,
     cmd: String,
     negated: bool,
-    result: EvalResult<Value>,
+    pub result: EvalResult<Value>,
     loc: Location,
 }
 
@@ -2669,14 +2669,18 @@ impl Interp {
         }
     }
 
-    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+    pub fn eval_unchecked(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
         if self.scope.lookup("DUMP_AST").is_some() {
             dbg!(&ast);
         }
+        ast.eval()
+    }
 
-        Status::check_result(ast.eval(), false)
+    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+        let result = self.eval_unchecked(input, scope);
+        Status::check_result(result, false)
     }
 
     fn parse(&mut self, input: &str, eval_scope: Option<Rc<Scope>>) -> EvalResult<Rc<Expression>> {
