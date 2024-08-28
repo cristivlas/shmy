@@ -270,12 +270,13 @@ impl Scope {
     }
 
     /// Colorize the error and set the index of the argument that caused the error
-    pub fn err_path_arg(&self, path: &str, args: &Vec<String>) -> ColoredString {
+    pub fn err_path_arg(&self, path: &str, args: &[String]) -> ColoredString {
         self.set_err_arg(args.iter().position(|a| a == path).unwrap());
         self.err_path_str(path)
     }
 
     pub fn err_path(&self, path: &Path) -> ColoredString {
+        // TOOD: Canonicalize the path here?
         self.err_path_str(&path.display().to_string())
     }
 }

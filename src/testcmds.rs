@@ -30,6 +30,11 @@ mod tests {
     }
 
     #[test]
+    fn test_cp_err() {
+        assert_err_loc!("cp -f  -P  -ir fuzz .", Location::new(1, 15));
+    }
+
+    #[test]
     fn test_diff_err() {
         assert_err_loc!("diff  --color x y", Location::new(1, 14));
     }

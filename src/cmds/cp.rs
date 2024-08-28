@@ -77,12 +77,18 @@ struct FileCopier<'a> {
     recursive: bool,
     scope: &'a Rc<Scope>,
     srcs: &'a [String], // Source paths
+    args: &'a [String], // All command args including the paths above
 }
 
 impl<'a> FileCopier<'a> {
-    fn new(args: &'a Vec<String>, flags: &CommandFlags, scope: &'a Rc<Scope>) -> Self {
+    fn new(
+        paths: &'a Vec<String>,
+        flags: &CommandFlags,
+        scope: &'a Rc<Scope>,
+        args: &'a Vec<String>,
+    ) -> Self {
         Self {
-            dest: PathBuf::from(args.last().unwrap()),
+            dest: PathBuf::from(paths.last().unwrap()),
             ignore_links: flags.is_present("no-dereference"),
             confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
             no_hidden: flags.is_present("no-hidden"),
@@ -102,16 +108,22 @@ impl<'a> FileCopier<'a> {
             },
             recursive: flags.is_present("recursive"),
             scope,
-            srcs: &args[..args.len() - 1],
+            srcs: &paths[..paths.len() - 1],
+            args,
         }
     }
 
-    // Add the path to the error reported to the caller
+    /// Add the path to the error reported to the caller.
     fn wrap_error<E: std::fmt::Display>(&self, path: &Path, error: E) -> io::Error {
-        let canonical_path = path.canonicalize().unwrap_or(path.to_path_buf());
+        let path_str = path.display().to_string();
+
         io::Error::new(
             io::ErrorKind::Other,
-            format!("{}: {}", self.scope.err_path(&canonical_path), error),
+            format!(
+                "{}: {}",
+                self.scope.err_path_arg(&path_str, self.args),
+                error
+            ),
         )
     }
 
@@ -447,7 +459,7 @@ impl Cp {
 impl Exec for Cp {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(scope, args)?;
+        let paths = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: cp [OPTIONS] SOURCE... DEST");
@@ -457,14 +469,14 @@ impl Exec for Cp {
             return Ok(Value::success());
         }
 
-        if args.is_empty() {
+        if paths.is_empty() {
             return Err("Missing source and destination".to_string());
         }
-        if args.len() < 2 {
+        if paths.len() < 2 {
             return Err("Missing destination".to_string());
         }
 
-        let mut copier = FileCopier::new(&args, &flags, scope);
+        let mut copier = FileCopier::new(&paths, &flags, scope, &args);
         copier.copy().map_err(|e| e.to_string())?;
 
         Ok(Value::success())
