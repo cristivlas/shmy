@@ -258,15 +258,7 @@ impl Scope {
 
     /// Colorize paths shown in errors and warnings.
     pub fn err_path_str(&self, path: &str) -> ColoredString {
-        self.color(
-            &path,
-            Color::TrueColor {
-                r: 255,
-                g: 165,
-                b: 0,
-            },
-            &std::io::stderr(),
-        )
+        self.color(&path, Color::BrightCyan, &std::io::stderr())
     }
 
     /// Colorize the error and set the index of the argument that caused the error

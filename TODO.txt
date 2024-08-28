@@ -3,3 +3,5 @@ implement a simple command for reading user input
 cp perf: add argument to cp to specify buffer size; multi-threaded cp? cp rollback?
 
 job control? (do I care?)
+
+Centralize / refactor color scheme (error, warning, file paths, etc.)

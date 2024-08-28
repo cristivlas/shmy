@@ -52,6 +52,6 @@ macro_rules! my_warning {
     ($scope:expr, $($arg:tt)*) => {{
         use colored::*;
 
-        eprintln!("{}", $scope.color(&format!($($arg)*), Color::BrightCyan, &std::io::stderr()));
+        eprintln!("{}", $scope.color(&format!($($arg)*), Color::TrueColor{r:255, g:165, b:0}, &std::io::stderr()));
     }};
 }

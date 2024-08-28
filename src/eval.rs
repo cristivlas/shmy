@@ -187,7 +187,8 @@ impl Location {
         self.col = 0;
     }
 
-    pub fn colored<T: IsTerminal>(&self, scope: &Rc<Scope>, message: &str, output: &T) -> String {
+    /// Format error message with this location.
+    pub fn error<T: IsTerminal>(&self, scope: &Rc<Scope>, message: &str, output: &T) -> String {
         if scope.use_colors(output) {
             match &self.file {
                 Some(file) => format!(
@@ -416,7 +417,7 @@ impl EvalError {
     /// Show error details, with colors.
     pub fn show(&self, scope: &Rc<Scope>, input: &str) {
         let stderr = std::io::stderr();
-        eprintln!("{}", self.loc.colored(scope, &self.message, &stderr));
+        eprintln!("{}", self.loc.error(scope, &self.message, &stderr));
 
         let (line, col) = (self.loc.line as usize, self.loc.col as usize);
 
