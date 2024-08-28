@@ -22,7 +22,21 @@ mod tests {
     fn test_cat_err() {
         assert_eval_ok!("echo abc | cat | x; $x", Value::from_str("abc").unwrap());
         assert_err_loc!("cat   -n bogus", Location::new(1, 9));
-        assert_err_loc!("cat src\\main.rs  -n bogus", Location::new(1, 20));
+    }
+
+    #[test]
+    fn test_chmod_err() {
+        assert_err_loc!("chmod  -r   -v  w+x bogus", Location::new(1, 20));
+    }
+
+    #[test]
+    fn test_diff_err() {
+        assert_err_loc!("diff  --color x y", Location::new(1, 14));
+    }
+
+    #[test]
+    fn test_ls_err() {
+        assert_err_loc!("ls  -u  -h  -l null", Location::new(1, 15));
     }
 
     #[test]

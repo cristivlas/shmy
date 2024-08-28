@@ -142,13 +142,13 @@ impl Dir {
 
 impl Exec for Dir {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
-        let cmd_args = self.parse_args(scope, args)?;
-        if cmd_args.help {
+        let opts = self.parse_args(scope, args)?;
+        if opts.help {
             self.print_help();
             return Ok(Value::success());
         }
 
-        list_entries(scope, &cmd_args)
+        list_entries(scope, &opts, &args)
     }
 }
 
@@ -371,18 +371,18 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 #[cfg(windows)]
 use win::{get_owner_and_group, get_permissions};
 
-fn list_entries(scope: &Rc<Scope>, args: &Options) -> Result<Value, String> {
-    for path in &args.paths {
+fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
+    for path in &opts.paths {
         let path = Path::new(&path)
             .canonicalize()
-            .map_err(|e| format!("{}: {}", scope.err_path_str(path), e))?;
+            .map_err(|e| format!("{}: {}", scope.err_path_arg(path, args), e))?;
 
         match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {
-                    print_dir(scope, &path, &args)?;
+                    print_dir(scope, &path, &opts)?;
                 } else {
-                    print_file(&path, &metadata, &args)?;
+                    print_file(&path, &metadata, &opts)?;
                 }
             }
             Err(e) => return Err(e.to_string()),

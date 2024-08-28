@@ -36,8 +36,8 @@ impl Exec for Diff {
             return Err("diff requires exactly two filenames".to_string());
         }
 
-        let file1 = read_file(&filenames[0])?;
-        let file2 = read_file(&filenames[1])?;
+        let file1 = read_file(&filenames[0], scope, args)?;
+        let file2 = read_file(&filenames[1], scope, args)?;
 
         // Calculate the diff
         let mut grid = Grid::new();
@@ -52,13 +52,14 @@ impl Exec for Diff {
     }
 }
 
-fn read_file(filename: &str) -> Result<Vec<String>, String> {
-    let file = File::open(filename).map_err(|e| e.to_string())?;
-    let reader = io::BufReader::new(file);
-    reader
+fn read_file(filename: &str, scope: &Rc<Scope>, args: &Vec<String>) -> Result<Vec<String>, String> {
+    let file = File::open(filename)
+        .map_err(|e| format!("{}: {}", scope.err_path_arg(filename, args), e))?;
+
+    io::BufReader::new(file)
         .lines()
         .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{}: {}", scope.err_path_arg(filename, args), e))
 }
 
 #[derive(Clone)]

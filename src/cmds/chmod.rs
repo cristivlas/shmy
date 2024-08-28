@@ -193,7 +193,7 @@ impl Chmod {
 impl Exec for Chmod {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse_all(scope, args);
+        let paths = flags.parse_all(scope, args);
 
         if flags.is_present("help") {
             println!("{}", "Usage: chmod [OPTIONS] MODE FILE...");
@@ -203,16 +203,21 @@ impl Exec for Chmod {
             return Ok(Value::success());
         }
 
-        if args.len() < 2 {
+        if paths.len() < 2 {
             return Err("Missing mode and file arguments".to_string());
         }
 
-        let mode = Self::parse_mode(&args[0])?;
+        let mode = Self::parse_mode(&paths[0])?;
         let recursive = flags.is_present("recursive");
         let verbose = flags.is_present("verbose");
 
-        for arg in &args[1..] {
-            Self::change_mode(Path::new(&arg), mode, recursive, verbose, scope)?;
+        for arg in &paths[1..] {
+            match Self::change_mode(Path::new(&arg), mode, recursive, verbose, scope) {
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(format!("{}: {}", scope.err_path_arg(arg, args), e));
+                }
+            }
         }
 
         Ok(Value::success())
