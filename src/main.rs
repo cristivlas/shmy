@@ -8,6 +8,7 @@ use rustyline::highlight::MatchingBracketHighlighter;
 use rustyline::history::{DefaultHistory, SearchDirection};
 use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
 use scope::Scope;
+use std::collections::HashSet;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
@@ -51,23 +52,19 @@ impl CmdLineHelper {
     }
 
     // https://github.com/kkawakam/rustyline/blob/master/src/hint.rs#L66
-    fn search_history(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<String> {
-        let start = if ctx.history_index() == ctx.history().len() {
-            ctx.history_index().saturating_sub(1)
-        } else {
-            ctx.history_index()
-        };
-        if let Some(sr) = ctx
-            .history()
-            .starts_with(line, start, SearchDirection::Reverse)
-            .unwrap_or(None)
-        {
-            if sr.entry == line {
-                return None;
+    fn get_history_matches(&self, line: &str, pos: usize, ctx: &Context<'_>) -> HashSet<String> {
+        let mut candidates = HashSet::new();
+        let history_len = ctx.history().len();
+
+        for index in (0..history_len).rev() {
+            if let Ok(Some(sr)) = ctx.history().get(index, SearchDirection::Forward) {
+                if sr.entry.starts_with(line) {
+                    candidates.insert(sr.entry[pos..].to_owned());
+                }
             }
-            return Some(sr.entry[pos..].to_owned());
         }
-        None
+
+        candidates
     }
 }
 
@@ -118,17 +115,16 @@ impl completion::Completer for CmdLineHelper {
         }
         // Expand !... TAB from history.
         if line.starts_with("!") {
-            // TODO: return all candidates
-            if let Some(entry) = self.search_history(&line[1..], pos - 1, ctx) {
-                let repl = format!("{}{}", &line[1..], entry);
-                return Ok((
-                    0,
-                    vec![Self::Candidate {
-                        display: repl.clone(),
-                        replacement: repl,
-                    }],
-                ));
-            }
+            let candidates = self.get_history_matches(&line[1..], pos - 1, ctx);
+            let completions: Vec<Self::Candidate> = candidates
+                .into_iter()
+                .map(|entry| Self::Candidate {
+                    display: format!("{}{}", &line[1..], entry),
+                    replacement: format!("{}{}", &line, entry),
+                })
+                .collect();
+
+            return Ok((0, completions));
         }
 
         // Expand keywords and builtin commands.
@@ -212,6 +208,7 @@ struct Shell {
     prompt_builder: prompt::PromptBuilder,
 }
 
+/// Search history in reverse for entry that starts with &line[1..]
 fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Option<String> {
     let search = &line[1..];
     rl.history()

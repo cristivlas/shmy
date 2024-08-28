@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Ident, scope::Scope, scope::Variable};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::env;
 use std::rc::Rc;
 
@@ -16,8 +16,8 @@ impl Vars {
         Vars { flags }
     }
 
-    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> HashMap<Ident, Variable> {
-        let mut all_vars = HashMap::new();
+    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> BTreeMap<Ident, Variable> {
+        let mut all_vars = BTreeMap::new();
         let mut current_scope = Some(Rc::clone(scope));
 
         while let Some(scope) = current_scope {
@@ -59,18 +59,9 @@ impl Exec for Vars {
                 my_println!("{}={}", key, env::var(&key).map_err(|e| e.to_string())?)?;
             }
         } else {
-            // Collect variables
             let vars = Self::collect_vars(scope, local_only);
-
-            // Collect keys and sort them
-            let mut keys: Vec<Ident> = vars.keys().cloned().collect();
-            keys.sort();
-
-            // Iterate over sorted keys
-            for key in keys {
-                if let Some(variable) = vars.get(&key) {
-                    my_println!("{}={}", key, variable)?;
-                }
+            for (key, var) in vars {
+                my_println!("{}={}", key, var)?;
             }
         }
         Ok(Value::success())

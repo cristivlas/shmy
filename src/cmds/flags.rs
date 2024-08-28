@@ -1,5 +1,5 @@
 use crate::scope::Scope;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -12,8 +12,8 @@ struct Flag {
 
 #[derive(Clone)]
 pub struct CommandFlags {
-    flags: HashMap<String, Flag>,
-    values: HashMap<String, String>,
+    flags: BTreeMap<String, Flag>,
+    values: BTreeMap<String, String>,
     index: usize,
 }
 
@@ -22,8 +22,8 @@ type ArgsIter<'a> = std::iter::Peekable<std::iter::Enumerate<std::slice::Iter<'a
 impl CommandFlags {
     pub fn new() -> Self {
         CommandFlags {
-            flags: HashMap::new(),
-            values: HashMap::new(),
+            flags: BTreeMap::new(),
+            values: BTreeMap::new(),
             index: 0,
         }
     }
