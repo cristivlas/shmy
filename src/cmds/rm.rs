@@ -107,6 +107,19 @@ impl Remove {
     }
 }
 
+fn unique_indices_and_strings<'a>(vec: &'a Vec<String>) -> Vec<(usize, &String)> {
+    let mut unique_set = HashSet::new();
+    let mut result = Vec::new();
+
+    for (index, string) in vec.iter().enumerate() {
+        if unique_set.insert(string) {
+            result.push((index, string));
+        }
+    }
+
+    result
+}
+
 impl Exec for Remove {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
@@ -133,11 +146,16 @@ impl Exec for Remove {
         };
 
         // Use a set to dedupe inputs, e.g. avoid ```rm *.rs *.rs``` resulting in error.
-        let to_remove: HashSet<&String> = HashSet::from_iter(&args);
+        let to_remove = unique_indices_and_strings(&args);
 
-        for path in to_remove.iter().map(|s| Path::new(s)) {
-            self.remove(&path, &mut ctx)
-                .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+        for (i, path) in to_remove.iter().map(|(i, path)| (i, Path::new(path))) {
+            match self.remove(&path, &mut ctx) {
+                Ok(_) => {}
+                Err(e) => {
+                    scope.set_err_arg(*i);
+                    return Err(format!("{}: {}", scope.err_path(path), e));
+                }
+            }
 
             if ctx.quit {
                 break;

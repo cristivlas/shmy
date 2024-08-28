@@ -36,12 +36,19 @@ impl Exec for Mkdir {
 
         let create_parents = flags.is_present("parents");
 
-        for dir in args {
-            let path = Path::new(&dir);
-            if create_parents {
-                fs::create_dir_all(path).map_err(|e| e.to_string())?;
+        for (i, dir) in args.iter().enumerate() {
+            let path = Path::new(dir);
+            let result = if create_parents {
+                fs::create_dir_all(path)
             } else {
-                fs::create_dir(path).map_err(|e| e.to_string())?;
+                fs::create_dir(path)
+            };
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    scope.set_err_arg(i);
+                    return Err(format!("{}: {}", scope.err_path(path), e));
+                }
             }
         }
 
