@@ -11,7 +11,8 @@ impl Realpath {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        Realpath { flags }
+
+        Self { flags }
     }
 }
 
@@ -32,11 +33,12 @@ impl Exec for Realpath {
             return Err("No arguments provided".to_string());
         }
 
-        for arg in args {
+        for (i, arg) in args.iter().enumerate() {
+            scope.set_err_arg(i);
             let path = Path::new(arg);
             let canonical_path = path
                 .canonicalize()
-                .map_err(|e| format!("Failed to canonicalize path {}: {}", arg, e))?;
+                .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
 
             my_println!("{}", canonical_path.display())?;
         }

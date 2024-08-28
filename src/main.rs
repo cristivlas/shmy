@@ -23,6 +23,7 @@ mod cmds;
 mod eval;
 mod prompt;
 mod scope;
+mod testcmds;
 mod testeval;
 mod utils;
 

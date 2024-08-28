@@ -166,6 +166,14 @@ trait HasLocation {
 }
 
 impl Location {
+    pub fn new(line: u32, col: u32) -> Self {
+        Self {
+            line,
+            col,
+            file: None,
+        }
+    }
+
     fn with_file(file: Option<Rc<String>>) -> Self {
         Self {
             line: 1,

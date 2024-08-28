@@ -1,9 +1,9 @@
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::eval::*;
     use std::{io, str::FromStr};
 
-    fn eval(input: &str) -> EvalResult<Value> {
+    pub fn eval(input: &str) -> EvalResult<Value> {
         // Workaround for cargo test using stdout redirection
         let __stdout = io::stdout().lock();
 
@@ -13,6 +13,7 @@ mod tests {
         result
     }
 
+    #[macro_export]
     macro_rules! assert_eval_ok {
         ($expr:literal, $val:pat) => {
             assert!(matches!(eval($expr), Ok($val)));
@@ -22,6 +23,7 @@ mod tests {
         };
     }
 
+    #[macro_export]
     macro_rules! assert_eval_err {
         ($expr:literal, $message:literal) => {
             match eval($expr) {

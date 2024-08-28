@@ -107,23 +107,10 @@ impl Remove {
     }
 }
 
-fn unique_indices_and_strings<'a>(vec: &'a Vec<String>) -> Vec<(usize, &String)> {
-    let mut unique_set = HashSet::new();
-    let mut result = Vec::new();
-
-    for (index, string) in vec.iter().enumerate() {
-        if unique_set.insert(string) {
-            result.push((index, string));
-        }
-    }
-
-    result
-}
-
 impl Exec for Remove {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(scope, args)?;
+        let paths = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: rm [OPTIONS] FILE...");
@@ -133,27 +120,26 @@ impl Exec for Remove {
             return Ok(Value::success());
         }
 
-        if args.is_empty() {
+        if paths.is_empty() {
             return Err("missing operand".to_string());
         }
 
         let mut ctx = Context {
             interactive: !flags.is_present("force") || flags.is_present("interactive"),
             recursive: flags.is_present("recursive"),
-            many: args.len() > 1,
+            many: paths.len() > 1,
             quit: false,
             scope: Rc::clone(&scope),
         };
 
         // Use a set to dedupe inputs, e.g. avoid ```rm *.rs *.rs``` resulting in error.
-        let to_remove = unique_indices_and_strings(&args);
+        let to_remove: HashSet<&String> = HashSet::from_iter(&paths);
 
-        for (i, path) in to_remove.iter().map(|(i, path)| (i, Path::new(path))) {
-            match self.remove(&path, &mut ctx) {
+        for path in to_remove.iter() {
+            match self.remove(&Path::new(path), &mut ctx) {
                 Ok(_) => {}
                 Err(e) => {
-                    scope.set_err_arg(*i);
-                    return Err(format!("{}: {}", scope.err_path(path), e));
+                    return Err(format!("{}: {}", scope.err_path_arg(path, args), e));
                 }
             }
 

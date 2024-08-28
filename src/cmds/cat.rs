@@ -50,7 +50,7 @@ impl Exec for CatHeadTail {
             return Ok(Value::success());
         }
 
-        let line_numbers: bool = flags.is_present("number");
+        let line_num: bool = flags.is_present("number");
         let lines = flags
             .option("lines")
             .map(|v| v.parse::<usize>().map_err(|e| e.to_string()))
@@ -58,12 +58,20 @@ impl Exec for CatHeadTail {
 
         if filenames.is_empty() {
             let stdin = io::stdin();
-            process_input(&mut stdin.lock(), &self.mode, line_numbers, lines)?;
+            process_input(&mut stdin.lock(), &self.mode, line_num, lines)?;
         } else {
             for filename in &filenames {
-                let file = File::open(&filename).map_err(|e| e.to_string())?;
-                let mut buf_reader = io::BufReader::new(file);
-                process_input(&mut buf_reader, &self.mode, line_numbers, lines)?;
+                match File::open(&filename) {
+                    Ok(file) => {
+                        let mut reader = io::BufReader::new(file);
+                        if let Err(e) = process_input(&mut reader, &self.mode, line_num, lines) {
+                            return Err(format!("{}: {}", scope.err_path_arg(filename, args), e));
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!("{}: {}", scope.err_path_arg(filename, args), e));
+                    }
+                }
             }
         }
         Ok(Value::success())

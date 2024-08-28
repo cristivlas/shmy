@@ -117,7 +117,7 @@ impl Ident {
 pub struct Scope {
     pub parent: Option<Rc<Scope>>,
     pub vars: RefCell<HashMap<Ident, Variable>>,
-    err_arg: RefCell<usize>, // TODO: pass &mut Rc<Scope> to Exec::exec
+    err_arg: RefCell<usize>,
 }
 
 impl Debug for Scope {
@@ -267,6 +267,12 @@ impl Scope {
             },
             &std::io::stderr(),
         )
+    }
+
+    /// Colorize the error and set the index of the argument that caused the error
+    pub fn err_path_arg(&self, path: &str, args: &Vec<String>) -> ColoredString {
+        self.set_err_arg(args.iter().position(|a| a == path).unwrap());
+        self.err_path_str(path)
     }
 
     pub fn err_path(&self, path: &Path) -> ColoredString {
