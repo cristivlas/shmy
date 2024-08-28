@@ -39,6 +39,9 @@ impl Exec for DiskUtilization {
         };
 
         for p in &paths {
+            // Set the argument index in case there's an error
+            scope.err_path_arg(p, args);
+
             let mut file_ids = HashSet::new();
             let path = PathBuf::from(p);
             let size = du_size(&path, &opts, scope, 0, &mut file_ids)?;

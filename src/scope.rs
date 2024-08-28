@@ -271,7 +271,7 @@ impl Scope {
 
     /// Colorize the error and set the index of the argument that caused the error
     pub fn err_path_arg(&self, path: &str, args: &[String]) -> ColoredString {
-        self.set_err_arg(args.iter().position(|a| a == path).unwrap());
+        self.set_err_arg(args.iter().position(|a| a == path).unwrap_or(0));
         self.err_path_str(path)
     }
 
