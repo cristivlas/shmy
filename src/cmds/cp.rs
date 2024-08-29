@@ -95,7 +95,7 @@ impl<'a> FileCopier<'a> {
             preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
                 let template = if scope.use_colors(&std::io::stdout()) {
-                    "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} {total_bytes}"
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} {total_bytes}"
                 } else {
                     "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
                 };
@@ -222,7 +222,6 @@ impl<'a> FileCopier<'a> {
         let dest_is_dir = self.dest.is_dir();
 
         if !dest_is_dir {
-            // TODO: if !self.dest.exists() should the user be asked if they want to create it?
             if self.srcs.len() > 1 {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
@@ -243,7 +242,7 @@ impl<'a> FileCopier<'a> {
     fn reset_progress_indicator(&mut self, size: u64) {
         if self.progress.is_some() {
             let template = if self.scope.use_colors(&std::io::stdout()) {
-                "{spinner:.green} [{elapsed_precise}] {msg:>30.green.bright} [{bar:45.cyan/blue}] {bytes}/{total_bytes} ({eta})"
+                "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} [{bar:45.cyan.bright/blue}] {bytes}/{total_bytes} ({eta})"
             } else {
                 "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
             };

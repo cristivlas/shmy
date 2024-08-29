@@ -13,7 +13,8 @@ impl Mkdir {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('p', "parents", "Create parent directories as needed");
-        Mkdir { flags }
+
+        Self { flags }
     }
 }
 

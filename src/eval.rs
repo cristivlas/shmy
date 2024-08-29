@@ -196,9 +196,9 @@ impl Location {
                     scope.err_path_str(file),
                     self.line,
                     self.col,
-                    message.red()
+                    message.bright_red()
                 ),
-                None => format!("{}:{}", self, message.red()),
+                None => format!("{}:{}", self, message.bright_red()),
             }
         } else {
             format!("{}: {}", self, message)

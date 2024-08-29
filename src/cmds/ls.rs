@@ -25,7 +25,7 @@ impl ColorScheme {
 
     fn render_error<E: fmt::Display>(&self, e: &E) -> ColoredString {
         if self.use_colors {
-            e.to_string().red()
+            e.to_string().bright_red()
         } else {
             e.to_string().normal()
         }
