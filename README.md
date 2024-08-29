@@ -1,4 +1,4 @@
-# My First Rust Project: A Command Line Interpreter
+# A Command Line Interpreter in Rust
 
 This is a simple, lightweight command line interpreter with a few Unix-like built-in commands, that I wrote to familiarize myself with Rust, and to deal with those odd moments when the muscle memory goes for the quick Unix command only to realize that I am on Windows (WSL is a solution of course, but the file system is under /mnt/c, and everything that's relative to $HOME is different from the native environment). And yeah, I wanted to see what's the deal with this rusty thing all the cool kids are so excited about.
 
@@ -165,4 +165,16 @@ C:\Users\crist\Projects\rust\mysh> for f in "src\\*.rs"; (echo $f)
 src\*.rs
 ```
 
+### 10. Raw Strings
+```
+echo r"(This is a "raw string")"
+```
 
+### 11. Export and Source
+The rough equivalents of bash 'eval', 'export' and 'source' are implemented in the eval command,
+that supports --export and --source command line options.
+
+Example:
+```
+eval --export r"(__prompt = "CuStOm\ Pr0mpT \\u@\\h:\\w\\$ ")"
+```
