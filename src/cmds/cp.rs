@@ -95,7 +95,7 @@ impl<'a> FileCopier<'a> {
             preserve_metadata: !flags.is_present("no-preserve"),
             progress: if flags.is_present("progress") {
                 let template = if scope.use_colors(&std::io::stdout()) {
-                    "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} {total_bytes}"
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} {total_bytes}"
                 } else {
                     "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
                 };
@@ -242,7 +242,7 @@ impl<'a> FileCopier<'a> {
     fn reset_progress_indicator(&mut self, size: u64) {
         if self.progress.is_some() {
             let template = if self.scope.use_colors(&std::io::stdout()) {
-                "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} [{bar:45.cyan.bright/blue}] {bytes}/{total_bytes} ({eta})"
+                "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} [{bar:45.green/}] {bytes}/{total_bytes} ({eta})"
             } else {
                 "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
             };
@@ -252,7 +252,7 @@ impl<'a> FileCopier<'a> {
                 ProgressStyle::default_bar()
                     .template(&template)
                     .unwrap()
-                    .progress_chars("=>-"),
+                    .progress_chars("=> "),
             );
 
             self.progress = Some(pb);
