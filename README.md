@@ -1,6 +1,6 @@
 # A Command Line Interpreter in Rust
 
-This is a simple, lightweight command line interpreter with a few Unix-like built-in commands, that I wrote to familiarize myself with Rust, and to deal with those odd moments when the muscle memory goes for the quick Unix command only to realize that I am on Windows (WSL is a solution of course, but the file system is under /mnt/c, and everything that's relative to $HOME is different from the native environment). And yeah, I wanted to see what's the deal with this rusty thing all the cool kids are so excited about.
+This is a simple, lightweight command line interpreter with a few Unix-like built-in commands, that I wrote to familiarize myself with Rust, and to deal with those odd moments when the muscle memory goes for the quick Unix command only to realize that I am on Windows; (WSL is a solution of course, but the file system is under /mnt/c, and everything that's relative to $HOME is different from the native environment). And yeah, I wanted to see what's the deal with this rusty thing all the cool kids are so excited about.
 
 I also wanted to address the bad habit of writing quick-and-dirty scripts in which I execute a bunch of commands but "forget" to handle the errors. In this command interpreter, when a command fails and its status is not checked with an IF expression, the script stops and the error is reported, like an unhandled exception - sort of.
 
@@ -174,7 +174,44 @@ echo r"(This is a "raw string")"
 The rough equivalents of bash 'eval', 'export' and 'source' are implemented in the eval command,
 that supports --export and --source command line options.
 
-Example:
+Examples:
 ```
 eval --export r"(__prompt = "CuStOm\ Pr0mpT \\u@\\h:\\w\\$ ")"
+```
+
+```
+eval --source examples/activate.my
+```
+```
+# examples/activate.my
+# Activate / deactivate Python virtual environment.
+# From within the interactive shell, type:
+# eval --source activate.my
+
+# Run again to deactivate the virtual env (i.e. restore saved environment vars.)
+
+if (defined __OLD_PATH) (
+    # Restore (deactivate)
+
+    # Use raw string to prevent $__OLD_PATH expansion before being passed to
+    # the eval command (and pass backslash path delimiters through as-in)
+    eval --export r"(PATH = $__OLD_PATH)";
+
+    # Erase variables that are no longer needed
+    eval --export r"($VIRTUAL_ENV = )";
+    eval --export r"($__OLD_PATH = )";
+
+) else (
+    # Activate
+
+    eval --export "VIRTUAL_ENV = C:\\Users\\crist\\Projects\\venv312-chess";
+    eval --export r"(__OLD_PATH = $PATH)";
+
+    # Use raw string r"(...)" to prevent the semicolon from being interpreted as
+    # end of statement, and to pass variable names directly to the eval command,
+    # without expanding.
+    eval --export r"(PATH = "${VIRTUAL_ENV}\\Scripts\;$PATH")";
+
+    echo "VIRTUAL_ENV=${VIRTUAL_ENV}";
+);
 ```
