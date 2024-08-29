@@ -4,6 +4,7 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use regex::{escape, Regex};
 use std::env;
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -180,8 +181,20 @@ impl PromptBuilder {
     }
 
     fn push_current_dir(&mut self) {
-        self.prompt
-            .push_str(&env::current_dir().unwrap_or_default().display().to_string());
+        let work_dir = env::current_dir().unwrap_or_default().display().to_string();
+
+        // Follow bash behavior and substitute ~ for home dir.
+        // TODO: prompt_trimdir?
+        if let Some(home_dir) = self.scope.lookup("HOME") {
+            #[cfg(windows)]
+            let re = Regex::new(&format!(r"(?i)^{}", escape(&home_dir.value().as_str())));
+            #[cfg(not(windows))]
+            let re = Regex::new(&format!(r"^{}", escape(&home_dir.value().as_str())));
+
+            self.prompt.push_str(&re.unwrap().replace(&work_dir, "~"));
+        } else {
+            self.prompt.push_str(&work_dir);
+        }
     }
 
     pub fn build(&mut self, spec: &str) -> &str {
