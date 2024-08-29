@@ -42,7 +42,11 @@ impl DiskFree {
         Self { flags }
     }
 
-    fn disk_free_info(scope: &Rc<Scope>, path: &Path) -> Result<DiskFreeInfo, String> {
+    fn disk_free_info(
+        scope: &Rc<Scope>,
+        path: &Path,
+        args: &[String],
+    ) -> Result<DiskFreeInfo, String> {
         let dirname: Vec<u16> = OsStr::new(&path).encode_wide().chain(Some(0)).collect();
         let mut info: DiskFreeInfo = DiskFreeInfo::new();
 
@@ -61,7 +65,7 @@ impl DiskFree {
             {
                 Err(format!(
                     "{}: {}",
-                    scope.err_path(path),
+                    scope.err_path_arg(&path.display().to_string(), args),
                     Error::last_os_error()
                 ))
             } else {
@@ -75,32 +79,36 @@ impl DiskFree {
         flags: &CommandFlags,
         path: &Path,
         max_len: usize,
+        args: &[String],
     ) -> Result<(), String> {
-        let info = Self::disk_free_info(scope, &path)?;
+        let info = Self::disk_free_info(scope, &path, args)?;
 
         let h = flags.is_present("human-readable");
 
-        println!(
+        my_println!(
             "{:<max_len$} {:>16} {:>16} {:>16}",
             path.display(),
             format_size(info.free_bytes_available, 1, h),
             format_size(info.total_bytes, 1, h),
             format_size(info.total_free_bytes, 1, h)
-        );
+        )?;
         Ok(())
     }
-    fn print_disk_free_header(len: usize) {
-        println!(
+    fn print_disk_free_header(len: usize) -> Result<(), String> {
+        my_println!(
             "{:<len$} {:>16} {:>16} {:>16}",
-            "Path", "Free", "Total", "Total Free"
-        );
+            "Path",
+            "Free",
+            "Total",
+            "Total Free"
+        )
     }
 }
 
-fn path_from_str(scope: &Rc<Scope>, path: &str) -> Result<PathBuf, String> {
+fn path_from_str(scope: &Rc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
     let canonical_path = Path::new(path)
         .canonicalize()
-        .map_err(|e| format!("{}: {}", scope.err_path_str(&path), e))?;
+        .map_err(|e| format!("{}: {}", scope.err_path_arg(&path, args), e))?;
 
     Ok(root_path(&canonical_path))
 }
@@ -125,7 +133,7 @@ fn enumerate_drives() -> Vec<String> {
 impl Exec for DiskFree {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut args = flags.parse(scope, args)?;
+        let mut paths = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: df [OPTIONS] [PATH]");
@@ -135,13 +143,13 @@ impl Exec for DiskFree {
             return Ok(Value::success());
         }
 
-        if args.is_empty() {
-            args = enumerate_drives();
+        if paths.is_empty() {
+            paths = enumerate_drives();
         }
 
-        let paths: Vec<PathBuf> = args
+        let paths: Vec<PathBuf> = paths
             .iter()
-            .map(|path| path_from_str(scope, path))
+            .map(|path| path_from_str(scope, path, args))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Compute the maximum path length across all processed paths
@@ -151,10 +159,10 @@ impl Exec for DiskFree {
             .max()
             .unwrap_or(40);
 
-        Self::print_disk_free_header(max_len);
+        Self::print_disk_free_header(max_len)?;
 
         for path in &paths {
-            Self::print_disk_free(scope, &flags, &path, max_len)?;
+            Self::print_disk_free(scope, &flags, &path, max_len, args)?;
         }
         Ok(Value::success())
     }
