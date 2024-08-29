@@ -197,7 +197,9 @@ impl PromptBuilder {
                         'h' => self.push_hostname(),
                         'w' => self.push_current_dir(),
                         '$' => self.prompt.push(if self.is_root() { '#' } else { '$' }),
-                        _ => {}
+                        _ => {
+                            self.prompt.push(next_ch);
+                        }
                     }
                 }
             } else {

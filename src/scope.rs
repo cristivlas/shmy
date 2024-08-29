@@ -225,12 +225,16 @@ impl Scope {
     }
 
     /// Return the global scope
-    pub fn global(&self) -> Rc<Scope> {
-        let mut current = self.parent.as_ref().unwrap();
-        while let Some(parent) = &current.parent {
-            current = &parent;
+    pub fn global<'a>(&'a self) -> &'a Scope {
+        if self.parent.is_none() {
+            &self
+        } else {
+            let mut current = self.parent.as_ref().unwrap();
+            while let Some(parent) = &current.parent {
+                current = &parent;
+            }
+            &*current
         }
-        Rc::clone(&current)
     }
 
     pub fn err_arg(&self) -> usize {

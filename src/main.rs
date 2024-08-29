@@ -1,4 +1,4 @@
-use cmds::{get_command, list_registered_commands};
+use cmds::{get_command, list_registered_commands, Exec};
 use directories::UserDirs;
 use eval::{Interp, KEYWORDS};
 use prompt::PromptBuilder;
@@ -205,6 +205,7 @@ struct Shell {
     interp: Interp,
     home_dir: Option<PathBuf>,
     history_path: Option<PathBuf>,
+    profile: Option<PathBuf>,
     edit_config: rustyline::config::Config,
     prompt_builder: prompt::PromptBuilder,
 }
@@ -238,6 +239,7 @@ impl Shell {
             interp,
             home_dir: None,
             history_path: None,
+            profile: None,
             edit_config: rustyline::Config::builder()
                 .edit_mode(rustyline::EditMode::Emacs)
                 .behavior(rustyline::Behavior::PreferTerm)
@@ -255,33 +257,33 @@ impl Shell {
         &self.prompt_builder.prompt()
     }
 
-    // Retrieve the path to the file where history is saved.
-    fn get_history_path(&mut self) -> Result<&PathBuf, String> {
-        if self.history_path.is_none() {
-            let base_dirs =
-                UserDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
+    /// Retrieve the path to the file where history is saved. Set profile path.
+    fn init_interactive_mode(&mut self) -> Result<&PathBuf, String> {
+        assert!(self.history_path.is_none());
+        let base_dirs =
+            UserDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
 
-            let mut path = base_dirs.home_dir().to_path_buf();
+        let mut path = base_dirs.home_dir().to_path_buf();
 
-            assert!(self.home_dir.is_none());
-            self.set_home_dir(&path);
+        assert!(self.home_dir.is_none());
+        self.set_home_dir(&path);
 
-            path.push(".mysh");
+        path.push(".mysh");
 
-            fs::create_dir_all(&path)
-                .map_err(|e| format!("Failed to create .mysh directory: {}", e))?;
+        fs::create_dir_all(&path)
+            .map_err(|e| format!("Failed to create .mysh directory: {}", e))?;
 
-            path.push("history.txt");
+        self.profile = Some(path.join("profile"));
+        path.push("history.txt");
 
-            // Create the file if it doesn't exist
-            if !path.exists() {
-                File::create(&path).map_err(|e| format!("Failed to create history file: {}", e))?;
-            }
-
-            self.history_path = Some(path.clone());
-            self.interp
-                .set_var("HISTORY", path.to_string_lossy().to_string());
+        // Create the file if it doesn't exist
+        if !path.exists() {
+            File::create(&path).map_err(|e| format!("Failed to create history file: {}", e))?;
         }
+
+        self.history_path = Some(path.clone());
+        self.interp.set_var("HISTORY", path.display().to_string());
+
         Ok(self.history_path.as_ref().unwrap())
     }
 
@@ -292,7 +294,7 @@ impl Shell {
     }
 
     fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
-        let hist_path = self.get_history_path()?;
+        let hist_path = self.history_path.as_ref().unwrap();
         rl.save_history(&hist_path)
             .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
     }
@@ -313,7 +315,9 @@ impl Shell {
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
             let h = CmdLineHelper::new(self.interp.scope());
             rl.set_helper(Some(h));
-            rl.load_history(&self.get_history_path()?).unwrap();
+            rl.load_history(&self.init_interactive_mode()?).unwrap();
+
+            self.source_profile()?; // source ~/.mysh/profile if found
 
             while !self.interp.quit {
                 // run interactive read-evaluate loop
@@ -355,6 +359,22 @@ impl Shell {
                     self.eval(&script);
                 }
                 Err(e) => return Err(format!("Failed to read input: {}", e)),
+            }
+        }
+        Ok(())
+    }
+
+    fn source_profile(&self) -> Result<(), String> {
+        // Source the ~/.mysh/profile.my if found
+        if let Some(profile) = &self.profile {
+            if profile.exists() {
+                let scope = Scope::new(Some(Rc::clone(&self.interp.scope())));
+                let eval = get_command("eval").unwrap();
+                eval.exec(
+                    "eval",
+                    &vec![profile.display().to_string(), "--source".to_string()],
+                    &scope,
+                )?;
             }
         }
         Ok(())

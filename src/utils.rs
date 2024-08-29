@@ -21,7 +21,7 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<
     }
 }
 
-pub fn sync_env_vars(scope: &Rc<Scope>) {
+pub fn sync_env_vars(scope: &Scope) {
     // Remove each environment variable
     env::vars().for_each(|(key, _)| env::remove_var(key));
 
