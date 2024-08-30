@@ -160,7 +160,7 @@ mod win {
     use std::fs::{self, OpenOptions};
     use std::os::windows::prelude::*;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
     };
@@ -170,8 +170,8 @@ mod win {
     };
     use windows::{
         Win32::Storage::FileSystem::{
-            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_READ_ATTRIBUTES, FILE_SHARE_READ, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ,
         },
         Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT,
         Win32::System::IO::DeviceIoControl,
@@ -207,7 +207,7 @@ mod win {
 
         let file = match OpenOptions::new()
             .read(true)
-            .custom_flags(windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS.0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
             .open(&path)
         {
             Ok(file) => file,
@@ -340,68 +340,48 @@ mod win {
         const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
         const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
-        // Convert the path to a Windows wide string
-        let wide_path: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(Some(0).into_iter())
-            .collect();
+        let file = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .access_mode(FILE_READ_ATTRIBUTES.0)
+            .open(&path)?;
 
-        // Open the file with backup semantics to get a handle
-        let handle = unsafe {
-            CreateFileW(
-                PCWSTR(wide_path.as_ptr()),
-                FILE_READ_ATTRIBUTES.0,
-                FILE_SHARE_READ,
+        let handle = HANDLE(file.as_raw_handle());
+
+        // Prepare buffer for reparse point data
+        let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+
+        // Retrieve the reparse point data
+        let mut bytes_returned = 0;
+        unsafe {
+            DeviceIoControl(
+                handle,
+                FSCTL_GET_REPARSE_POINT,
                 None,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                HANDLE::default(),
+                0,
+                Some(buffer.as_mut_ptr() as *mut _),
+                buffer.len() as u32,
+                Some(&mut bytes_returned),
+                None,
             )
         }
         .map_err(|_| std::io::Error::last_os_error())?;
 
-        // Ensure the handle is closed after use
-        let result = (|| {
-            // Prepare buffer for reparse point data
-            let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+        let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
 
-            // Retrieve the reparse point data
-            let mut bytes_returned = 0;
-            unsafe {
-                DeviceIoControl(
-                    handle,
-                    FSCTL_GET_REPARSE_POINT,
-                    None,
-                    0,
-                    Some(buffer.as_mut_ptr() as *mut _),
-                    buffer.len() as u32,
-                    Some(&mut bytes_returned),
-                    None,
-                )
-            }
-            .map_err(|_| std::io::Error::last_os_error())?;
-
-            let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
-
-            // Defer to the normal fs routine if not a Linux symlink
-            if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
-                return fs::read_link(path);
-            }
-
-            let target_length = std::cmp::min(
-                reparse_data.data_length.saturating_sub(4) as usize,
-                buffer.len() - std::mem::size_of_val(reparse_data),
-            );
-            let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
-            Ok(String::from_utf8_lossy(target).into_owned().into())
-        })();
-
-        unsafe {
-            CloseHandle(handle)?;
+        // Defer to the normal fs operation if not a Linux symlink
+        if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
+            return fs::read_link(path);
         }
 
-        result
+        let target_length = std::cmp::min(
+            reparse_data.data_length.saturating_sub(4) as usize,
+            buffer.len() - std::mem::size_of_val(reparse_data),
+        );
+        let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
+
+        Ok(String::from_utf8_lossy(target).into_owned().into())
     }
 }
 
