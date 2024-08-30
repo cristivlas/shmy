@@ -154,23 +154,31 @@ impl Exec for Dir {
 
 #[cfg(windows)]
 mod win {
+    use super::OWNER_MAX_LEN;
+    use super::*;
     use std::cmp::min;
     use std::fs::{self, OpenOptions};
     use std::os::windows::prelude::*;
-    use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
     };
-    use windows::Win32::Security::{LookupAccountSidW, SID_NAME_USE};
     use windows::Win32::Security::{
-        GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+        LookupAccountSidW, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+        PSECURITY_DESCRIPTOR, PSID, SID_NAME_USE,
+    };
+    use windows::{
+        Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_READ_ATTRIBUTES, FILE_SHARE_READ, OPEN_EXISTING,
+        },
+        Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT,
+        Win32::System::IO::DeviceIoControl,
     };
     use windows_sys::Win32::Foundation::LocalFree;
 
-    use super::OWNER_MAX_LEN;
-
+    /// Return a pair of Option<String> for the names of the owner and the group.
     fn get_owner_and_group_sids(
         mut path: PathBuf,
         metadata: &fs::Metadata,
@@ -184,14 +192,14 @@ mod win {
                     .unwrap_or_else(|_| "?".to_string());
 
                 LocalFree(sid_string_ptr.0 as _);
-
                 Some(sid_string)
             } else {
                 None
             }
         };
+
         if metadata.is_symlink() {
-            match fs::read_link(path) {
+            match win::read_link(&path) {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
             }
@@ -200,7 +208,7 @@ mod win {
         let file = match OpenOptions::new()
             .read(true)
             .custom_flags(windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS.0)
-            .open(path)
+            .open(&path)
         {
             Ok(file) => file,
             Err(_) => return (None, None),
@@ -237,6 +245,7 @@ mod win {
         }
     }
 
+    /// Convert the SID string to an account name.
     fn name_from_sid(opt_sid: Option<String>) -> String {
         if let Some(sid) = opt_sid {
             unsafe {
@@ -311,6 +320,88 @@ mod win {
         perms.push(if attrs & 0x100 != 0 { 't' } else { '-' }); // Temporary
 
         perms
+    }
+
+    /// Read WSL symbolic link.
+    /// TODO: move to utils, to be shared with other commands.
+    /// TODO: refactor and clean up error handling.
+    pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
+        // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
+        #[repr(C)]
+        #[derive(Debug)]
+        struct ReparseDataBufferLxSymlink {
+            reparse_tag: u32,
+            data_length: u16,
+            reserved: u16,
+            flags: u16,
+            reparse_target: [u8; 1], // Variable-length
+        }
+
+        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
+        const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
+
+        // Convert the path to a Windows wide string
+        let wide_path: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0).into_iter())
+            .collect();
+
+        // Open the file with backup semantics to get a handle
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(wide_path.as_ptr()),
+                FILE_READ_ATTRIBUTES.0,
+                FILE_SHARE_READ,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                HANDLE::default(),
+            )
+        }
+        .map_err(|_| std::io::Error::last_os_error())?;
+
+        // Ensure the handle is closed after use
+        let result = (|| {
+            // Prepare buffer for reparse point data
+            let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+
+            // Retrieve the reparse point data
+            let mut bytes_returned = 0;
+            unsafe {
+                DeviceIoControl(
+                    handle,
+                    FSCTL_GET_REPARSE_POINT,
+                    None,
+                    0,
+                    Some(buffer.as_mut_ptr() as *mut _),
+                    buffer.len() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            }
+            .map_err(|_| std::io::Error::last_os_error())?;
+
+            let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
+
+            // Defer to the normal fs routine if not a Linux symlink
+            if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
+                return fs::read_link(path);
+            }
+
+            let target_length = std::cmp::min(
+                reparse_data.data_length.saturating_sub(4) as usize,
+                buffer.len() - std::mem::size_of_val(reparse_data),
+            );
+            let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
+            Ok(String::from_utf8_lossy(target).into_owned().into())
+        })();
+
+        unsafe {
+            CloseHandle(handle)?;
+        }
+
+        result
     }
 }
 
@@ -521,9 +612,11 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &Options) -> Result<
 
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            // let link_path = fs::read_link(path).map_err(|e| e.to_string())?;
-            // TODO: Handle NTFS junctions, https://en.wikipedia.org/wiki/NTFS_links
+            #[cfg(windows)]
+            let link_path = win::read_link(path).map_err(|e| e.to_string())?;
+            #[cfg(not(windows))]
             let link_path = fs::read_link(path).unwrap_or(Path::new("[...]").to_path_buf());
+
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()
