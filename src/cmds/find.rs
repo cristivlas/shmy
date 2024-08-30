@@ -14,6 +14,7 @@ impl Find {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         Self { flags }
     }
@@ -75,6 +76,7 @@ impl Exec for Find {
             return Err("Missing search pattern".to_string());
         }
 
+        let follow_links = flags.is_present("follow-links");
         let pattern = args.last().unwrap(); // Last argument is the search pattern
         let regex = Regex::new(pattern).map_err(|e| format!("Invalid regex: {}", e))?;
         let dirs = if args.len() > 1 {
@@ -85,6 +87,9 @@ impl Exec for Find {
 
         for dir in dirs {
             let path = Path::new(dir);
+            if path.is_symlink() && !follow_links {
+                continue;
+            }
             self.search(scope, OsStr::new(dir), &path, &regex)?;
         }
 
