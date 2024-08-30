@@ -1,6 +1,6 @@
 use cmds::{get_command, list_registered_commands, Exec};
 use directories::UserDirs;
-use eval::{Interp, KEYWORDS};
+use eval::{Interp, Value, KEYWORDS};
 use prompt::PromptBuilder;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
@@ -283,8 +283,30 @@ impl Shell {
         Ok(self.history_path.as_ref().unwrap())
     }
 
+    /// Populate global scope with special variables.
+    /// Return new child scope.
     fn new_top_scope(&self) -> Rc<Scope> {
-        Scope::new(Some(Rc::clone(&self.interp.global_scope())))
+        let scope = &self.interp.global_scope();
+        // Number of args (except $0)
+        scope.insert(
+            "#".to_string(),
+            Value::Int(env::args().count().saturating_sub(1) as _),
+        );
+        // All args except $0
+        scope.insert(
+            "@".to_string(),
+            Value::Str(Rc::new(
+                env::args().skip(1).collect::<Vec<String>>().join(" "),
+            )),
+        );
+        // Interpreter pid
+        scope.insert("$".to_string(), Value::Int(std::process::id() as _));
+        // $0, $1, ...
+        for (i, arg) in env::args().enumerate() {
+            scope.insert(format!("{}", i), Value::Str(Rc::new(arg)));
+        }
+
+        Scope::new(Some(Rc::clone(&scope)))
     }
 
     fn prompt(&mut self) -> &str {

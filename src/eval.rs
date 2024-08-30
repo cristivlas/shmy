@@ -582,6 +582,8 @@ where
                 Ok(Value::Int(_)) | Ok(Value::Real(_)) => true,
                 _ => false,
             }
+        } else if c == '#' && self.text == "$" {
+            false // Special case for $# variable (holding number of command line arguments)
         } else {
             const DELIMITERS: &str = " \t\n\r()+=;|&<>#";
             DELIMITERS.contains(c)
@@ -1267,7 +1269,7 @@ where
 /// "${GREETING/(Hello), (World)!/\\2 says \\1}" -> "World says Hello"
 /// ```
 fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> {
-    let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)")
+    let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z0-9_$@#][a-zA-Z0-9_]*)")
         .map_err(|e| EvalError::new(loc.clone(), e.to_string()))?;
 
     let result = re.replace_all(s, |caps: &regex::Captures| {
