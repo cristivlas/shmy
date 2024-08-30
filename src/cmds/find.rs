@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::resolve_links;
 use crate::{eval::Value, scope::Scope};
 use regex::Regex;
 use std::ffi::OsStr;
@@ -31,17 +32,19 @@ impl Find {
             return Ok(());
         }
 
-        if !follow && path.is_symlink() {
-            return Ok(());
-        }
+        let search_path = if follow {
+            resolve_links(path).unwrap_or(path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        };
 
         // Check if the current directory or file matches the pattern
         if regex.is_match(&file_name.to_string_lossy()) {
             println!("{}", path.display());
         }
 
-        if path.is_dir() {
-            match fs::read_dir(path) {
+        if search_path.is_dir() {
+            match fs::read_dir(search_path) {
                 Ok(entries) => {
                     for entry in entries {
                         match entry {
