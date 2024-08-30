@@ -25,8 +25,13 @@ impl Find {
         file_name: &OsStr,
         path: &Path,
         regex: &Regex,
+        follow: bool,
     ) -> Result<(), String> {
         if scope.is_interrupted() {
+            return Ok(());
+        }
+
+        if !follow && path.is_symlink() {
             return Ok(());
         }
 
@@ -41,7 +46,13 @@ impl Find {
                     for entry in entries {
                         match entry {
                             Ok(entry) => {
-                                self.search(scope, &entry.file_name(), &entry.path(), regex)?;
+                                self.search(
+                                    scope,
+                                    &entry.file_name(),
+                                    &entry.path(),
+                                    regex,
+                                    follow,
+                                )?;
                             }
                             Err(e) => {
                                 my_warning!(scope, "{}: {}", scope.err_path(path), e);
@@ -87,10 +98,7 @@ impl Exec for Find {
 
         for dir in dirs {
             let path = Path::new(dir);
-            if path.is_symlink() && !follow_links {
-                continue;
-            }
-            self.search(scope, OsStr::new(dir), &path, &regex)?;
+            self.search(scope, OsStr::new(dir), &path, &regex, follow_links)?;
         }
 
         Ok(Value::success())
