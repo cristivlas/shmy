@@ -199,7 +199,7 @@ mod win {
         };
 
         if metadata.is_symlink() {
-            match win::read_link(&path) {
+            match read_symlink(&path) {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
             }
@@ -564,17 +564,17 @@ fn print_detailed_entries(
                 print_details(&entry.path(), &metadata, args)?;
             }
             Err(e) => {
+                // Show warning and keep going.
                 my_warning!(
                     scope,
                     "Cannot access {}: {}",
                     args.colors.render_error_path(&entry.path()),
                     args.colors.render_error(&e)
                 );
+                let unknown = "-";
                 my_println!(
-                    "?---------  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {:>12}  {}",
-                    "?",
-                    "?",
-                    "?",
+                    "-?????????  {0:OWNER_MAX_LEN$} {0:OWNER_MAX_LEN$} {1:>12}  {1:>12}  {2}",
+                    unknown,
                     "?",
                     args.colors.render_error_path(&entry.path())
                 )?;
@@ -584,8 +584,21 @@ fn print_detailed_entries(
     Ok(())
 }
 
+fn read_symlink(path: &Path) -> Result<PathBuf, String> {
+    #[cfg(not(windows))]
+    {
+        fs::read_link(path).map_err(|e| e.to_string())
+    }
+    #[cfg(windows)]
+    {
+        win::read_link(path)
+            .or_else(|_| fs::read_link(path))
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// Print details for one file entry
-fn print_details(path: &PathBuf, metadata: &Metadata, args: &Options) -> Result<(), String> {
+fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(), String> {
     let base_name = path
         .file_name()
         .or(Some(path.as_os_str()))
@@ -594,18 +607,14 @@ fn print_details(path: &PathBuf, metadata: &Metadata, args: &Options) -> Result<
 
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            #[cfg(windows)]
-            let link_path = win::read_link(path).map_err(|e| e.to_string())?;
-            #[cfg(not(windows))]
-            let link_path = fs::read_link(path).unwrap_or(Path::new("[...]").to_path_buf());
-
+            let link_path = read_symlink(path).unwrap_or(PathBuf::from("[...]"));
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()
         };
 
         let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH), args.use_utc);
-        let (owner, group) = get_owner_and_group(Path::new(path).to_path_buf(), &metadata);
+        let (owner, group) = get_owner_and_group(PathBuf::from(path), &metadata);
 
         my_println!(
             "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
