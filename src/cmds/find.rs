@@ -14,7 +14,8 @@ impl Find {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        Find { flags }
+
+        Self { flags }
     }
 
     fn search(

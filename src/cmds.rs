@@ -40,6 +40,7 @@ mod open;
 mod realpath;
 mod rm;
 mod run;
+mod sort;
 #[cfg(windows)]
 mod sudo;
 mod vars;

@@ -346,6 +346,12 @@ impl FromStr for Value {
     }
 }
 
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::from_str(value).unwrap()
+    }
+}
+
 impl TryFrom<Value> for i64 {
     type Error = String;
 

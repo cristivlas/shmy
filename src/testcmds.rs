@@ -86,4 +86,51 @@ mod tests {
     fn test_realpath_err() {
         assert_err_loc!("realpath . foo", Location::new(1, 11));
     }
+
+    fn create_test_file(dir: &TempDir, filename: &str, content: &str) -> std::path::PathBuf {
+        let file_path = dir.path().join(filename);
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "{}", content).unwrap();
+        file_path
+    }
+
+    #[test]
+    fn test_sort_basic() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = create_test_file(&temp_dir, "test.txt", "banana\napple\ncherry\n");
+
+        let sort_command = format!("sort {} | result; $result", file_path.display());
+        assert_eval_ok!(&sort_command, Value::from("apple\nbanana\ncherry"));
+    }
+
+    #[test]
+    fn test_sort_unique() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = create_test_file(
+            &temp_dir,
+            "test_unique.txt",
+            "banana\napple\ncherry\nbanana\napple\n",
+        );
+
+        let sort_command = format!("sort -u {} | result; $result", file_path.display());
+        assert_eval_ok!(&sort_command, Value::from("apple\nbanana\ncherry"));
+    }
+
+    #[test]
+    fn test_sort_reverse() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = create_test_file(&temp_dir, "test_reverse.txt", "banana\napple\ncherry\n");
+
+        let sort_command = format!("sort -r {} | result; $result", file_path.display());
+        assert_eval_ok!(&sort_command, Value::from("cherry\nbanana\napple"));
+    }
+
+    #[test]
+    fn test_sort_unique_numeric() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = create_test_file(&temp_dir, "test_numeric.txt", "10\n2\n1\n10\n");
+
+        let sort_command = format!("sort -un {} | result; $result", file_path.display());
+        assert_eval_ok!(&sort_command, Value::from("1\n2\n10"));
+    }
 }
