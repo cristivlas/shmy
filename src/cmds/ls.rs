@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::{format_size, read_symlink};
+use crate::utils::{format_size, resolve_links};
 use crate::{eval::Value, scope::Scope};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
@@ -193,7 +193,7 @@ mod win {
 
         if metadata.is_symlink() {
             // TODO: command line flag for following symlinks? My default use-case is ON.
-            match read_symlink(&path) {
+            match resolve_links(&path) {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
             }
@@ -379,7 +379,7 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
         let mut path = PathBuf::from(entry_path);
         if path.is_symlink() {
             // TODO: command line options to follow symlinks specified on the cmd line?
-            path = read_symlink(&path)?;
+            path = resolve_links(&path)?;
         }
 
         path = path
@@ -532,7 +532,7 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
 
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            let link_path = read_symlink(path).unwrap_or(PathBuf::from("[...]"));
+            let link_path = resolve_links(path).unwrap_or(PathBuf::from("[...]"));
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()

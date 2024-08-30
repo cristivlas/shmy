@@ -7,4 +7,4 @@ job control? (do I care?)
 more tests
 
 Consistent symlink support across all commands.
-Support symbolic links in TAB auto-complete.
+Support symbolic links in TAB auto-complete in Windows.
