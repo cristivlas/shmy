@@ -486,9 +486,11 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
 fn print_dir(scope: &Rc<Scope>, path: &Path, args: &Options) -> Result<(), String> {
     let entries =
         fs::read_dir(path).map_err(|e| format!("Cannot access {}: {}", path.display(), e))?;
+
     let mut entries: Vec<_> = entries
         .collect::<Result<_, _>>()
         .map_err(|e| format!("Error reading entries: {}", e))?;
+
     entries.sort_by_key(|e| e.file_name());
 
     if args.paths.len() > 1 {

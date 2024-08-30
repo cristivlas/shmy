@@ -106,7 +106,7 @@ impl DiskFree {
     }
 }
 
-fn path_from_str(scope: &Rc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
+fn root_path_from_str(scope: &Rc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
     let canonical_path = Path::new(path)
         .canonicalize()
         .map_err(|e| format!("{}: {}", scope.err_path_arg(&path, args), e))?;
@@ -149,7 +149,7 @@ impl Exec for DiskFree {
         }
         let paths = paths
             .iter()
-            .map(|path| path_from_str(scope, path, args))
+            .map(|path| root_path_from_str(scope, path, args))
             .collect::<Result<HashSet<_>, _>>()?;
 
         // Compute the maximum path length across all processed paths

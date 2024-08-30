@@ -77,44 +77,6 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 }
 
 #[cfg(windows)]
-#[cfg(feature = "deprecated")]
-pub fn win_last_err() -> String {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::GetLastError;
-    use windows::Win32::System::Diagnostics::Debug::*;
-
-    unsafe {
-        let error_code = GetLastError();
-        let mut buffer: Vec<u16> = Vec::with_capacity(512);
-
-        let length = FormatMessageW(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-            None,
-            error_code.0,
-            0,
-            PWSTR::null(),
-            buffer.capacity() as u32,
-            None,
-        );
-
-        if length == 0 {
-            return format!("Unknown error: {}", error_code.0);
-        }
-
-        // Resize the buffer to the correct length
-        buffer.set_len(length as usize);
-
-        // Convert the UTF-16 buffer to an OsString
-        let message = OsString::from_wide(&buffer);
-
-        // Convert OsString to String, falling back to a lossy conversion if needed
-        message.to_string_lossy().into_owned()
-    }
-}
-
-#[cfg(windows)]
 pub fn root_path(path: &Path) -> PathBuf {
     let mut path = path.to_path_buf();
 
