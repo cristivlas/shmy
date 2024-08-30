@@ -1,0 +1,4 @@
+echo $0 $1 $2;
+echo $#; # the number of args except $0
+echo $@; # the command line
+echo $$; # the process id of the interpreter
