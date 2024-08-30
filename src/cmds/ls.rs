@@ -443,10 +443,15 @@ fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
 use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
-    for path in &opts.paths {
-        let path = Path::new(&path)
+    for entry_path in &opts.paths {
+        let mut path = PathBuf::from(entry_path);
+        if path.is_symlink() {
+            path = read_symlink(&path)?;
+        }
+
+        path = path
             .canonicalize()
-            .map_err(|e| format!("{}: {}", scope.err_path_arg(path, args), e))?;
+            .map_err(|e| format!("{}: {}", scope.err_path_arg(&entry_path, args), e))?;
 
         match fs::metadata(&path) {
             Ok(metadata) => {
