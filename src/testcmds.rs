@@ -5,11 +5,10 @@ mod tests {
     use crate::testeval::tests::*;
     use std::fs::File;
     use std::io::{Read, Write};
-    use std::str::FromStr;
     use tempfile::TempDir;
 
     macro_rules! assert_err_loc {
-        ($expr:literal, $loc:expr) => {
+        ($expr:literal, $loc:expr) => {{
             match eval($expr) {
                 Err(EvalError { loc: ref loc, .. }) => {
                     assert_eq!(loc, &$loc);
@@ -18,12 +17,12 @@ mod tests {
                     panic!("Expected error, got Ok")
                 }
             }
-        };
+        }};
     }
 
     #[test]
     fn test_cat_err() {
-        assert_eval_ok!("echo abc | cat | x; $x", Value::from_str("abc").unwrap());
+        assert_eval_ok!("echo abc | cat | x; $x", Value::from("abc"));
         assert_err_loc!("cat   -n bogus", Location::new(1, 9));
     }
 

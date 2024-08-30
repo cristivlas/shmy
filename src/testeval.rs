@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod tests {
     use crate::eval::*;
-    use std::{io, str::FromStr};
+    use std::io;
 
     pub fn eval(input: &str) -> EvalResult<Value> {
         // Workaround for cargo test using stdout redirection
@@ -59,7 +59,7 @@ pub mod tests {
 
     #[test]
     fn test_if() {
-        assert_eval_ok!("i = 1; if $i (True)", Value::from_str("True").unwrap());
+        assert_eval_ok!("i = 1; if $i (True)", Value::from("True"));
     }
 
     #[test]
@@ -74,7 +74,7 @@ pub mod tests {
     fn test_else() {
         assert_eval_ok!(
             "i = 1; if ($i < 0) (Apple) else (Orange)",
-            Value::from_str("Orange").unwrap()
+            Value::from("Orange")
         );
     }
 
@@ -95,7 +95,7 @@ pub mod tests {
     fn test_for() {
         assert_eval_ok!(
             "i = \"\"; for j in a b c d; ($i = $i + $j);",
-            Value::from_str("abcd").unwrap()
+            Value::from("abcd")
         );
     }
 
@@ -104,7 +104,7 @@ pub mod tests {
         let mut interp = Interp::new();
         interp
             .global_scope()
-            .insert("HOME".to_string(), Value::from_str("abc").unwrap());
+            .insert("HOME".to_string(), Value::from("abc"));
         let result = interp.eval("for i in ~/foo; ($i)", None);
         dbg!(&result);
         assert!(matches!(result, Ok(ref v) if v.to_string() == "abc/foo"));
@@ -161,70 +161,64 @@ pub mod tests {
     fn test_var_subst() {
         assert_eval_ok!(
             "TEST=/tmp/foobar/baz/bam; $TEST",
-            Value::from_str("/tmp/foobar/baz/bam").unwrap()
+            Value::from("/tmp/foobar/baz/bam")
         );
         assert_eval_ok!(
             "TEST=/tmp/foobar/baz/bam; ${TEST}",
-            Value::from_str("/tmp/foobar/baz/bam").unwrap()
+            Value::from("/tmp/foobar/baz/bam")
         );
         assert_eval_ok!(
             "TEST=/tmp/foobar/baz/bam; aaa${TEST}bbb",
-            Value::from_str("aaa/tmp/foobar/baz/bambbb").unwrap()
+            Value::from("aaa/tmp/foobar/baz/bambbb")
         );
         assert_eval_ok!(
             "TEST=/tmp/foobar/baz/bam; aaa${TEST/.a/}",
-            Value::from_str("aaa/tmp/foor/z/m").unwrap()
+            Value::from("aaa/tmp/foor/z/m")
         );
         assert_eval_ok!(
             "TEST=\"/tmp/f  bar/baz/bam\"; \"${TEST/ +/_}\"",
-            Value::from_str("/tmp/f_bar/baz/bam").unwrap()
+            Value::from("/tmp/f_bar/baz/bam")
         );
         assert_eval_ok!(
             "TEST=/tmp/foobar.txt; \"${TEST/(.txt)/\\\\1.tmp}\"",
-            Value::from_str("/tmp/foobar.txt.tmp").unwrap()
+            Value::from("/tmp/foobar.txt.tmp")
         );
 
-        assert_eval_ok!(
-            "NAME=\"John Doe\"; \"${NAME}\"",
-            Value::from_str("John Doe").unwrap()
-        );
+        assert_eval_ok!("NAME=\"John Doe\"; \"${NAME}\"", Value::from("John Doe"));
         assert_eval_ok!(
             "GREETING=\"Hello, World!\"; \"$GREETING\"",
-            Value::from_str("Hello, World!").unwrap()
+            Value::from("Hello, World!")
         );
         assert_eval_ok!(
             "NAME=\"John Doe\"; \"${NAME/John/Jane}\"",
-            Value::from_str("Jane Doe").unwrap()
+            Value::from("Jane Doe")
         );
         assert_eval_ok!(
             "GREETING=\"Hello, World!\"; \"${GREETING/World/Universe}\"",
-            Value::from_str("Hello, Universe!").unwrap()
+            Value::from("Hello, Universe!")
         );
         assert_eval_ok!(
             "NAME=\"John Doe\"; \"${NAME/[aeiou]/X}\"",
-            Value::from_str("JXhn DXX").unwrap()
+            Value::from("JXhn DXX")
         );
         assert_eval_ok!(
             "NAME=\"John Doe\"; \"${NAME/(\\\\w+) (\\\\w+)/\\\\2, \\\\1}\"",
-            Value::from_str("Doe, John").unwrap()
+            Value::from("Doe, John")
         );
         assert_eval_ok!(
             "GREETING=\"Hello, World!\"; \"${GREETING/(Hello), (World)!/\\\\2 says \\\\1}\"",
-            Value::from_str("World says Hello").unwrap()
+            Value::from("World says Hello")
         );
-        assert_eval_ok!(
-            "\"${UNDEFINED_VAR}\"",
-            Value::from_str("$UNDEFINED_VAR").unwrap()
-        );
+        assert_eval_ok!("\"${UNDEFINED_VAR}\"", Value::from("$UNDEFINED_VAR"));
         assert_eval_ok!(
             "\"${UNDEFINED_VAR/foo/bar}\"",
-            Value::from_str("$UNDEFINED_VAR").unwrap()
+            Value::from("$UNDEFINED_VAR")
         );
-        assert_eval_ok!("$UNDEFINED", Value::from_str("$UNDEFINED").unwrap());
+        assert_eval_ok!("$UNDEFINED", Value::from("$UNDEFINED"));
 
         assert_eval_ok!(
             "foo=\"blah blah\"; bar = hu; ${foo/bla/$bar}",
-            Value::from_str("huh huh").unwrap()
+            Value::from("huh huh")
         );
     }
 
@@ -240,7 +234,7 @@ pub mod tests {
             "if (cp; echo Ok)() else ()",
             "Missing source and destination"
         );
-        assert_eval_ok!("if (cp)() else (fail)", Value::from_str("fail").unwrap());
+        assert_eval_ok!("if (cp)() else (fail)", Value::from("fail"));
         assert_eval_ok!("for i in (if(cp)(); foo); (echo $i)", Value::Int(0));
         assert_eval_err!("while (1) (cp x; break)", "Missing destination");
         assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
@@ -273,11 +267,11 @@ pub mod tests {
     fn test_error() {
         assert_eval_ok!(
             "if (echo Hello && cp x) () else ($__errors)",
-            Value::from_str("cp x: Missing destination").unwrap()
+            Value::from("cp x: Missing destination")
         );
         assert_eval_ok!(
             "if (!(0 || cp -x || cp)) ($__errors)",
-            Value::from_str("cp -x: Unknown flag: -x\ncp: Missing source and destination").unwrap()
+            Value::from("cp -x: Unknown flag: -x\ncp: Missing source and destination")
         );
     }
 
@@ -291,7 +285,7 @@ pub mod tests {
     fn test_logical_or_error() {
         assert_eval_ok!(
             "(basename . || echo $__errors) | x; $x",
-            Value::from_str("basename .: Failed to get file name").unwrap()
+            Value::from("basename .: Failed to get file name")
         );
     }
 
@@ -299,7 +293,7 @@ pub mod tests {
     fn test_pipeline_rewrite() {
         assert_eval_ok!(
             "echo World | (echo Hello; cat) | cat | x; $x",
-            "Hello\nWorld".parse::<Value>().unwrap()
+            Value::from("Hello\nWorld")
         );
     }
 
@@ -315,8 +309,7 @@ pub mod tests {
 
         assert_eval_ok!(
             "if (0 || cp -x || cp) (ok) else ($__errors)",
-            Value::from_str(&"cp -x: Unknown flag: -x\ncp: Missing source and destination")
-                .unwrap()
+            Value::from("cp -x: Unknown flag: -x\ncp: Missing source and destination")
         );
     }
 
@@ -324,17 +317,13 @@ pub mod tests {
     fn test_negated_status() {
         assert_eval_ok!(
             "if (!(0 || cp -x || cp)) ($__errors)",
-            Value::from_str(&"cp -x: Unknown flag: -x\ncp: Missing source and destination")
-                .unwrap()
+            Value::from("cp -x: Unknown flag: -x\ncp: Missing source and destination")
         );
     }
 
     #[test]
     fn test_dash_parse() {
-        assert_eval_ok!(
-            "echo ---Hello--- | x; $x",
-            Value::from_str(&"---Hello---").unwrap()
-        );
+        assert_eval_ok!("echo ---Hello--- | x; $x", Value::from("---Hello---"));
     }
 
     #[test]
@@ -344,16 +333,13 @@ pub mod tests {
 
     #[test]
     fn test_hash_tag() {
-        assert_eval_ok!("x = hey#world; $x", Value::from_str("hey").unwrap());
-        assert_eval_ok!(
-            "x = \"hey#world\"; $x",
-            Value::from_str("hey#world").unwrap()
-        );
+        assert_eval_ok!("x = hey#world; $x", Value::from("hey"));
+        assert_eval_ok!("x = \"hey#world\"; $x", Value::from("hey#world"));
     }
 
     #[test]
     fn test_raw_strings() {
-        assert_eval_ok!("r\"(_;)( \" )\"", Value::from_str("_;)( \" ").unwrap());
+        assert_eval_ok!("r\"(_;)( \" )\"", Value::from("_;)( \" "));
     }
 
     #[test]
@@ -367,15 +353,12 @@ pub mod tests {
         // Expect value to be preserved across evals.
         assert_eval_ok!("$FOO", Value::Int(123));
         // Expect to find it in the environment
-        assert_eval_ok!(
-            "env | grep FOO | bar; $bar",
-            Value::from_str("FOO=123").unwrap()
-        );
+        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from("FOO=123"));
         // Erase it
         assert_eval_ok!("$FOO =", Value::Int(123));
         // Should be gone from the env.
-        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from_str("").unwrap());
+        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
         // Should not be found (not expanded)
-        assert_eval_ok!("$FOO", Value::from_str("$FOO").unwrap());
+        assert_eval_ok!("$FOO", Value::from("$FOO"));
     }
 }
