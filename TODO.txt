@@ -5,3 +5,6 @@ cp perf: add argument to cp to specify buffer size; multi-threaded cp? cp rollba
 job control? (do I care?)
 
 more tests
+
+Consistent symlink support across all commands.
+Support symbolic links in TAB auto-complete.

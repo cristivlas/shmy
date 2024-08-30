@@ -1,10 +1,14 @@
 # A Command Line Interpreter in Rust
 
-This is a simple, lightweight command line interpreter with a few Unix-like built-in commands, that I wrote to familiarize myself with Rust, and to deal with those odd moments when the muscle memory goes for the quick Unix command only to realize that I am on Windows; (WSL is a solution of course, but the file system is under /mnt/c, and everything that's relative to $HOME is different from the native environment). And yeah, I wanted to see what's the deal with this rusty thing all the cool kids are so excited about.
+This is a simple, lightweight command line interpreter with a few Unix-like built-in commands that I wrote to familiarize myself with Rust and to deal with those odd moments when muscle memory goes for the quick Unix command, only to realize that I am on Windows. (WSL is a solution, of course, but the file system is under /mnt/c, and everything relative to $HOME is different from the native environment.) And yeah, I wanted to see what the deal is with this rusty thing all the cool kids are so excited about.
 
 I also wanted to address the bad habit of writing quick-and-dirty scripts in which I execute a bunch of commands but "forget" to handle the errors. In this command interpreter, when a command fails and its status is not checked with an IF expression, the script stops and the error is reported, like an unhandled exception - sort of.
 
-The interpreter works in interactive mode or can consume script files passed in the command line. In interactive mode history and TAB expansion are supported via rustyline.
+The interpreter works in interactive mode or can consume script files passed in the command line. In interactive mode, history and TAB expansion are supported via rustyline.
+
+## Cool Features
+ - Read and follow WSL symbolic links (currently in cd, cp, ls, and find commands only. Experimental)
+ - Enforce command result error checking.
 
 ## Expression Evaluation Random Notes
 
@@ -76,7 +80,7 @@ Pipe output between commands:
 ```shell
 ls -al | (echo "\t\tHEADER"; cat; echo "\t\tFOOTER")
 ```
-Example for using pipe operator for variable assignment:
+Example of using pipe operator for variable assignment:
 ```shell
 realpath .. | x; basename $x
 ```
@@ -96,10 +100,10 @@ __stdout=some/path/file.txt ls -al;
 
 ### 7. Gotchas and Pitfalls
 - **Variable Expansion in Arithmetic:**
-  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time. When using spaces like this: ```$x * $y``` the evaluation works as expected.
+  - `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`. This is because the interpreter tries to determine the meaning of `/` and `*` from the context; they can act as path delimiters, glob wildcards, or arithmetic operators. This distinction is made at parsing time, while variable assignment occurs at evaluation time. When using spaces like this: ```$x * $y```, the evaluation works as expected.
 
 - **Operation Precedence:**
-  - ```echo 2 + 2``` is evaluated as ```(echo 2) + 2```, because the low priority of the addition operator. It is recommended to always use parentheses as in ```echo (2 + 2)```. 
+  - ```echo 2 + 2``` is evaluated as ```(echo 2) + 2```, because of the low priority of the addition operator. It is recommended to always use parentheses as in ```echo (2 + 2)```.
 
 ### 8. Variable Parsing and Expansion
 This section details the parsing and expanding of shell-like variable expressions in a given string.
@@ -147,9 +151,9 @@ find src ".*rs" | srcs; echo "${srcs/\n/ }" | args; if ($args) (wc -l $args);
 find src ".*\\.rs" | src; if ($src) (wc -l $src)
 ```
 
-Without quotes the backslashes are passed verbatim to the tokenizer, which will attempt globbing.
-If the pattern is globbed successfully, the expanded tokens are passed to the expression evaluator,
-otherwise the pattern is treated as a literal. Note the difference in outputs bellow:
+Without quotes, the backslashes are passed verbatim to the tokenizer, which will attempt globbing.
+If the pattern is globbed successfully, the expanded tokens are passed to the expression evaluator;
+otherwise, the pattern is treated as a literal. Note the difference in outputs below:
 ```
 C:\Users\crist\Projects\rust\mysh> for f in src\*.rs; (echo $f)
 src\cmds.rs
@@ -171,8 +175,8 @@ echo r"(This is a "raw string")"
 ```
 
 ### 11. Export and Source
-The rough equivalents of bash 'eval', 'export' and 'source' are implemented in the eval command,
-that supports --export and --source command line options.
+The rough equivalents of bash 'eval', 'export', and 'source' are implemented in the eval command,
+which supports --export and --source command line options.
 
 Examples:
 ```
@@ -188,13 +192,13 @@ eval --source examples/activate.my
 # From within the interactive shell, type:
 # eval --source activate.my
 
-# Run again to deactivate the virtual env (i.e. restore saved environment vars.)
+# Run again to deactivate the virtual env (i.e., restore saved environment vars.)
 
 if (defined __OLD_PATH) (
     # Restore (deactivate)
 
     # Use raw string to prevent $__OLD_PATH expansion before being passed to
-    # the eval command (and pass backslash path delimiters through as-in)
+    # the eval command (and pass backslash path delimiters through as-is)
     eval --export r"(PATH = $__OLD_PATH)";
 
     # Erase variables that are no longer needed
