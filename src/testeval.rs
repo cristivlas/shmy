@@ -15,17 +15,14 @@ pub mod tests {
 
     #[macro_export]
     macro_rules! assert_eval_ok {
-        ($expr:literal, $val:pat) => {
-            assert!(matches!(eval($expr), Ok($val)));
-        };
-        ($expr:literal, $val:expr) => {
+        ($expr:expr, $val:expr) => {{
             assert!(matches!(eval($expr), Ok(ref v) if *v == $val));
-        };
+        }}
     }
 
     #[macro_export]
     macro_rules! assert_eval_err {
-        ($expr:literal, $message:literal) => {
+        ($expr:literal, $message:literal) => {{
             match eval($expr) {
                 Err(EvalError {
                     message: ref msg, ..
@@ -34,7 +31,7 @@ pub mod tests {
                 }
                 Ok(_) => panic!("Expected an error for expression '{}', but got Ok", $expr),
             }
-        };
+        }};
     }
 
     #[test]

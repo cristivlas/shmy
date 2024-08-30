@@ -550,6 +550,7 @@ dependencies = [
  "os_pipe",
  "regex",
  "rustyline",
+ "tempfile",
  "terminal_size",
  "url",
  "uzers",
