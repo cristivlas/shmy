@@ -1,5 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
+use crate::utils::resolve_links;
 use crate::{eval::Value, scope::Scope};
 use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -148,7 +149,17 @@ impl<'a> FileCopier<'a> {
 
         if path.is_symlink() {
             if !self.ignore_links {
-                info.0.push((start, path.to_path_buf()));
+                // Follow all links, then recurse once.
+                match resolve_links(path) {
+                    Ok(path) => {
+                        return self.collect_path_info(start, &path, info);
+                    }
+                    Err(e) => {
+                        // Show warning and move on.
+                        my_warning!(self.scope, "{}: {}", self.scope.err_path(path), e);
+                        return Ok(true);
+                    }
+                }
             }
         } else if path.is_dir() {
             if !self.recursive {
@@ -178,7 +189,7 @@ impl<'a> FileCopier<'a> {
             info.0.push((start, path.to_path_buf()));
             info.1 += size;
 
-            // Update progress indicator, if set up.
+            // Update progress indicator, if set up (-v flag specified)
             if let Some(pb) = &self.progress {
                 pb.set_message(format!("{}", Self::truncate_path(path)));
                 pb.set_position(info.1);
@@ -228,7 +239,13 @@ impl<'a> FileCopier<'a> {
                     "Multiple sources with non-directory destination".to_string(),
                 ));
             }
-            if Path::new(&self.srcs[0]).is_dir() {
+
+            let path = Path::new(&self.srcs[0]);
+            let src_path = resolve_links(path).map_err(|e| {
+                self.wrap_error(path, format!("Failed to resolve source links: {}", e))
+            })?;
+
+            if src_path.is_dir() {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "Source is a directory and destination is not".to_string(),
@@ -263,6 +280,9 @@ impl<'a> FileCopier<'a> {
     /// source(s) and copy the files; symlinks require Admin privilege on Windows.
     fn copy(&mut self) -> io::Result<()> {
         assert!(!self.srcs.is_empty());
+
+        self.dest = resolve_links(&self.dest)
+            .map_err(|e| self.wrap_error(&self.dest, format!("Failed to resolve links: {}", e)))?;
 
         let dest_is_dir = self.check_dest_dir()?;
 
@@ -340,7 +360,7 @@ impl<'a> FileCopier<'a> {
 
         if src.is_dir() {
             if !dest.exists() {
-                fs::create_dir(dest)?;
+                fs::create_dir(dest).map_err(|e| self.wrap_error(src, e))?;
             }
         } else if src.is_symlink() {
             copy_symlink(src, &dest).map_err(|e| self.wrap_error(src, e))?;

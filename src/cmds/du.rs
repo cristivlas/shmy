@@ -183,7 +183,7 @@ fn unix_disk_size(
 #[cfg(windows)]
 mod win {
     use super::{Options, Path, Rc, Scope, Value};
-    use crate::utils::root_path;
+    use crate::utils::win::root_path;
     use std::collections::HashSet;
     use std::ffi::OsStr;
     use std::fs;

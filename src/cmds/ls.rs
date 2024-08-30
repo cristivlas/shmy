@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_size;
+use crate::utils::{format_size, read_symlink};
 use crate::{eval::Value, scope::Scope};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
@@ -168,14 +168,7 @@ mod win {
         LookupAccountSidW, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
         PSECURITY_DESCRIPTOR, PSID, SID_NAME_USE,
     };
-    use windows::{
-        Win32::Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ,
-        },
-        Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT,
-        Win32::System::IO::DeviceIoControl,
-    };
+    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows_sys::Win32::Foundation::LocalFree;
 
     /// Return a pair of Option<String> for the names of the owner and the group.
@@ -199,6 +192,7 @@ mod win {
         };
 
         if metadata.is_symlink() {
+            // TODO: command line flag for following symlinks? My default use-case is ON.
             match read_symlink(&path) {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
@@ -321,68 +315,6 @@ mod win {
 
         perms
     }
-
-    /// Read WSL symbolic link.
-    /// TODO: move to utils, to be shared with other commands.
-    /// TODO: refactor and clean up error handling.
-    pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
-        // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
-        #[repr(C)]
-        #[derive(Debug)]
-        struct ReparseDataBufferLxSymlink {
-            reparse_tag: u32,
-            data_length: u16,
-            reserved: u16,
-            flags: u16,
-            reparse_target: [u8; 1], // Variable-length
-        }
-
-        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
-        const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
-
-        let file = OpenOptions::new()
-            .read(true)
-            .share_mode(FILE_SHARE_READ.0)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
-            .access_mode(FILE_READ_ATTRIBUTES.0)
-            .open(&path)?;
-
-        let handle = HANDLE(file.as_raw_handle());
-
-        // Prepare buffer for reparse point data
-        let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
-
-        // Retrieve the reparse point data
-        let mut bytes_returned = 0;
-        unsafe {
-            DeviceIoControl(
-                handle,
-                FSCTL_GET_REPARSE_POINT,
-                None,
-                0,
-                Some(buffer.as_mut_ptr() as *mut _),
-                buffer.len() as u32,
-                Some(&mut bytes_returned),
-                None,
-            )
-        }
-        .map_err(|_| std::io::Error::last_os_error())?;
-
-        let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
-
-        // Defer to the normal fs operation if not a Linux symlink
-        if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
-            return fs::read_link(path);
-        }
-
-        let target_length = std::cmp::min(
-            reparse_data.data_length.saturating_sub(4) as usize,
-            buffer.len() - std::mem::size_of_val(reparse_data),
-        );
-        let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
-
-        Ok(String::from_utf8_lossy(target).into_owned().into())
-    }
 }
 
 #[cfg(unix)]
@@ -446,6 +378,7 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
     for entry_path in &opts.paths {
         let mut path = PathBuf::from(entry_path);
         if path.is_symlink() {
+            // TODO: command line options to follow symlinks specified on the cmd line?
             path = read_symlink(&path)?;
         }
 
@@ -587,19 +520,6 @@ fn print_detailed_entries(
         }
     }
     Ok(())
-}
-
-fn read_symlink(path: &Path) -> Result<PathBuf, String> {
-    #[cfg(not(windows))]
-    {
-        fs::read_link(path).map_err(|e| e.to_string())
-    }
-    #[cfg(windows)]
-    {
-        win::read_link(path)
-            .or_else(|_| fs::read_link(path))
-            .map_err(|e| e.to_string())
-    }
 }
 
 /// Print details for one file entry

@@ -1,6 +1,7 @@
 use crate::scope::Scope;
+use std::collections::HashSet;
 use std::env;
-#[cfg(windows)]
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -77,14 +78,119 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 }
 
 #[cfg(windows)]
-pub fn root_path(path: &Path) -> PathBuf {
+pub mod win {
+    use std::fs::{self, OpenOptions};
+    use std::os::windows::prelude::*;
+    use std::path::{Path, PathBuf};
+    use windows::Win32::Foundation::HANDLE;
+    use windows::{
+        Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ,
+        },
+        Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT,
+        Win32::System::IO::DeviceIoControl,
+    };
+
+    pub fn root_path(path: &Path) -> PathBuf {
+        let mut path = path.to_path_buf();
+
+        if let Some(root) = path.components().next() {
+            path = root.as_os_str().to_os_string().into();
+            path.push("/");
+            path
+        } else {
+            PathBuf::from("/")
+        }
+    }
+
+    /// Read WSL symbolic link.
+    pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
+        // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
+        #[repr(C)]
+        #[derive(Debug)]
+        struct ReparseDataBufferLxSymlink {
+            reparse_tag: u32,
+            data_length: u16,
+            reserved: u16,
+            flags: u16,              // Not sure what this field is
+            reparse_target: [u8; 1], // Variable-length
+        }
+
+        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
+        const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
+
+        let file = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .access_mode(FILE_READ_ATTRIBUTES.0)
+            .open(&path)?;
+
+        let handle = HANDLE(file.as_raw_handle());
+
+        // Prepare buffer for reparse point data
+        let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+
+        // Retrieve the reparse point data
+        let mut bytes_returned = 0;
+        unsafe {
+            DeviceIoControl(
+                handle,
+                FSCTL_GET_REPARSE_POINT,
+                None,
+                0,
+                Some(buffer.as_mut_ptr() as *mut _),
+                buffer.len() as u32,
+                Some(&mut bytes_returned),
+                None,
+            )
+        }
+        .map_err(|_| std::io::Error::last_os_error())?;
+
+        let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
+
+        // Defer to the normal fs operation if not a Linux symlink
+        if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
+            return fs::read_link(path);
+        }
+
+        let target_length = std::cmp::min(
+            reparse_data.data_length.saturating_sub(4) as usize,
+            buffer.len() - std::mem::size_of_val(reparse_data),
+        );
+        let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
+
+        Ok(String::from_utf8_lossy(target).into_owned().into())
+    }
+}
+
+pub fn read_symlink(path: &Path) -> Result<PathBuf, String> {
+    #[cfg(not(windows))]
+    {
+        fs::read_link(path).map_err(|e| e.to_string())
+    }
+    #[cfg(windows)]
+    {
+        win::read_link(path)
+            .or_else(|_| fs::read_link(path))
+            .map_err(|e| e.to_string())
+    }
+}
+
+pub fn resolve_links(path: &Path) -> Result<PathBuf, String> {
+    let mut visited_paths = HashSet::new();
     let mut path = path.to_path_buf();
 
-    if let Some(root) = path.components().next() {
-        path = root.as_os_str().to_os_string().into();
-        path.push("/");
-        path
-    } else {
-        PathBuf::from("/")
+    while path.is_symlink() {
+        if !visited_paths.insert(path.clone()) {
+            return Err(format!(
+                "Cycle detected in symbolic links: {}",
+                path.display()
+            ));
+        }
+        path = read_symlink(&path)?;
     }
+
+    Ok(path)
 }

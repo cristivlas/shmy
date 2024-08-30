@@ -1,7 +1,9 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::resolve_links;
 use crate::{current_dir, eval::Value, scope::Scope};
 use std::cell::RefCell;
 use std::env;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 struct ChangeDir {
@@ -24,7 +26,12 @@ impl ChangeDir {
     }
 
     fn do_chdir(&self, scope: &Rc<Scope>, dir: &str) -> Result<(), String> {
-        env::set_current_dir(&dir)
+        let mut path = PathBuf::from(dir);
+        if path.is_symlink() {
+            path = resolve_links(&path)?;
+        }
+
+        env::set_current_dir(&path)
             .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_path_str(dir), e))?;
         Ok(())
     }
