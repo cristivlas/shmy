@@ -231,7 +231,7 @@ impl Shell {
         }
 
         let interp = Interp::new();
-        let scope = interp.scope();
+        let scope = interp.global_scope();
 
         Self {
             source: None,
@@ -251,10 +251,6 @@ impl Shell {
                 .build(),
             prompt_builder: PromptBuilder::with_scope(&scope),
         }
-    }
-
-    fn prompt(&mut self) -> &str {
-        &self.prompt_builder.prompt()
     }
 
     /// Retrieve the path to the file where history is saved. Set profile path.
@@ -287,24 +283,12 @@ impl Shell {
         Ok(self.history_path.as_ref().unwrap())
     }
 
-    fn set_home_dir(&mut self, path: &PathBuf) {
-        self.home_dir = Some(path.clone());
-        let home_dir = path.to_string_lossy().to_string();
-        self.interp.set_var("HOME", home_dir);
+    fn new_top_scope(&self) -> Rc<Scope> {
+        Scope::new(Some(Rc::clone(&self.interp.global_scope())))
     }
 
-    fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
-        let hist_path = self.history_path.as_ref().unwrap();
-        rl.save_history(&hist_path)
-            .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
-    }
-
-    fn eval_input(&mut self) -> Result<(), String> {
-        if let Some(reader) = self.source.take() {
-            self.read_lines(reader)
-        } else {
-            panic!("No input source")
-        }
+    fn prompt(&mut self) -> &str {
+        &self.prompt_builder.prompt()
     }
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
@@ -313,7 +297,7 @@ impl Shell {
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
-            let h = CmdLineHelper::new(self.interp.scope());
+            let h = CmdLineHelper::new(self.interp.global_scope());
             rl.set_helper(Some(h));
             rl.load_history(&self.init_interactive_mode()?).unwrap();
 
@@ -364,11 +348,23 @@ impl Shell {
         Ok(())
     }
 
+    fn save_history(&mut self, rl: &mut CmdLineEditor) -> Result<(), String> {
+        let hist_path = self.history_path.as_ref().unwrap();
+        rl.save_history(&hist_path)
+            .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
+    }
+
+    fn set_home_dir(&mut self, path: &PathBuf) {
+        self.home_dir = Some(path.clone());
+        let home_dir = path.to_string_lossy().to_string();
+        self.interp.set_var("HOME", home_dir);
+    }
+
     fn source_profile(&self) -> Result<(), String> {
-        // Source the ~/.mysh/profile.my if found
+        // Source the ~/.mysh/profile if found
         if let Some(profile) = &self.profile {
             if profile.exists() {
-                let scope = Scope::new(Some(Rc::clone(&self.interp.scope())));
+                let scope = self.new_top_scope();
                 let eval = get_command("eval").unwrap();
                 eval.exec(
                     "eval",
@@ -382,7 +378,7 @@ impl Shell {
 
     fn eval(&mut self, input: &String) {
         INTERRUPT.store(false, SeqCst);
-        let scope = Scope::new(Some(Rc::clone(&self.interp.scope())));
+        let scope = self.new_top_scope();
 
         match &self.interp.eval(input, Some(Rc::clone(&scope))) {
             Ok(result) => {
@@ -394,6 +390,14 @@ impl Shell {
                     std::process::exit(500);
                 }
             }
+        }
+    }
+
+    fn eval_input(&mut self) -> Result<(), String> {
+        if let Some(reader) = self.source.take() {
+            self.read_lines(reader)
+        } else {
+            panic!("No input source")
         }
     }
 }

@@ -255,6 +255,7 @@ mod tests {
         let current_dir = get_current_dir();
 
         let mut builder = PromptBuilder::new();
+        builder.scope.erase("HOME");
 
         assert_eq!(
             builder.build("\\u@\\h:\\w\\$ "),

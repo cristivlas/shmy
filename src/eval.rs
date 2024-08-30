@@ -2731,7 +2731,7 @@ impl Interp {
         self.scope.insert(name.to_string(), Value::new_str(value))
     }
 
-    pub fn scope(&self) -> Rc<Scope> {
+    pub fn global_scope(&self) -> Rc<Scope> {
         Rc::clone(&self.scope)
     }
 

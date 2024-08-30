@@ -106,7 +106,7 @@ pub mod tests {
     fn test_for_tilde() {
         let mut interp = Interp::new();
         interp
-            .scope()
+            .global_scope()
             .insert("HOME".to_string(), Value::from_str("abc").unwrap());
         let result = interp.eval("for i in ~/foo; ($i)", None);
         dbg!(&result);
