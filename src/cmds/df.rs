@@ -1,6 +1,7 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::{format_size, root_path};
 use crate::{eval::Value, scope::Scope};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
@@ -146,11 +147,10 @@ impl Exec for DiskFree {
         if paths.is_empty() {
             paths = enumerate_drives();
         }
-
-        let paths: Vec<PathBuf> = paths
+        let paths = paths
             .iter()
             .map(|path| path_from_str(scope, path, args))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<HashSet<_>, _>>()?;
 
         // Compute the maximum path length across all processed paths
         let max_len = paths
