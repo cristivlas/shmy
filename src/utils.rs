@@ -86,11 +86,12 @@ pub mod win {
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ,
+            FILE_SHARE_READ, FILE_SHARE_WRITE,
         },
-        Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT,
+        Win32::System::Ioctl::{FSCTL_DELETE_REPARSE_POINT, FSCTL_GET_REPARSE_POINT},
         Win32::System::IO::DeviceIoControl,
     };
+    const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
     pub fn root_path(path: &Path) -> PathBuf {
         let mut path = path.to_path_buf();
@@ -105,7 +106,10 @@ pub mod win {
     }
 
     /// Read WSL symbolic link.
+    /// If a non-WSL link is detected, fail over to fs::read_link
     pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
+        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
+
         // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
         #[repr(C)]
         #[derive(Debug)]
@@ -113,12 +117,9 @@ pub mod win {
             reparse_tag: u32,
             data_length: u16,
             reserved: u16,
-            flags: u16,              // Not sure what this field is
+            unused: u16,             // Not sure what this field is
             reparse_target: [u8; 1], // Variable-length
         }
-
-        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
-        const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
         let file = OpenOptions::new()
             .read(true)
@@ -130,10 +131,11 @@ pub mod win {
         let handle = HANDLE(file.as_raw_handle());
 
         // Prepare buffer for reparse point data
-        let mut buffer: Vec<u8> = vec![0; MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+        let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
+
+        let mut bytes_returned = 0;
 
         // Retrieve the reparse point data
-        let mut bytes_returned = 0;
         unsafe {
             DeviceIoControl(
                 handle,
@@ -162,6 +164,75 @@ pub mod win {
         let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
 
         Ok(String::from_utf8_lossy(target).into_owned().into())
+    }
+
+    /// Read the parse point with FSCTL_GET_REPARSE_POINT,
+    /// use FSCTL_DELETE_REPARSE_POINT to remove symbolic link,
+    /// then remove the file or directory given by `path`.
+    pub fn remove_link(path: &Path) -> std::io::Result<()> {
+        let is_dir = path.is_dir();
+        {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+                .open(&path)?;
+
+            let handle = HANDLE(file.as_raw_handle());
+
+            let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
+            let mut bytes_returned = 0;
+
+            // First, read the parse point, because the tag passed to
+            // FSCTL_DELETE_REPARSE_POINT must match.
+            unsafe {
+                DeviceIoControl(
+                    handle,
+                    FSCTL_GET_REPARSE_POINT,
+                    None,
+                    0,
+                    Some(buffer.as_mut_ptr() as *mut _),
+                    buffer.len() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            }
+            .map_err(|_| std::io::Error::last_os_error())?;
+
+            #[repr(C)]
+            struct ReparseHeader {
+                reparse_tag: u32,
+                data_length: u16,
+                reserved: u16,
+            }
+            // Clear the data_length
+            // https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-delete-reparse-point
+            let header: &mut ReparseHeader =
+                unsafe { &mut *(buffer.as_mut_ptr() as *mut ReparseHeader) };
+            header.data_length = 0;
+
+            unsafe {
+                DeviceIoControl(
+                    handle,
+                    FSCTL_DELETE_REPARSE_POINT,
+                    Some(buffer.as_mut_ptr() as *mut _),
+                    std::cmp::min(24, bytes_returned),
+                    None,
+                    0 as _,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            }
+            .map_err(|_| std::io::Error::last_os_error())?;
+        }
+
+        // Finally, remove the file or directory
+        if is_dir {
+            fs::remove_dir(path)
+        } else {
+            fs::remove_file(path)
+        }
     }
 }
 

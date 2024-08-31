@@ -63,7 +63,22 @@ impl Remove {
     }
 
     fn remove(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
-        if path.is_dir() && !path.is_symlink() {
+        if path.is_symlink() {
+            #[cfg(windows)]
+            {
+                use crate::utils::win::remove_link;
+
+                if ctx.confirm(&path, format!("Remove link: {}", path.display()))? == Answer::Yes {
+                    remove_link(path)
+                } else {
+                    Ok(())
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                self.remove_file(path, ctx)
+            }
+        } else if path.is_dir() {
             if ctx.recursive && !ctx.interactive {
                 // Nuke it, no questions asked
                 fs::remove_dir_all(path)
@@ -121,7 +136,7 @@ impl Exec for Remove {
         }
 
         if paths.is_empty() {
-            return Err("missing operand".to_string());
+            return Err("Missing operand".to_string());
         }
 
         let mut ctx = Context {
