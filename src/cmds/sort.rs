@@ -1,9 +1,10 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::{format_error, resolve_links};
 use crate::{eval::Value, scope::Scope};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::rc::Rc;
 
 struct Sort {
@@ -88,7 +89,9 @@ impl Exec for Sort {
             }
         } else {
             for file_path in &args {
-                let path = PathBuf::from(file_path);
+                let path = resolve_links(Path::new(file_path))
+                    .map_err(|e| format_error(scope, file_path, &args, e))?;
+
                 if path.is_file() {
                     match fs::read_to_string(&path) {
                         Ok(content) => {
@@ -99,7 +102,7 @@ impl Exec for Sort {
                         }
                     }
                 } else {
-                    my_warning!(scope, "File not found: {}", scope.err_path(&path));
+                    my_warning!(scope, "Not a regular file: {}", scope.err_path(&path));
                 }
             }
         }
