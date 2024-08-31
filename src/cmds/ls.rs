@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::read_symlink;
 use crate::utils::{format_size, resolve_links};
 use crate::{eval::Value, scope::Scope, wsl::IsWslLink};
 use chrono::{DateTime, Local, Utc};
@@ -540,7 +541,7 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
 
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            let link_path = resolve_links(path).unwrap_or(PathBuf::from("[...]"));
+            let link_path = read_symlink(path).unwrap_or(PathBuf::from("[...]"));
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()

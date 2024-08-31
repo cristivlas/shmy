@@ -88,7 +88,6 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 
 #[cfg(windows)]
 pub mod win {
-    use super::resolve_links;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::mem;
@@ -209,7 +208,7 @@ pub mod win {
     /// use FSCTL_DELETE_REPARSE_POINT to remove symbolic link,
     /// then remove the file or directory given by `path`.
     pub fn remove_link(path: &Path) -> std::io::Result<()> {
-        let is_dir = resolve_links(path)?.is_dir();
+        let is_dir = read_link(path)?.is_dir();
 
         // lifetime scope for the file to close automatically
         {
