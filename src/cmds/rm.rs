@@ -17,7 +17,7 @@ struct Context {
 
 impl Context {
     fn confirm(&mut self, path: &Path, prompt: String) -> io::Result<Answer> {
-        if self.interactive && path.exists() {
+        if self.interactive && (path.is_symlink() || path.exists()) {
             match confirm(prompt, &self.scope, self.many)? {
                 Answer::All => {
                     self.interactive = false;
@@ -63,7 +63,7 @@ impl Remove {
     }
 
     fn remove(&self, path: &Path, ctx: &mut Context) -> io::Result<()> {
-        if path.is_dir() {
+        if path.is_dir() && !path.is_symlink() {
             if ctx.recursive && !ctx.interactive {
                 // Nuke it, no questions asked
                 fs::remove_dir_all(path)
