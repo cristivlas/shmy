@@ -101,8 +101,10 @@ impl Exec for Sort {
                             my_warning!(scope, "Cannot read {}: {}", scope.err_path(&path), e)
                         }
                     }
+                } else if path.is_dir() {
+                    my_warning!(scope, "{}: Is a directory", scope.err_path(&path));
                 } else {
-                    my_warning!(scope, "Not a regular file: {}", scope.err_path(&path));
+                    my_warning!(scope, "{}: Is not a regular file", scope.err_path(&path));
                 }
             }
         }

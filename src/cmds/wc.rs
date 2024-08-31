@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::{format_error, resolve_links};
 use crate::{eval::Value, scope::Scope};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
@@ -137,7 +138,8 @@ impl Exec for WordCount {
             }
         } else {
             for file in &args {
-                let path = Path::new(&file);
+                let path = resolve_links(Path::new(&file))
+                    .map_err(|e| format_error(scope, file, &args, e))?;
 
                 if path.is_dir() {
                     my_warning!(scope, "{}: Is a directory", scope.err_path(&path));
@@ -149,7 +151,7 @@ impl Exec for WordCount {
                     continue;
                 }
 
-                match WordCount::count_file(path) {
+                match WordCount::count_file(&path) {
                     Ok(result) => {
                         WordCount::print_result(&result, Some(&file), &flags)?;
                         total.lines += result.lines;
@@ -158,7 +160,7 @@ impl Exec for WordCount {
                         total.bytes += result.bytes;
                     }
                     Err(e) => {
-                        my_warning!(scope, "{}: {}", scope.err_path(path), e);
+                        my_warning!(scope, "{}: {}", scope.err_path_str(file), e);
                     }
                 }
             }
