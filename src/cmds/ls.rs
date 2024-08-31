@@ -387,7 +387,7 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
         let mut path = PathBuf::from(entry_path);
         if path.is_symlink() {
             // TODO: command line options to follow symlinks specified on the cmd line?
-            path = resolve_links(&path)?;
+            path = resolve_links(&path).map_err(|e| e.to_string())?;
         }
 
         path = path

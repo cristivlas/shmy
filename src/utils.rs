@@ -2,6 +2,7 @@ use crate::scope::Scope;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -87,6 +88,7 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 
 #[cfg(windows)]
 pub mod win {
+    use super::resolve_links;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::mem;
@@ -207,7 +209,7 @@ pub mod win {
     /// use FSCTL_DELETE_REPARSE_POINT to remove symbolic link,
     /// then remove the file or directory given by `path`.
     pub fn remove_link(path: &Path) -> std::io::Result<()> {
-        let is_dir = path.is_dir();
+        let is_dir = resolve_links(path)?.is_dir();
 
         // lifetime scope for the file to close automatically
         {
@@ -275,29 +277,27 @@ pub mod win {
 }
 
 /// Return the target of a symbolic link.
-pub fn read_symlink(path: &Path) -> Result<PathBuf, String> {
+pub fn read_symlink(path: &Path) -> io::Result<PathBuf> {
     #[cfg(not(windows))]
     {
-        fs::read_link(path).map_err(|e| e.to_string())
+        fs::read_link(path)
     }
     #[cfg(windows)]
     {
-        win::read_link(path)
-            .or_else(|_| fs::read_link(path))
-            .map_err(|e| e.to_string())
+        win::read_link(path).or_else(|_| fs::read_link(path))
     }
 }
 
 /// Keep reading symbolic links until either non-link or cycle is detected.
-pub fn resolve_links(path: &Path) -> Result<PathBuf, String> {
+pub fn resolve_links(path: &Path) -> io::Result<PathBuf> {
     let mut visited_paths = HashSet::new();
     let mut path = path.to_path_buf();
 
     while path.is_symlink() {
         if !visited_paths.insert(path.clone()) {
-            return Err(format!(
-                "Cycle detected in symbolic link: {}",
-                path.display()
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Cycle detected in symbolic link: {}", path.display()),
             ));
         }
         path = read_symlink(&path)?;

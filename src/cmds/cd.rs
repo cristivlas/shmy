@@ -28,7 +28,7 @@ impl ChangeDir {
     fn do_chdir(&self, scope: &Rc<Scope>, dir: &str) -> Result<(), String> {
         let mut path = PathBuf::from(dir);
         if path.is_symlink() {
-            path = resolve_links(&path)?;
+            path = resolve_links(&path).map_err(|e| e.to_string())?;
         }
 
         env::set_current_dir(&path)
