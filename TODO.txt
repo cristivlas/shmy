@@ -6,5 +6,6 @@ job control? (do I care?)
 
 more tests
 
-Consistent symlink support across all commands.
-Support symbolic links in TAB auto-complete in Windows.
+Consistent symlink support across all commands; support symbolic links in TAB auto-complete in Windows.
+
+Deleting symlinks works from the WSL side, but not from Windows. Creating links from Windows requires elevation, works with `sudo`, but the UAC spawning a new console window is not ideal. Not sure if / how to work around.
