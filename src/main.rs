@@ -26,6 +26,7 @@ mod scope;
 mod testcmds;
 mod testeval;
 mod utils;
+mod wsl;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]
 struct CmdLineHelper {

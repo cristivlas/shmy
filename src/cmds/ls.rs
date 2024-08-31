@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::{format_size, resolve_links};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, wsl::IsWslLink};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
 use core::fmt;
@@ -62,9 +62,17 @@ impl ColorScheme {
         }
     }
 
-    fn render_size(&self, size: String) -> ColoredString {
+    fn render_size(&self, path: &Path, mut size: String) -> ColoredString {
+        let is_wsl = path.is_wsl_link().unwrap_or(false);
+        if is_wsl {
+            size = "WSL".to_string();
+        }
         if self.use_colors {
-            size.green()
+            if is_wsl {
+                size.bright_cyan()
+            } else {
+                size.green()
+            }
         } else {
             size.normal()
         }
@@ -547,7 +555,7 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
             args.colors.render_permissions(get_permissions(&metadata)),
             owner,
             group,
-            args.colors.render_size(format_file_size(&metadata, args)),
+            args.colors.render_size(path, file_size(&metadata, args)),
             args.colors.render_mod_time(modified_time),
             args.colors.render_file_name(&file_name, metadata)
         )?;
@@ -555,7 +563,7 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
     Ok(())
 }
 
-fn format_file_size(metadata: &Metadata, args: &Options) -> String {
+fn file_size(metadata: &Metadata, args: &Options) -> String {
     if metadata.is_dir() {
         String::default()
     } else {

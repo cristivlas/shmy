@@ -22,6 +22,7 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<
     }
 }
 
+/// Clear the environment, and copy variables from scope into environment.
 pub fn sync_env_vars(scope: &Scope) {
     // Remove each environment variable
     env::vars().for_each(|(key, _)| env::remove_var(key));
@@ -31,7 +32,12 @@ pub fn sync_env_vars(scope: &Scope) {
     }
 }
 
-/// Get our own path
+/// Get the interpreter's own path, working around test mode.
+/// This function is used when evaluating pipe expressions;
+/// the expression of the right hand-side of a pipe is passed to
+/// a new interpreter instance, with the stdin reading from the
+/// left hand-side of the pipe.
+/// It is also used by the "sudo" implementation on Windows.
 pub fn executable() -> Result<String, String> {
     match env::current_exe() {
         Ok(p) => {
@@ -60,6 +66,8 @@ pub fn executable() -> Result<String, String> {
     }
 }
 
+/// Format file / disk usage sizes, using units (K, M, etc) when the human_readable
+/// flag is true. Use old-school 1024 as orders of magnitude instead of 1000.
 pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
     if !human_readable {
         return (size / block_size).to_string();
@@ -80,6 +88,8 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 #[cfg(windows)]
 pub mod win {
     use std::fs::{self, OpenOptions};
+    use std::io;
+    use std::mem;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
     use windows::Win32::Foundation::HANDLE;
@@ -92,9 +102,28 @@ pub mod win {
         Win32::System::IO::DeviceIoControl,
     };
 
-    const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
-    const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
+    pub const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
+    pub const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
+    #[repr(C)]
+    pub struct ReparseHeader {
+        pub reparse_tag: u32,
+        pub data_length: u16,
+        reserved: u16,
+    }
+
+    // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
+    #[repr(C)]
+    #[derive(Debug)]
+    pub struct ReparseDataBufferLxSymlink {
+        pub reparse_tag: u32,
+        pub data_length: u16,
+        reserved: u16,
+        unused: u16,             // Not sure what this field is
+        reparse_target: [u8; 1], // Variable-length
+    }
+
+    // Not Windows-specific, just used by the df and du windows impls.
     pub fn root_path(path: &Path) -> PathBuf {
         let mut path = path.to_path_buf();
 
@@ -107,38 +136,22 @@ pub mod win {
         }
     }
 
-    /// Read WSL symbolic link.
-    /// If a non-WSL link is detected, fail over to fs::read_link
-    pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
-        // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
-        #[repr(C)]
-        #[derive(Debug)]
-        struct ReparseDataBufferLxSymlink {
-            reparse_tag: u32,
-            data_length: u16,
-            reserved: u16,
-            unused: u16,             // Not sure what this field is
-            reparse_target: [u8; 1], // Variable-length
-        }
-
+    pub fn read_reparse_data<'a, D: Sized>(
+        path: &Path,
+        buffer: &'a mut Vec<u8>,
+    ) -> io::Result<&'a D> {
         let file = OpenOptions::new()
             .read(true)
-            .share_mode(FILE_SHARE_READ.0)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
             .access_mode(FILE_READ_ATTRIBUTES.0)
             .open(&path)?;
-
-        let handle = HANDLE(file.as_raw_handle());
-
-        // Prepare buffer for reparse point data
-        let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
 
         let mut bytes_returned = 0;
 
         // Retrieve the reparse point data
         unsafe {
             DeviceIoControl(
-                handle,
+                HANDLE(file.as_raw_handle()),
                 FSCTL_GET_REPARSE_POINT,
                 None,
                 0,
@@ -148,22 +161,46 @@ pub mod win {
                 None,
             )
         }
-        .map_err(|_| std::io::Error::last_os_error())?;
+        .map_err(|_| io::Error::last_os_error())?;
 
-        let reparse_data = unsafe { &*(buffer.as_ptr() as *const ReparseDataBufferLxSymlink) };
+        if bytes_returned < mem::size_of::<D>() as u32 {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid reparse point data",
+            ))
+        } else {
+            // Cast the buffer into a reference of type D
+            let header = unsafe { &*(buffer.as_ptr() as *const D) };
 
-        // Defer to the normal fs operation if not a Linux symlink
-        if reparse_data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
-            return fs::read_link(path);
+            Ok(header)
         }
+    }
 
-        let target_length = std::cmp::min(
-            reparse_data.data_length.saturating_sub(4) as usize,
-            buffer.len() - std::mem::size_of_val(reparse_data),
-        );
-        let target = &buffer[std::mem::size_of_val(reparse_data)..][..target_length];
+    /// Read WSL symbolic link.
+    /// If a non-WSL link is detected, fail over to fs::read_link
+    pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
+        const WSL_LINK_SIZE: usize = mem::size_of::<ReparseDataBufferLxSymlink>();
 
-        Ok(String::from_utf8_lossy(target).into_owned().into())
+        // Prepare buffer for reparse point data
+        let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
+
+        match read_reparse_data::<ReparseDataBufferLxSymlink>(path, &mut buffer) {
+            Ok(data) => {
+                // Defer to the normal fs operation if not a Linux symlink
+                if data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
+                    return fs::read_link(path);
+                }
+
+                let target_length = std::cmp::min(
+                    data.data_length.saturating_sub(4) as usize,
+                    buffer.len() - WSL_LINK_SIZE,
+                );
+                let target = &buffer[WSL_LINK_SIZE..][..target_length];
+
+                Ok(String::from_utf8_lossy(target).into_owned().into())
+            }
+            Err(_) => fs::read_link(path), // Fail over to fs
+        }
     }
 
     /// Read the parse point with FSCTL_GET_REPARSE_POINT,
@@ -171,6 +208,8 @@ pub mod win {
     /// then remove the file or directory given by `path`.
     pub fn remove_link(path: &Path) -> std::io::Result<()> {
         let is_dir = path.is_dir();
+
+        // lifetime scope for the file to close automatically
         {
             let file = OpenOptions::new()
                 .read(true)
@@ -184,8 +223,8 @@ pub mod win {
             let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
             let mut bytes_returned = 0;
 
-            // First, read the parse point, because the tag passed to
-            // FSCTL_DELETE_REPARSE_POINT must match.
+            // First read the parse point, because the tag passed to
+            // FSCTL_DELETE_REPARSE_POINT must match the existing one.
             unsafe {
                 DeviceIoControl(
                     handle,
@@ -200,12 +239,6 @@ pub mod win {
             }
             .map_err(|_| std::io::Error::last_os_error())?;
 
-            #[repr(C)]
-            struct ReparseHeader {
-                reparse_tag: u32,
-                data_length: u16,
-                reserved: u16,
-            }
             // Clear the data_length
             // https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-delete-reparse-point
             let header: &mut ReparseHeader =
@@ -241,6 +274,7 @@ pub mod win {
     }
 }
 
+/// Return the target of a symbolic link.
 pub fn read_symlink(path: &Path) -> Result<PathBuf, String> {
     #[cfg(not(windows))]
     {
@@ -254,6 +288,7 @@ pub fn read_symlink(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// Keep reading symbolic links until either non-link or cycle is detected.
 pub fn resolve_links(path: &Path) -> Result<PathBuf, String> {
     let mut visited_paths = HashSet::new();
     let mut path = path.to_path_buf();
@@ -261,7 +296,7 @@ pub fn resolve_links(path: &Path) -> Result<PathBuf, String> {
     while path.is_symlink() {
         if !visited_paths.insert(path.clone()) {
             return Err(format!(
-                "Cycle detected in symbolic links: {}",
+                "Cycle detected in symbolic link: {}",
                 path.display()
             ));
         }
