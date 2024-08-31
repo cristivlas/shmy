@@ -305,3 +305,12 @@ pub fn resolve_links(path: &Path) -> Result<PathBuf, String> {
 
     Ok(path)
 }
+
+pub fn format_error<E: std::fmt::Display>(
+    scope: &Scope,
+    filename: &str,
+    args: &[String],
+    error: E,
+) -> String {
+    format!("{}: {}", scope.err_path_arg(filename, args), error)
+}

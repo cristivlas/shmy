@@ -1,8 +1,10 @@
 use super::{register_command, Exec, ShellCommand};
+use crate::utils::{format_error, resolve_links};
 use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
+use std::path::Path;
 use std::rc::Rc;
 
 enum Mode {
@@ -55,25 +57,24 @@ impl Exec for CatHeadTail {
             .option("lines")
             .map(|v| v.parse::<usize>().map_err(|e| e.to_string()))
             .unwrap_or(Ok(10))?;
-
         if filenames.is_empty() {
             let stdin = io::stdin();
             process_input(&mut stdin.lock(), &self.mode, line_num, lines)?;
         } else {
             for filename in &filenames {
-                match File::open(&filename) {
-                    Ok(file) => {
-                        let mut reader = io::BufReader::new(file);
-                        if let Err(e) = process_input(&mut reader, &self.mode, line_num, lines) {
-                            return Err(format!("{}: {}", scope.err_path_arg(filename, args), e));
-                        }
-                    }
-                    Err(e) => {
-                        return Err(format!("{}: {}", scope.err_path_arg(filename, args), e));
-                    }
-                }
+                let path = resolve_links(Path::new(filename))
+                    .map_err(|e| format_error(&scope, filename, args, e))?;
+
+                let file =
+                    File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
+
+                let mut reader = io::BufReader::new(file);
+
+                process_input(&mut reader, &self.mode, line_num, lines)
+                    .map_err(|e| format_error(&scope, filename, args, e))?;
             }
         }
+
         Ok(Value::success())
     }
 }

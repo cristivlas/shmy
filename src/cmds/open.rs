@@ -1,6 +1,8 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::utils::format_error;
+use crate::{eval::Value, scope::Scope, utils::resolve_links};
 use open;
+use std::path::Path;
 use std::rc::Rc;
 
 struct Open {
@@ -37,15 +39,16 @@ impl Exec for Open {
         let application = flags.option("application");
 
         for arg in &args {
+            let path =
+                resolve_links(Path::new(arg)).map_err(|e| format_error(scope, arg, &args, e))?;
+
             let result = if let Some(app) = application {
-                open::with(arg, app)
+                open::with(path, app)
             } else {
-                open::that(arg)
+                open::that(path)
             };
 
-            if let Err(e) = result {
-                return Err(format!("Failed to open {}: {}", scope.err_path_str(arg), e));
-            }
+            result.map_err(|e| format_error(scope, arg, &args, e))?;
         }
 
         Ok(Value::success())
