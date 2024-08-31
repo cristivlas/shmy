@@ -68,7 +68,7 @@ impl Remove {
             {
                 use crate::utils::win::remove_link;
 
-                if ctx.confirm(&path, format!("Remove link: {}", path.display()))? == Answer::Yes {
+                if ctx.confirm(&path, format!("Remove {}", path.display()))? == Answer::Yes {
                     remove_link(path)
                 } else {
                     Ok(())

@@ -91,6 +91,8 @@ pub mod win {
         Win32::System::Ioctl::{FSCTL_DELETE_REPARSE_POINT, FSCTL_GET_REPARSE_POINT},
         Win32::System::IO::DeviceIoControl,
     };
+
+    const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
     const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
     pub fn root_path(path: &Path) -> PathBuf {
@@ -108,8 +110,6 @@ pub mod win {
     /// Read WSL symbolic link.
     /// If a non-WSL link is detected, fail over to fs::read_link
     pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
-        const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
-
         // IO_REPARSE_TAG_LX_SYMLINK reparse data structure
         #[repr(C)]
         #[derive(Debug)]
@@ -212,12 +212,17 @@ pub mod win {
                 unsafe { &mut *(buffer.as_mut_ptr() as *mut ReparseHeader) };
             header.data_length = 0;
 
+            let header_size = if header.reparse_tag == IO_REPARSE_TAG_LX_SYMLINK {
+                8
+            } else {
+                24
+            };
             unsafe {
                 DeviceIoControl(
                     handle,
                     FSCTL_DELETE_REPARSE_POINT,
                     Some(buffer.as_mut_ptr() as *mut _),
-                    std::cmp::min(24, bytes_returned),
+                    std::cmp::min(header_size, bytes_returned),
                     None,
                     0 as _,
                     Some(&mut bytes_returned),
