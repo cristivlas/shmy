@@ -198,10 +198,10 @@ impl Location {
                     self.col,
                     message.bright_red()
                 ),
-                None => format!("{}:{}", self, message.bright_red()),
+                None => format!("{} {}", self, message.bright_red()),
             }
         } else {
-            format!("{}: {}", self, message)
+            format!("{} {}", self, message)
         }
     }
 }
@@ -448,7 +448,7 @@ impl EvalError {
 
 impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.loc, self.message)
+        write!(f, "{} {}", self.loc, self.message)
     }
 }
 
