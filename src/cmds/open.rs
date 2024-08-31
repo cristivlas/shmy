@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope, wsl::WSL};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use open;
 use std::path::Path;
 use std::rc::Rc;
@@ -40,7 +40,7 @@ impl Exec for Open {
 
         for arg in &args {
             let path = Path::new(arg)
-                .resolve_links()
+                .resolve()
                 .map_err(|e| format_error(scope, arg, &args, e))?;
 
             let result = if let Some(app) = application {

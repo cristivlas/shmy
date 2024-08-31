@@ -1,9 +1,10 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::utils::resolve_links;
+use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -77,16 +78,17 @@ struct FileCopier<'a> {
     progress: Option<ProgressBar>,
     recursive: bool,
     scope: &'a Rc<Scope>,
-    srcs: &'a [String], // Source paths
-    args: &'a [String], // All command args including the paths above
+    srcs: &'a [String], // Source paths from the command line
+    args: &'a [String], // All the original command line args
+    unique_srcs: HashSet<PathBuf>,
 }
 
 impl<'a> FileCopier<'a> {
     fn new(
-        paths: &'a Vec<String>,
+        paths: &'a [String],
         flags: &CommandFlags,
         scope: &'a Rc<Scope>,
-        args: &'a Vec<String>,
+        args: &'a [String],
     ) -> Self {
         Self {
             dest: PathBuf::from(paths.last().unwrap()),
@@ -111,6 +113,7 @@ impl<'a> FileCopier<'a> {
             scope,
             srcs: &paths[..paths.len() - 1],
             args,
+            unique_srcs: HashSet::new(),
         }
     }
 
@@ -132,7 +135,7 @@ impl<'a> FileCopier<'a> {
     /// Return Ok(false) if interrupted by Ctrl+C.
     /// Update progress indicator in verbose mode.
     fn collect_path_info(
-        &self,
+        &mut self,
         start: &'a str,
         path: &Path,
         info: &mut (Vec<(&'a str, PathBuf)>, u64),
@@ -150,8 +153,11 @@ impl<'a> FileCopier<'a> {
         if path.is_symlink() {
             if !self.ignore_links {
                 // Follow all links, then recurse once.
-                match resolve_links(path) {
+                match path.resolve() {
                     Ok(path) => {
+                        if !self.unique_srcs.insert(path.clone()) {
+                            return Ok(true);
+                        }
                         return self.collect_path_info(start, &path, info);
                     }
                     Err(e) => {
@@ -241,7 +247,7 @@ impl<'a> FileCopier<'a> {
             }
 
             let path = Path::new(&self.srcs[0]);
-            let src_path = resolve_links(path).map_err(|e| {
+            let src_path = path.resolve().map_err(|e| {
                 self.wrap_error(path, format!("Failed to resolve source links: {}", e))
             })?;
 
@@ -281,7 +287,9 @@ impl<'a> FileCopier<'a> {
     fn copy(&mut self) -> io::Result<()> {
         assert!(!self.srcs.is_empty());
 
-        self.dest = resolve_links(&self.dest)
+        self.dest = self
+            .dest
+            .resolve()
             .map_err(|e| self.wrap_error(&self.dest, format!("Failed to resolve links: {}", e)))?;
 
         let dest_is_dir = self.check_dest_dir()?;

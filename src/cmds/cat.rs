@@ -1,6 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
+use crate::symlnk::SymLink;
 use crate::utils::format_error;
-use crate::wsl::WSL;
 use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
 use std::collections::VecDeque;
 use std::fs::File;
@@ -64,7 +64,7 @@ impl Exec for CatHeadTail {
         } else {
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve_links()
+                    .resolve()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let file =

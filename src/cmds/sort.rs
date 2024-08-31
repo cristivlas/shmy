@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::symlnk::SymLink;
 use crate::utils::format_error;
-use crate::wsl::WSL;
 use crate::{eval::Value, scope::Scope};
 use std::collections::HashSet;
 use std::fs;
@@ -91,7 +91,7 @@ impl Exec for Sort {
         } else {
             for file_path in &args {
                 let path = Path::new(file_path)
-                    .resolve_links()
+                    .resolve()
                     .map_err(|e| format_error(scope, file_path, &args, e))?;
 
                 if path.is_file() {
