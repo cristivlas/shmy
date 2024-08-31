@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope, utils::resolve_links};
+use crate::{eval::Value, scope::Scope, wsl::WSL};
 use open;
 use std::path::Path;
 use std::rc::Rc;
@@ -39,8 +39,9 @@ impl Exec for Open {
         let application = flags.option("application");
 
         for arg in &args {
-            let path =
-                resolve_links(Path::new(arg)).map_err(|e| format_error(scope, arg, &args, e))?;
+            let path = Path::new(arg)
+                .resolve_links()
+                .map_err(|e| format_error(scope, arg, &args, e))?;
 
             let result = if let Some(app) = application {
                 open::with(path, app)

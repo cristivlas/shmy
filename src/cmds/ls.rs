@@ -1,7 +1,9 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::read_symlink;
-use crate::utils::{format_size, resolve_links};
-use crate::{eval::Value, scope::Scope, wsl::IsWslLink};
+#[cfg(windows)]
+use crate::utils::resolve_links;
+use crate::utils::{format_size, read_symlink};
+use crate::wsl::WSL;
+use crate::{eval::Value, scope::Scope};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
 use core::fmt;
@@ -201,7 +203,6 @@ mod win {
         };
 
         if metadata.is_symlink() {
-            // TODO: command line flag for following symlinks? My default use-case is ON.
             match resolve_links(&path) {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
@@ -385,14 +386,8 @@ use win::{get_owner_and_group, get_permissions};
 
 fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
     for entry_path in &opts.paths {
-        let mut path = PathBuf::from(entry_path);
-        if path.is_symlink() {
-            // TODO: command line options to follow symlinks specified on the cmd line?
-            path = resolve_links(&path).map_err(|e| e.to_string())?;
-        }
-
-        path = path
-            .canonicalize()
+        let path = Path::new(entry_path)
+            .resolve_links()
             .map_err(|e| format!("{}: {}", scope.err_path_arg(&entry_path, args), e))?;
 
         match fs::metadata(&path) {
@@ -403,7 +398,9 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
                     print_file(&path, &metadata, &opts)?;
                 }
             }
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                return Err(format!("{}: {}", scope.err_path_arg(&entry_path, args), e));
+            }
         }
     }
 

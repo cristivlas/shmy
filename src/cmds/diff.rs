@@ -15,7 +15,8 @@ impl Diff {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('o', "color", "Color output");
-        Diff { flags }
+
+        Self { flags }
     }
 }
 

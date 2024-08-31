@@ -1,14 +1,32 @@
 #[cfg(windows)]
+use crate::utils::resolve_links;
+#[cfg(windows)]
 use crate::utils::win;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub trait IsWslLink {
+pub trait WSL {
     fn is_wsl_link(&self) -> io::Result<bool>;
+    fn resolve_links(&self) -> io::Result<PathBuf>;
 }
 
 #[cfg(windows)]
-impl IsWslLink for Path {
+fn resolve(path_with_links: &Path) -> io::Result<PathBuf> {
+    let mut path = PathBuf::new();
+
+    for component in path_with_links.components() {
+        path.push(component);
+        let resolved = resolve_links(&path)?;
+        if let Some(tail) = resolved.file_name() {
+            path.pop();
+            path.push(tail);
+        }
+    }
+    Ok(path)
+}
+
+#[cfg(windows)]
+impl WSL for Path {
     fn is_wsl_link(&self) -> io::Result<bool> {
         if !self.is_symlink() {
             Ok(false)
@@ -20,11 +38,41 @@ impl IsWslLink for Path {
             Ok(hdr.reparse_tag == win::IO_REPARSE_TAG_LX_SYMLINK)
         }
     }
+
+    fn resolve_links(&self) -> io::Result<PathBuf> {
+        resolve(self)
+    }
+}
+
+#[cfg(windows)]
+impl WSL for PathBuf {
+    fn is_wsl_link(&self) -> io::Result<bool> {
+        self.as_path().is_wsl_link()
+    }
+
+    fn resolve_links(&self) -> io::Result<PathBuf> {
+        resolve(self)
+    }
 }
 
 #[cfg(not(windows))]
-impl IsWslLink for Path {
+impl WSL for Path {
     fn is_wsl_link(&self) -> io::Result<bool> {
         Ok(false)
+    }
+
+    fn resolve_links(&self) -> io::Result<PathBuf> {
+        Ok(self.to_path_buf())
+    }
+}
+
+#[cfg(not(windows))]
+impl WSL for PathBuf {
+    fn is_wsl_link(&self) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    fn resolve_links(&self) -> io::Result<PathBuf> {
+        Ok(self.to_path_buf())
     }
 }
