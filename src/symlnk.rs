@@ -6,14 +6,8 @@ pub trait SymLink {
     fn resolve(&self) -> io::Result<PathBuf>;
 }
 
-#[cfg(not(windows))]
-fn resolve_path(path: &Path) -> io::Result<PathBuf> {
-    path.canonicalize()
-}
-
 /// Resolve symbolic links, including WSL links, which
 /// are not handled by fs::canonicalize on Windows.
-#[cfg(windows)]
 fn resolve_path(sym_path: &Path) -> io::Result<PathBuf> {
     use crate::utils::resolve_links;
     use std::borrow::Cow;

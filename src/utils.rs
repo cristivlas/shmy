@@ -287,7 +287,6 @@ pub fn read_symlink(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// Keep reading symbolic links until either non-link or cycle is detected.
-#[cfg(windows)]
 pub fn resolve_links(path: &Path) -> io::Result<PathBuf> {
     use std::collections::HashSet;
 
