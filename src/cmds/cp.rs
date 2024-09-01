@@ -11,12 +11,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
+#[derive(Debug)]
 enum Action {
     Copy,
     CreateDir,
     Link,
 }
 
+#[derive(Debug)]
 struct WorkItem<'a> {
     top: &'a str, // Top source path as given in the command line
     action: Action,
@@ -86,7 +88,6 @@ struct FileCopier<'a> {
     visited: HashSet<PathBuf>,
     work: BTreeMap<PathBuf, WorkItem<'a>>,
     total_size: u64,
-    dest_is_dir: bool,
 }
 
 impl<'a> FileCopier<'a> {
@@ -125,17 +126,19 @@ impl<'a> FileCopier<'a> {
             visited: HashSet::new(),
             work: BTreeMap::new(),
             total_size: 0,
-            dest_is_dir: false,
         }
     }
 
-    fn actual_dest(&self, top: &'a str, parent: &Path, src: &Path) -> io::Result<PathBuf> {
-        if self.dest_is_dir {
-            Ok(self.dest.join(
-                src.strip_prefix(parent).map_err(|e| {
+    fn resolve_dest(&self, top: &'a str, parent: &Path, src: &Path) -> io::Result<PathBuf> {
+        if self.dest.is_dir() {
+            if src == parent {
+                Ok(self.dest.join(src.file_name().unwrap()))
+            } else {
+                let path = src.strip_prefix(parent).map_err(|e| {
                     self.error(top, src, &format!("Could not remove prefix: {}", e))
-                })?,
-            ))
+                })?;
+                Ok(self.dest.join(path))
+            }
         } else {
             Ok(self.dest.to_path_buf())
         }
@@ -143,25 +146,17 @@ impl<'a> FileCopier<'a> {
 
     /// Add work item to create a directory.
     fn add_create_dir(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
-        // Creating a directory should only happen if we are copying dirs;
-        // the destination must be a directory as well.
-        self.dest_is_dir = true;
-
-        let actual_dest = self.actual_dest(top, parent, src)?;
+        let actual_dest = self.resolve_dest(top, parent, src)?;
         let work_item = WorkItem::new(top, Action::CreateDir, src.to_path_buf());
         self.work.insert(actual_dest, work_item);
 
         Ok(())
     }
 
-    /// Add a work item to copy the contents of a regular file (i.e. not symlink, not dir).
-    fn add_copy(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
-        assert!(!src.is_dir());
-
+    fn check_dir_dest(&mut self, top: &'a str, parent: &Path) -> io::Result<()> {
         if self.dest.exists() {
             // Copying multiple files over a regular file?
-            self.dest_is_dir = self.dest_is_dir || self.dest.is_dir();
-            if !self.dest_is_dir && !self.work.is_empty() {
+            if !self.dest.is_dir() && !self.work.is_empty() {
                 return Err(self.error(
                     &top,
                     parent,
@@ -169,13 +164,21 @@ impl<'a> FileCopier<'a> {
                 ));
             }
         } else if !self.work.is_empty() {
-            // Copying multiple sources to a destination which does not exists?
-            // Make a work item to create the destination directory.
-            self.add_create_dir(top, &PathBuf::default(), &self.dest.to_path_buf())?;
-            self.dest_is_dir = true;
+            return Err(self.error(
+                &top,
+                parent,
+                "Copying multiple sources to non-existing directory",
+            ));
         }
+        Ok(())
+    }
 
-        let actual_dest = self.actual_dest(top, parent, src)?;
+    /// Add a work item to copy the contents of a regular file (i.e. not symlink, not dir).
+    fn add_copy(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
+        assert!(!src.is_dir());
+
+        self.check_dir_dest(top, parent)?;
+        let actual_dest = self.resolve_dest(top, parent, src)?;
 
         if actual_dest.exists() && actual_dest.canonicalize()? == src.canonicalize()? {
             return Err(self.error(top, &actual_dest, "Source and destination are the same"));
@@ -188,7 +191,10 @@ impl<'a> FileCopier<'a> {
     }
 
     fn add_link(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
-        let actual_dest = self.actual_dest(top, parent, src)?;
+        let target =
+            src.resolve()
+                .wrap_err_with_msg(&self, top, src, Some("Could not get link target"))?;
+        let actual_dest = self.resolve_dest(top, parent, &target)?;
         let work_item = WorkItem::new(top, Action::Link, src.to_path_buf());
         self.work.insert(actual_dest, work_item);
 
@@ -238,7 +244,6 @@ impl<'a> FileCopier<'a> {
                 my_warning!(self.scope, "{} is a directory", self.scope.err_path(path));
                 return Ok(true);
             }
-
             // Replicate dirs from the source into the destination, even if empty.
             self.add_create_dir(top, parent, path)?;
 
@@ -281,12 +286,19 @@ impl<'a> FileCopier<'a> {
             eprintln!("{}: exists={}", self.dest.display(), self.dest.exists());
         }
         for src in self.srcs {
-            // Always resolve symbolic links for the
-            // source paths given in the command line.
+            if self.no_hidden && src.starts_with(".") {
+                continue;
+            }
+            // Always resolve symbolic links for the source paths given in the command line.
             let path = Path::new(src).resolve()?;
+            let parent = path.parent().unwrap_or(&path);
+
+            if self.debug {
+                eprintln!("Collect: {} (resolved: {})", src, path.display());
+            }
 
             // Collect source info for the top paths, checking for cancellation.
-            if !self.collect_path_info(src, &path, &path)? {
+            if !self.collect_path_info(src, &parent, &path)? {
                 if let Some(pb) = self.progress.as_mut() {
                     pb.abandon_with_message("Aborted");
                 }
@@ -368,6 +380,11 @@ impl<'a> FileCopier<'a> {
                 break;
             }
         }
+
+        if let Some(pb) = self.progress.as_mut() {
+            pb.finish_with_message("Ok");
+        }
+
         Ok(())
     }
 
@@ -409,7 +426,8 @@ impl<'a> FileCopier<'a> {
                 if self.debug {
                     eprintln!("LINK: {} -> {}", w.src.display(), dest.display());
                 }
-                copy_symlink(&w.src, &dest).wrap_err(&self, w.top, &w.src)?;
+                //TODO
+                //copy_symlink(&w.src, &dest).wrap_err(&self, w.top, &w.src)?;
             }
         }
         Ok(true)
@@ -504,6 +522,7 @@ impl<'a> FileCopier<'a> {
     }
 }
 
+#[allow(dead_code)]
 fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -570,7 +589,7 @@ impl Cp {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('d', "debug", "Show debug details");
+        flags.add_flag('d', "debug", "Show debugging details");
         flags.add_flag('v', "progress", "Show progress bar");
         flags.add_flag('r', "recursive", "Copy directories recursively");
         flags.add_flag('f', "force", "Overwrite without prompting");
