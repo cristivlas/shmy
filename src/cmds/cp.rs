@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Action {
     Copy,
     CreateDir,
@@ -21,13 +21,13 @@ enum Action {
 #[derive(Debug)]
 struct WorkItem<'a> {
     top: &'a str, // Top source path as given in the command line
-    action: Action,
+    act: Action,
     src: PathBuf,
 }
 
 impl<'a> WorkItem<'a> {
-    fn new(top: &'a str, action: Action, src: PathBuf) -> Self {
-        Self { top, action, src }
+    fn new(top: &'a str, act: Action, src: PathBuf) -> Self {
+        Self { top, act, src }
     }
 }
 
@@ -86,7 +86,7 @@ struct FileCopier<'a> {
     srcs: &'a [String], // Source paths from the command line
     args: &'a [String], // All the original command line args
     visited: HashSet<PathBuf>,
-    work: BTreeMap<PathBuf, WorkItem<'a>>,
+    work: BTreeMap<PathBuf, WorkItem<'a>>, // Use BTree for sorting -- to create dirs before copying
     total_size: u64,
 }
 
@@ -129,15 +129,15 @@ impl<'a> FileCopier<'a> {
         }
     }
 
-    fn resolve_dest(&self, top: &'a str, parent: &Path, src: &Path) -> io::Result<PathBuf> {
+    fn resolve_dest(&self, _top: &'a str, parent: &Path, src: &Path) -> io::Result<PathBuf> {
         if self.dest.is_dir() {
             if src == parent {
                 Ok(self.dest.join(src.file_name().unwrap()))
             } else {
-                let path = src.strip_prefix(parent).map_err(|e| {
-                    self.error(top, src, &format!("Could not remove prefix: {}", e))
-                })?;
-                Ok(self.dest.join(path))
+                match src.strip_prefix(parent) {
+                    Ok(path) => Ok(self.dest.join(path)),
+                    Err(_) => Ok(src.to_path_buf()), // absolute src path / link?
+                }
             }
         } else {
             Ok(self.dest.to_path_buf())
@@ -178,25 +178,41 @@ impl<'a> FileCopier<'a> {
         assert!(!src.is_dir());
 
         self.check_dir_dest(top, parent)?;
-        let actual_dest = self.resolve_dest(top, parent, src)?;
+        let dest = self.resolve_dest(top, parent, src)?;
 
-        if actual_dest.exists() && actual_dest.canonicalize()? == src.canonicalize()? {
-            return Err(self.error(top, &actual_dest, "Source and destination are the same"));
+        if dest.exists() && dest.canonicalize()? == src.canonicalize()? {
+            return Err(self.error(top, &dest, "Source and destination are the same"));
         }
 
         let work_item = WorkItem::new(top, Action::Copy, src.to_path_buf());
-        self.work.insert(actual_dest, work_item);
+        self.work.insert(dest, work_item);
 
         Ok(())
     }
 
+    /// Add a work item for making a symbolic link.
     fn add_link(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
+        // Resolve the link target
         let target =
             src.resolve()
                 .wrap_err_with_msg(&self, top, src, Some("Could not get link target"))?;
-        let actual_dest = self.resolve_dest(top, parent, &target)?;
-        let work_item = WorkItem::new(top, Action::Link, src.to_path_buf());
-        self.work.insert(actual_dest, work_item);
+
+        let target_dest = self.resolve_dest(top, parent, &target)?;
+        let dest = self.resolve_dest(top, parent, src)?;
+
+        // if self.debug {
+        //     eprintln!(
+        //         "Link: {} -> {}:\n\t{} -> {}",
+        //         src.display(),
+        //         target.display(),
+        //         dest.display(),
+        //         target_dest.display()
+        //     );
+        // }
+
+        // Store work item by dest, target_dest cannot be used as unique key.
+        let work_item = WorkItem::new(top, Action::Link, target_dest.to_path_buf());
+        self.work.insert(dest, work_item);
 
         Ok(())
     }
@@ -209,7 +225,6 @@ impl<'a> FileCopier<'a> {
         if self.scope.is_interrupted() {
             return Ok(false);
         }
-        // Check symlinks first; canonicalize() further down may error out on WSL links.
         if self.ignore_links && path.is_symlink() {
             return Ok(true);
         }
@@ -225,16 +240,6 @@ impl<'a> FileCopier<'a> {
             }
             return Ok(true);
         }
-        // Bail if the path has been seen before
-        if !self
-            .visited
-            .insert(path.resolve().wrap_err(&self, top, path)?)
-        {
-            if self.debug {
-                eprintln!("{}: already visited", path.display());
-            }
-            return Ok(true);
-        }
 
         if path.is_symlink() {
             assert!(!self.ignore_links);
@@ -244,6 +249,15 @@ impl<'a> FileCopier<'a> {
                 my_warning!(self.scope, "{} is a directory", self.scope.err_path(path));
                 return Ok(true);
             }
+            // Bail if the path has been seen before
+            let canonical = path.canonicalize().wrap_err(&self, top, path)?;
+            if !self.visited.insert(canonical) {
+                if self.debug {
+                    eprintln!("{}: already seen", path.display());
+                }
+                return Ok(true);
+            }
+
             // Replicate dirs from the source into the destination, even if empty.
             self.add_create_dir(top, parent, path)?;
 
@@ -282,9 +296,7 @@ impl<'a> FileCopier<'a> {
             self.dest.as_os_str().to_str().unwrap_or(""),
             &self.dest,
         )?;
-        if self.debug {
-            eprintln!("{}: exists={}", self.dest.display(), self.dest.exists());
-        }
+
         for src in self.srcs {
             // Always resolve symbolic links for the source paths given in the command line.
             let path = Path::new(src).resolve()?;
@@ -362,20 +374,49 @@ impl<'a> FileCopier<'a> {
         self.do_work()
     }
 
-    fn do_work(&mut self) -> io::Result<()> {
-        let work = std::mem::take(&mut self.work);
-
-        for (dest, w) in &work {
+    fn do_work_actions(
+        &mut self,
+        actions: &[Action],
+        work: &BTreeMap<PathBuf, WorkItem<'a>>,
+    ) -> io::Result<bool> {
+        for (dest, w) in work {
             if let Some(pb) = self.progress.as_mut() {
                 pb.set_message(Self::truncate_path(&w.src));
             }
 
-            if !self.do_work_item(work.len(), &dest, &w)? {
-                if let Some(pb) = self.progress.as_mut() {
-                    pb.abandon_with_message("Aborted");
-                }
-                return Ok(());
+            if !actions.contains(&w.act) {
+                continue;
             }
+
+            if !self.do_work_item(work.len(), &dest, &w)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    fn do_work(&mut self) -> io::Result<()> {
+        let work = std::mem::take(&mut self.work);
+
+        if self.debug {
+            dbg!(&work); // Dump the work plan
+        }
+
+        // 1st pass: create dirs and copy files
+        if !self.do_work_actions(&[Action::CreateDir, Action::Copy], &work)? {
+            if let Some(pb) = self.progress.as_mut() {
+                pb.abandon_with_message("Aborted");
+            }
+            return Ok(());
+        }
+
+        // 2nd pass: symlinks
+        if !self.do_work_actions(&[Action::Link], &work)? {
+            if let Some(pb) = self.progress.as_mut() {
+                pb.abandon_with_message("Aborted");
+            }
+            return Ok(());
         }
 
         if let Some(pb) = self.progress.as_mut() {
@@ -386,7 +427,7 @@ impl<'a> FileCopier<'a> {
     }
 
     fn do_work_item(&mut self, count: usize, dest: &PathBuf, w: &WorkItem) -> io::Result<bool> {
-        match w.action {
+        match w.act {
             Action::Copy => {
                 if self.debug {
                     eprintln!("COPY: {} -> {}", w.src.display(), dest.display());
@@ -421,10 +462,9 @@ impl<'a> FileCopier<'a> {
             }
             Action::Link => {
                 if self.debug {
-                    eprintln!("LINK: {} -> {}", w.src.display(), dest.display());
+                    eprintln!("LINK: {} -> {}", dest.display(), w.src.display());
                 }
-                //TODO
-                //copy_symlink(&w.src, &dest).wrap_err(&self, w.top, &w.src)?;
+                self.symlink(&w.src, &dest).wrap_err(&self, w.top, &w.src)?;
             }
         }
         Ok(true)
@@ -517,63 +557,24 @@ impl<'a> FileCopier<'a> {
 
         Ok(())
     }
-}
 
-#[allow(dead_code)]
-fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs as unix_fs;
-        let target = fs::read_link(src)?;
-        unix_fs::symlink(target, dst)
-    }
-    #[cfg(windows)]
-    {
-        // use std::os::windows::fs as windows_fs;
-        // let target = fs::read_link(src)?;
-        // if src.is_dir() {
-        //     windows_fs::symlink_dir(target, dst)
-        // } else {
-        //     windows_fs::symlink_file(target, dst)
-        // }
-        //
-        // ...fails with reparse errors, use Windows APIs instead (Admin required)
-        use std::os::windows::ffi::OsStrExt;
-        use windows::core::PCWSTR;
-        use windows::Win32::Storage::FileSystem::{
-            CreateSymbolicLinkW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
-            SYMBOLIC_LINK_FLAG_DIRECTORY,
-        };
+    fn symlink(&self, src: &Path, dst: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs as unix_fs;
 
-        let target = src;
+            unix_fs::symlink(src, dst)
+        }
 
-        let dst_wstr = PCWSTR(
-            dst.as_os_str()
-                .encode_wide()
-                .chain(Some(0))
-                .collect::<Vec<u16>>()
-                .as_ptr(),
-        );
-        let target_wstr = PCWSTR(
-            target
-                .as_os_str()
-                .encode_wide()
-                .chain(Some(0))
-                .collect::<Vec<u16>>()
-                .as_ptr(),
-        );
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs as windows_fs;
 
-        let flags = if src.is_dir() {
-            SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
-        } else {
-            SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
-        };
-
-        let result = unsafe { CreateSymbolicLinkW(dst_wstr, target_wstr, flags) };
-        if result.0 != 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
+            if src.is_dir() {
+                windows_fs::symlink_dir(src, dst)
+            } else {
+                windows_fs::symlink_file(src, dst)
+            }
         }
     }
 }
