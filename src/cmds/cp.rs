@@ -177,7 +177,7 @@ impl<'a> FileCopier<'a> {
 
         let actual_dest = self.actual_dest(top, parent, src)?;
 
-        if actual_dest.canonicalize()? == src.canonicalize()? {
+        if actual_dest.exists() && actual_dest.canonicalize()? == src.canonicalize()? {
             return Err(self.error(top, &actual_dest, "Source and destination are the same"));
         }
 
@@ -285,7 +285,7 @@ impl<'a> FileCopier<'a> {
             // Collect source info for the top paths, checking for cancellation.
             if !self.collect_path_info(src, &path, &path)? {
                 if let Some(pb) = self.progress.as_mut() {
-                    pb.finish_with_message("Aborted");
+                    pb.abandon_with_message("Aborted");
                 }
                 return Ok(false);
             }
@@ -339,16 +339,11 @@ impl<'a> FileCopier<'a> {
     /// Collect all source files, their total size, re-create all dirs in the
     /// source(s) and copy the files; symlinks require Admin privilege on Windows.
     fn copy(&mut self) -> io::Result<()> {
-        self.collect_src_info()?;
+        if !self.collect_src_info()? {
+            return Ok(());
+        }
 
-        if let Some(pb) = self.progress.as_mut() {
-            if self.scope.is_interrupted() {
-                pb.abandon_with_message("Aborted");
-                return Ok(());
-            }
-            pb.finish_with_message("Ok");
-            println!();
-
+        if self.progress.is_some() {
             self.reset_progress_indicator(self.total_size);
         }
 
@@ -357,19 +352,23 @@ impl<'a> FileCopier<'a> {
 
     fn do_work(&mut self) -> io::Result<()> {
         let work = std::mem::take(&mut self.work);
+
         for (dest, w) in &work {
             if let Some(pb) = self.progress.as_mut() {
                 pb.set_message(Self::truncate_path(&w.src));
             }
 
-            if !self.do_work_item(&dest, &w)? {
+            if !self.do_work_item(work.len(), &dest, &w)? {
+                if let Some(pb) = self.progress.as_mut() {
+                    pb.abandon_with_message("Aborted");
+                }
                 break;
             }
         }
         Ok(())
     }
 
-    fn do_work_item(&mut self, dest: &PathBuf, w: &WorkItem) -> io::Result<bool> {
+    fn do_work_item(&mut self, count: usize, dest: &PathBuf, w: &WorkItem) -> io::Result<bool> {
         match w.action {
             Action::Copy => {
                 if self.debug {
@@ -381,7 +380,7 @@ impl<'a> FileCopier<'a> {
                     match confirm(
                         format!("Overwrite {}", dest.display()),
                         self.scope,
-                        self.work.len() > 1,
+                        count > 1,
                     )? {
                         Answer::Yes => {}
                         Answer::No => return Ok(true), // Continue
@@ -399,8 +398,9 @@ impl<'a> FileCopier<'a> {
                 if self.debug {
                     eprintln!("CREATE: {} ({})", dest.display(), w.src.display());
                 }
-                assert!(!dest.exists());
-                fs::create_dir(dest).wrap_err(&self, w.top, &w.src)?;
+                if !dest.exists() {
+                    fs::create_dir(dest).wrap_err(&self, w.top, &w.src)?;
+                }
             }
             Action::Link => {
                 if self.debug {
