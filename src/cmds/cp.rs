@@ -86,8 +86,8 @@ struct FileCopier<'a> {
     srcs: &'a [String], // Source paths from the command line
     args: &'a [String], // All the original command line args
     visited: HashSet<PathBuf>,
-    work: BTreeMap<PathBuf, WorkItem<'a>>, // Use BTree for sorting -- to create dirs before copying
-    total_size: u64,
+    work: BTreeMap<PathBuf, WorkItem<'a>>, // Use BTreeMap to keep work items sorted
+    total_size: u64,                       // Total size of files to be copied
 }
 
 impl<'a> FileCopier<'a> {
@@ -144,7 +144,7 @@ impl<'a> FileCopier<'a> {
         }
     }
 
-    /// Add work item to create a directory.
+    /// Add a work item for creating a directory.
     fn add_create_dir(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
         let actual_dest = self.resolve_dest(top, parent, src)?;
         let work_item = WorkItem::new(top, Action::CreateDir, src.to_path_buf());
@@ -173,7 +173,7 @@ impl<'a> FileCopier<'a> {
         Ok(())
     }
 
-    /// Add a work item to copy the contents of a regular file (i.e. not symlink, not dir).
+    /// Add a work item for copying the contents of a regular file (i.e. not symlink, not dir).
     fn add_copy(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
         assert!(!src.is_dir());
 

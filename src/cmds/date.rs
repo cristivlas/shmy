@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::format_error};
 use chrono::prelude::*;
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
@@ -21,13 +21,20 @@ impl Date {
             "timezone",
             "Specify the zone (e.g., America/New_York) to display local time",
         );
+
         Self { flags }
     }
 
-    fn get_time_in_timezone(&self, zone: &str) -> Result<DateTime<Tz>, String> {
+    fn get_time_in_timezone(
+        &self,
+        scope: &Rc<Scope>,
+        args: &[String],
+        zone: &str,
+    ) -> Result<DateTime<Tz>, String> {
         let tz: Tz = zone
             .parse()
-            .map_err(|_| format!("Invalid timezone specified: {}", zone))?;
+            .map_err(|error| format_error(scope, zone, args, error))?;
+
         Ok(Utc::now().with_timezone(&tz))
     }
 
@@ -62,7 +69,7 @@ impl Exec for Date {
             let utc_time = Utc::now();
             self.format_time(utc_time, &flags)
         } else if let Some(tz) = flags.option("timezone") {
-            let tz_time = self.get_time_in_timezone(tz)?;
+            let tz_time = self.get_time_in_timezone(scope, args, tz)?;
             self.format_time(tz_time, &flags)
         } else {
             let local_time = Local::now();
