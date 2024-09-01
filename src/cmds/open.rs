@@ -2,7 +2,7 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::utils::format_error;
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use open;
-use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 struct Open {
@@ -13,6 +13,7 @@ impl Open {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('L', "follow-links", "Follow symbolic links");
         flags.add_option('a', "application", "Application to open with");
 
         Self { flags }
@@ -37,12 +38,15 @@ impl Exec for Open {
         }
 
         let application = flags.option("application");
+        let follow = flags.is_present("follow-links");
 
         for arg in &args {
-            let path = Path::new(arg)
-                .resolve()
-                .map_err(|e| format_error(scope, arg, &args, e))?;
-
+            let mut path = PathBuf::from(arg);
+            if follow {
+                path = path
+                    .resolve()
+                    .map_err(|e| format_error(scope, arg, &args, e))?;
+            }
             let result = if let Some(app) = application {
                 open::with(path, app)
             } else {
