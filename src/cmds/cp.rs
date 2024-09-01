@@ -404,23 +404,24 @@ impl<'a> FileCopier<'a> {
         }
 
         // 1st pass: create dirs and copy files
-        if !self.do_work_actions(&[Action::CreateDir, Action::Copy], &work)? {
-            if let Some(pb) = self.progress.as_mut() {
-                pb.abandon_with_message("Aborted");
-            }
-            return Ok(());
-        }
-
-        // 2nd pass: symlinks
-        if !self.do_work_actions(&[Action::Link], &work)? {
-            if let Some(pb) = self.progress.as_mut() {
-                pb.abandon_with_message("Aborted");
-            }
-            return Ok(());
+        let mut done = self.do_work_actions(&[Action::CreateDir, Action::Copy], &work)?;
+        if done {
+            // 2nd pass: symlinks
+            done = self.do_work_actions(&[Action::Link], &work).map_err(|e| {
+                io::Error::new(
+                    Other,
+                    format!("{}. Try again with -P, -no-dereference, or sudo", e),
+                )
+            })?;
         }
 
         if let Some(pb) = self.progress.as_mut() {
-            pb.finish_with_message("Ok");
+            if done {
+                pb.finish_with_message("Ok");
+            } else {
+                pb.abandon_with_message("Aborted");
+            }
+            println!();
         }
 
         Ok(())
