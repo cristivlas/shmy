@@ -377,7 +377,7 @@ impl<'a> FileCopier<'a> {
                 if let Some(pb) = self.progress.as_mut() {
                     pb.abandon_with_message("Aborted");
                 }
-                break;
+                return Ok(());
             }
         }
 
