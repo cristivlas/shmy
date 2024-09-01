@@ -1,7 +1,8 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use colored::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
@@ -42,10 +43,20 @@ impl Grep {
             "Include hyperlinks to files and lines in the output",
         );
         flags.add_flag('r', "recursive", "Recursively search subdirectories");
+        flags.add_flag('L', "follow-links", "Follow symbolic links");
         Self { flags }
     }
 
-    fn collect_files(&self, scope: &Rc<Scope>, paths: &[String], recursive: bool) -> Vec<PathBuf> {
+    fn collect_files(
+        &self,
+        scope: &Rc<Scope>,
+        args: &[String], // Original args, for finding bad arg index in case of error
+        paths: &[String],
+        follow: bool,
+        recursive: bool,
+        visited: &mut HashSet<PathBuf>,
+    ) -> Vec<PathBuf> {
+        // Files to processs
         let mut files = Vec::new();
         for p in paths {
             // Handle Ctrl+C
@@ -54,19 +65,56 @@ impl Grep {
             }
 
             let path = PathBuf::from(p);
+
+            if !visited.insert(path.clone()) {
+                continue;
+            }
+
             if path.is_dir() {
                 if recursive {
-                    files.extend(fs::read_dir(path).unwrap().filter_map(Result::ok).flat_map(
-                        |entry| {
-                            self.collect_files(
-                                scope,
-                                &[entry.path().to_string_lossy().into_owned()],
-                                recursive,
-                            )
-                        },
-                    ));
+                    files.extend(
+                        fs::read_dir(&path)
+                            .unwrap()
+                            .filter_map(Result::ok)
+                            .flat_map(|entry| {
+                                self.collect_files(
+                                    scope,
+                                    args,
+                                    &[entry.path().display().to_string()],
+                                    follow,
+                                    recursive,
+                                    visited,
+                                )
+                            }),
+                    );
                 } else {
-                    my_warning!(scope, "Omitting dir: {}", scope.err_path(path.as_path()));
+                    my_warning!(
+                        scope,
+                        "Omitting directory (-r/--recursive option not set): {}",
+                        scope.err_path_str(p)
+                    );
+                }
+            } else if path.is_symlink() {
+                if follow {
+                    match path.resolve() {
+                        Ok(path) => files.extend(self.collect_files(
+                            scope,
+                            args,
+                            &[path.display().to_string()],
+                            follow,
+                            recursive,
+                            visited,
+                        )),
+                        Err(e) => {
+                            my_warning!(scope, "Could not resolve {}: {}", scope.err_path_str(p), e)
+                        }
+                    }
+                } else {
+                    my_warning!(
+                        scope,
+                        "Omitting symlink (-L/--follow-links option not set): {}",
+                        scope.err_path_str(p)
+                    );
                 }
             } else if path.is_file() {
                 files.push(path);
@@ -136,7 +184,7 @@ impl Grep {
 impl Exec for Grep {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(scope, args)?;
+        let grep_args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: grep [OPTIONS] PATTERN [FILE]...");
@@ -146,12 +194,13 @@ impl Exec for Grep {
             return Ok(Value::success());
         }
 
-        if args.is_empty() {
+        if grep_args.is_empty() {
             return Err("Missing search pattern".to_string());
         }
 
-        let pattern = &args[0];
+        let pattern = &grep_args[0];
 
+        let follow = flags.is_present("follow-links");
         let ignore_case = flags.is_present("ignore-case");
         let line_number_flag = flags.is_present("line-number");
         let no_filename = flags.is_present("no-filename");
@@ -166,7 +215,7 @@ impl Exec for Grep {
             Regex::new(pattern).map_err(|e| e.to_string())?
         };
 
-        let files = &args[1..];
+        let files = &grep_args[1..];
 
         if files.is_empty() {
             // Read from stdin if no files are provided
@@ -187,7 +236,9 @@ impl Exec for Grep {
                 );
             }
         } else {
-            let files_to_process = self.collect_files(scope, files, recursive);
+            let mut visited = HashSet::new();
+            let files_to_process =
+                self.collect_files(scope, args, files, follow, recursive, &mut visited);
 
             let show_filename = if no_filename {
                 false
@@ -218,7 +269,7 @@ impl Exec for Grep {
                             );
                         }
                     }
-                    Err(e) => my_warning!(scope, "Cannot read {}: {}", scope.err_path(path), e),
+                    Err(e) => my_warning!(scope, "Could not read {}: {}", scope.err_path(path), e),
                 }
             }
         }

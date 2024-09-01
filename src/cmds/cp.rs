@@ -246,7 +246,7 @@ impl<'a> FileCopier<'a> {
             self.add_link(top, parent, path)?;
         } else if path.is_dir() {
             if !self.recursive {
-                my_warning!(self.scope, "{} is a directory", self.scope.err_path(path));
+                my_warning!(self.scope, "{}: Is a directory", self.scope.err_path(path));
                 return Ok(true);
             }
             // Bail if the path has been seen before
