@@ -7,7 +7,7 @@ I also wanted to address the bad habit of writing quick-and-dirty scripts in whi
 The interpreter works in interactive mode or can consume script files passed in the command line. In interactive mode, history and TAB expansion are supported via rustyline.
 
 ## Cool Features
- - Read and follow WSL symbolic links (currently in cd, cp, ls, and find commands only. Experimental)
+ - Support WSL symbolic links.
  - Enforce command result error checking.
 
 ## Expression Evaluation Random Notes
@@ -70,6 +70,10 @@ if (cp source/path dest/path) (echo Ok) else (echo $__errors)
 Use the following operators for redirects:
 - Output to file: `command => file`
 - Append to file: `command =>> file`
+
+Note that the redirect operators '=>', '=>>' are different for '>' and '>>' used by other shells.
+The reason is to avoid complications with inferring the meaning of '>' (could be greater-than) based on context.
+I decided to keep the implementation simple and just use different operator symbols.
 
 ### 5. Pipes
 Pipe output between commands:

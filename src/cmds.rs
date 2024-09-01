@@ -44,6 +44,7 @@ mod run;
 mod sort;
 #[cfg(windows)]
 mod sudo;
+mod touch;
 mod vars;
 mod wc;
 
