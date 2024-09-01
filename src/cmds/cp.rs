@@ -286,9 +286,6 @@ impl<'a> FileCopier<'a> {
             eprintln!("{}: exists={}", self.dest.display(), self.dest.exists());
         }
         for src in self.srcs {
-            if self.no_hidden && src.starts_with(".") {
-                continue;
-            }
             // Always resolve symbolic links for the source paths given in the command line.
             let path = Path::new(src).resolve()?;
             let parent = path.parent().unwrap_or(&path);
