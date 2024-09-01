@@ -1,9 +1,10 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::sync_env_vars;
 use crate::{eval::Interp, eval::Value, scope::Scope};
+use crate::{symlnk::SymLink, utils::format_error, utils::sync_env_vars};
 use colored::*;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use std::rc::Rc;
 
 struct Evaluate {
@@ -24,7 +25,7 @@ impl Evaluate {
 impl Exec for Evaluate {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(scope, args)?;
+        let eval_args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: eval EXPR...");
@@ -40,17 +41,22 @@ impl Exec for Evaluate {
         let mut interp = Interp::new();
         let global_scope = scope.global();
 
-        for arg in &args {
+        for arg in &eval_args {
             let input = if source {
                 // Treat arg as the name of a source file.
-                let mut file = File::open(&arg)
-                    .map_err(|e| format!("Could not open {}: {}", scope.err_path_str(&arg), e))?;
+                // Resolve symbolic links (including WSL).
+                let path = Path::new(&arg)
+                    .resolve()
+                    .map_err(|e| format_error(scope, arg, &args, e))?;
 
-                let mut source = String::new();
+                let mut file = File::open(&path).map_err(|e| format_error(scope, arg, &args, e))?;
+
+                let mut source = String::new(); // buffer for script source code
+
                 file.read_to_string(&mut source)
-                    .map_err(|e| format!("Could not read {}: {}", scope.err_path_str(&arg), e))?;
+                    .map_err(|e| format_error(scope, arg, &args, e))?;
 
-                interp.set_file(Some(Rc::new(arg.to_string())));
+                interp.set_file(Some(Rc::new(path.display().to_string())));
 
                 source
             } else {
