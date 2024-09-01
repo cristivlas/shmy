@@ -108,7 +108,7 @@ impl<'a> FileCopier<'a> {
             // Progress indicator
             progress: if flags.is_present("progress") {
                 let template = if scope.use_colors(&std::io::stdout()) {
-                    "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} {total_bytes}"
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} {total_bytes}"
                 } else {
                     "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
                 };
@@ -214,12 +214,15 @@ impl<'a> FileCopier<'a> {
                 .file_name()
                 .is_some_and(|f| f.to_string_lossy().starts_with("."))
         {
+            if self.debug {
+                eprintln!("{}: skip hidden", path.display());
+            }
             return Ok(true);
         }
         // Bail if the path has been seen before
         if !self
             .visited
-            .insert(path.canonicalize().wrap_err(&self, top, path)?)
+            .insert(path.resolve().wrap_err(&self, top, path)?)
         {
             if self.debug {
                 eprintln!("{}: already visited", path.display());
@@ -320,7 +323,7 @@ impl<'a> FileCopier<'a> {
 
     fn reset_progress_indicator(&mut self, size: u64) {
         let template = if self.scope.use_colors(&std::io::stdout()) {
-            "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} [{bar:45.green/}] {bytes}/{total_bytes} ({eta})"
+            "{spinner:.green} [{elapsed_precise}] {msg:>30.cyan.bright} [{bar:45.green/}] {bytes}/{total_bytes} ({eta})"
         } else {
             "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
         };
