@@ -4,12 +4,502 @@ use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, ErrorKind::Other, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
+
+enum Action {
+    Copy,
+    CreateDir,
+    Link,
+}
+
+struct WorkItem<'a> {
+    top: &'a str, // Top source path as given in the command line
+    action: Action,
+    src: PathBuf,
+}
+
+impl<'a> WorkItem<'a> {
+    fn new(top: &'a str, action: Action, src: PathBuf) -> Self {
+        Self { top, action, src }
+    }
+}
+
+trait WrapErr<T> {
+    fn wrap_err(self, fc: &FileCopier, top: &str, path: &Path) -> T;
+    fn wrap_err_with_msg(self, fc: &FileCopier, top: &str, path: &Path, msg: Option<&str>) -> T;
+}
+
+impl<T> WrapErr<Result<T, io::Error>> for Result<T, io::Error> {
+    /// `top` is the path name as specified in the command line,
+    /// `path` is the path the error is related to -- in most cases the resolved, or
+    /// canonicalized version of `top`. `top` is looked up in the original command
+    /// args, so that when the error is reported to the user, the error location
+    /// that is shown is as close as possible to the argument that caused the error.
+    fn wrap_err_with_msg(
+        self,
+        fc: &FileCopier,
+        top: &str,
+        path: &Path,
+        msg: Option<&str>,
+    ) -> Result<T, io::Error> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                // Map the top source path to its position in the command line arguments.
+                let pos = fc.args.iter().position(|a| a == top).unwrap_or(0);
+                // Store the position of the argument that originated the error.
+                fc.scope.set_err_arg(pos);
+
+                // Format error message to include path.
+                let message = if let Some(msg) = msg {
+                    format!("{} {}: {}", msg, fc.scope.err_path(path), e)
+                } else {
+                    format!("{}: {}", fc.scope.err_path(path), e)
+                };
+                Err(io::Error::new(io::ErrorKind::Other, message))
+            }
+        }
+    }
+
+    fn wrap_err(self, fc: &FileCopier, top: &str, path: &Path) -> Result<T, io::Error> {
+        self.wrap_err_with_msg(fc, top, path, None)
+    }
+}
+
+struct FileCopier<'a> {
+    dest: PathBuf, // Destination
+    debug: bool,
+    ignore_links: bool,      // Skip symbolic links
+    confirm_overwrite: bool, // Ask for overwrite confirmation?
+    no_hidden: bool,         // Ignore entries starting with '.'
+    preserve_metadata: bool,
+    progress: Option<ProgressBar>,
+    recursive: bool,
+    scope: &'a Rc<Scope>,
+    srcs: &'a [String], // Source paths from the command line
+    args: &'a [String], // All the original command line args
+    visited: HashSet<PathBuf>,
+    work: BTreeMap<PathBuf, WorkItem<'a>>,
+    total_size: u64,
+    dest_is_dir: bool,
+}
+
+impl<'a> FileCopier<'a> {
+    fn new(
+        paths: &'a [String],
+        flags: &CommandFlags,
+        scope: &'a Rc<Scope>,
+        args: &'a [String],
+    ) -> Self {
+        Self {
+            dest: PathBuf::from(paths.last().unwrap()),
+            // Command line flags
+            debug: flags.is_present("debug"),
+            ignore_links: flags.is_present("no-dereference"),
+            confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
+            no_hidden: flags.is_present("no-hidden"),
+            preserve_metadata: !flags.is_present("no-preserve"),
+            recursive: flags.is_present("recursive"),
+            // Progress indicator
+            progress: if flags.is_present("progress") {
+                let template = if scope.use_colors(&std::io::stdout()) {
+                    "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} {total_bytes}"
+                } else {
+                    "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
+                };
+                let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
+                pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
+                pb.enable_steady_tick(Duration::from_millis(100));
+                Some(pb)
+            } else {
+                None
+            },
+            scope,
+            srcs: &paths[..paths.len() - 1],
+            args,
+            visited: HashSet::new(),
+            work: BTreeMap::new(),
+            total_size: 0,
+            dest_is_dir: false,
+        }
+    }
+
+    fn actual_dest(&self, top: &'a str, parent: &Path, src: &Path) -> io::Result<PathBuf> {
+        if self.dest_is_dir {
+            Ok(self.dest.join(
+                src.strip_prefix(parent).map_err(|e| {
+                    self.error(top, src, &format!("Could not remove prefix: {}", e))
+                })?,
+            ))
+        } else {
+            Ok(self.dest.to_path_buf())
+        }
+    }
+
+    /// Add work item to create a directory.
+    fn add_create_dir(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
+        // Creating a directory should only happen if we are copying dirs;
+        // the destination must be a directory as well.
+        self.dest_is_dir = true;
+
+        let actual_dest = self.actual_dest(top, parent, src)?;
+        let work_item = WorkItem::new(top, Action::CreateDir, src.to_path_buf());
+        self.work.insert(actual_dest, work_item);
+
+        Ok(())
+    }
+
+    /// Add a work item to copy the contents of a regular file (i.e. not symlink, not dir).
+    fn add_copy(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
+        assert!(!src.is_dir());
+
+        if self.dest.exists() {
+            // Copying multiple files over a regular file?
+            self.dest_is_dir = self.dest_is_dir || self.dest.is_dir();
+            if !self.dest_is_dir && !self.work.is_empty() {
+                return Err(self.error(
+                    &top,
+                    parent,
+                    "Copying multiple sources over single destination",
+                ));
+            }
+        } else if !self.work.is_empty() {
+            // Copying multiple sources to a destination which does not exists?
+            // Make a work item to create the destination directory.
+            self.add_create_dir(top, &PathBuf::default(), &self.dest.to_path_buf())?;
+            self.dest_is_dir = true;
+        }
+
+        let actual_dest = self.actual_dest(top, parent, src)?;
+
+        if actual_dest.canonicalize()? == src.canonicalize()? {
+            return Err(self.error(top, &actual_dest, "Source and destination are the same"));
+        }
+
+        let work_item = WorkItem::new(top, Action::Copy, src.to_path_buf());
+        self.work.insert(actual_dest, work_item);
+
+        Ok(())
+    }
+
+    fn add_link(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
+        let actual_dest = self.actual_dest(top, parent, src)?;
+        let work_item = WorkItem::new(top, Action::Link, src.to_path_buf());
+        self.work.insert(actual_dest, work_item);
+
+        Ok(())
+    }
+
+    /// Collect info about one path and its size, recurse if directory.
+    /// Return Ok(false) if interrupted by Ctrl+C.
+    /// Update progress indicator in verbose mode.
+    fn collect_path_info(&mut self, top: &'a str, parent: &Path, path: &Path) -> io::Result<bool> {
+        // Check for Ctrl+C
+        if self.scope.is_interrupted() {
+            return Ok(false);
+        }
+        // Check symlinks first; canonicalize() further down may error out on WSL links.
+        if self.ignore_links && path.is_symlink() {
+            return Ok(true);
+        }
+        // Ignore files and dirs starting with '.'? Useful for
+        // copying project directories without .git, .vscode, etc.
+        if self.no_hidden
+            && path
+                .file_name()
+                .is_some_and(|f| f.to_string_lossy().starts_with("."))
+        {
+            return Ok(true);
+        }
+        // Bail if the path has been seen before
+        if !self
+            .visited
+            .insert(path.canonicalize().wrap_err(&self, top, path)?)
+        {
+            if self.debug {
+                eprintln!("{}: already visited", path.display());
+            }
+            return Ok(true);
+        }
+
+        if path.is_symlink() {
+            assert!(!self.ignore_links);
+            self.add_link(top, parent, path)?;
+        } else if path.is_dir() {
+            if !self.recursive {
+                my_warning!(self.scope, "{} is a directory", self.scope.err_path(path));
+                return Ok(true);
+            }
+
+            // Replicate dirs from the source into the destination, even if empty.
+            self.add_create_dir(top, parent, path)?;
+
+            // Collect info recursively
+            for entry in fs::read_dir(path).wrap_err(&self, top, path)? {
+                let entry = entry.wrap_err(&self, top, path)?;
+                let child = entry.path();
+
+                if !self.collect_path_info(top, parent, &child)? {
+                    return Ok(false); // User interrupted
+                }
+            }
+        } else {
+            let size = fs::metadata(&path).wrap_err(&self, top, path)?.len();
+
+            self.total_size += size;
+            self.add_copy(top, parent, path)?;
+
+            // Update progress indicator, if set up (-v flag specified)
+            if let Some(pb) = &self.progress {
+                pb.set_message(format!("{}", Self::truncate_path(path)));
+                pb.set_position(self.total_size);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Collect the list of files to copy and their sizes.
+    /// Create work items. Return Ok(false) on Ctrl+C.
+    fn collect_src_info(&mut self) -> io::Result<bool> {
+        assert!(!self.srcs.is_empty());
+
+        // Always resolve symbolic links in the destination.
+        self.dest = self.dest.resolve().wrap_err(
+            &self,
+            self.dest.as_os_str().to_str().unwrap_or(""),
+            &self.dest,
+        )?;
+        if self.debug {
+            eprintln!("{}: exists={}", self.dest.display(), self.dest.exists());
+        }
+        for src in self.srcs {
+            // Always resolve symbolic links for the
+            // source paths given in the command line.
+            let path = Path::new(src).resolve()?;
+
+            // Collect source info for the top paths, checking for cancellation.
+            if !self.collect_path_info(src, &path, &path)? {
+                if let Some(pb) = self.progress.as_mut() {
+                    pb.finish_with_message("Aborted");
+                }
+                return Ok(false);
+            }
+        }
+        if let Some(pb) = self.progress.as_mut() {
+            pb.finish_with_message("Collected source file(s)");
+        }
+        Ok(true)
+    }
+
+    /// Construct io::Error with given path and message.
+    fn error(&self, top: &str, path: &Path, msg: &str) -> io::Error {
+        // Map the top source path to its position in the command line arguments.
+        let pos = self.args.iter().position(|a| a == top).unwrap_or(0);
+        // Store the position of the argument that originated the error.
+        self.scope.set_err_arg(pos);
+
+        io::Error::new(Other, format!("{}: {}", self.scope.err_path(path), msg))
+    }
+
+    /// Truncate path for display in progress indicator.
+    fn truncate_path(path: &Path) -> String {
+        const MAX_LENGTH: usize = 30;
+        let filename = path.to_str().unwrap_or("");
+        if filename.len() <= MAX_LENGTH {
+            filename.to_uppercase()
+        } else {
+            let start_index = filename.len() - (MAX_LENGTH - 3);
+            format!("...{}", &filename[start_index..])
+        }
+    }
+
+    fn reset_progress_indicator(&mut self, size: u64) {
+        let template = if self.scope.use_colors(&std::io::stdout()) {
+            "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} [{bar:45.green/}] {bytes}/{total_bytes} ({eta})"
+        } else {
+            "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
+        };
+
+        let pb = ProgressBar::with_draw_target(Some(size), ProgressDrawTarget::stdout());
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(&template)
+                .unwrap()
+                .progress_chars("=> "),
+        );
+
+        self.progress = Some(pb);
+    }
+
+    /// Collect all source files, their total size, re-create all dirs in the
+    /// source(s) and copy the files; symlinks require Admin privilege on Windows.
+    fn copy(&mut self) -> io::Result<()> {
+        self.collect_src_info()?;
+
+        if let Some(pb) = self.progress.as_mut() {
+            if self.scope.is_interrupted() {
+                pb.abandon_with_message("Aborted");
+                return Ok(());
+            }
+            pb.finish_with_message("Ok");
+            println!();
+
+            self.reset_progress_indicator(self.total_size);
+        }
+
+        self.do_work()
+    }
+
+    fn do_work(&mut self) -> io::Result<()> {
+        let work = std::mem::take(&mut self.work);
+        for (dest, w) in &work {
+            if let Some(pb) = self.progress.as_mut() {
+                pb.set_message(Self::truncate_path(&w.src));
+            }
+
+            if !self.do_work_item(&dest, &w)? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn do_work_item(&mut self, dest: &PathBuf, w: &WorkItem) -> io::Result<bool> {
+        match w.action {
+            Action::Copy => {
+                if self.debug {
+                    eprintln!("COPY: {} -> {}", w.src.display(), dest.display());
+                }
+                assert!(!dest.is_dir());
+
+                if self.confirm_overwrite && dest.exists() {
+                    match confirm(
+                        format!("Overwrite {}", dest.display()),
+                        self.scope,
+                        self.work.len() > 1,
+                    )? {
+                        Answer::Yes => {}
+                        Answer::No => return Ok(true), // Continue
+                        Answer::All => {
+                            self.confirm_overwrite = false;
+                        }
+                        Answer::Quit => return Ok(false), // Cancel all
+                    }
+                }
+                if !self.copy_file(w.top, &w.src, dest)? {
+                    return Ok(false);
+                }
+            }
+            Action::CreateDir => {
+                if self.debug {
+                    eprintln!("CREATE: {} ({})", dest.display(), w.src.display());
+                }
+                assert!(!dest.exists());
+                fs::create_dir(dest).wrap_err(&self, w.top, &w.src)?;
+            }
+            Action::Link => {
+                if self.debug {
+                    eprintln!("LINK: {} -> {}", w.src.display(), dest.display());
+                }
+                copy_symlink(&w.src, &dest).wrap_err(&self, w.top, &w.src)?;
+            }
+        }
+        Ok(true)
+    }
+
+    /// Copy the contents of a regular file.
+    /// Update progress indicator in verbose mode.
+    fn copy_file(&mut self, top: &str, src: &Path, dest: &PathBuf) -> io::Result<bool> {
+        #[cfg(unix)]
+        self.handle_unix_special_file(src, dest)?;
+
+        let mut src_file = File::open(src).wrap_err(&self, top, src)?;
+        let mut dst_file = File::create(&dest).wrap_err(&self, top, dest)?;
+
+        let mut buffer = [0; 8192]; // TODO: allow user to specify buffer size?
+        loop {
+            if self.scope.is_interrupted() {
+                return Ok(false);
+            }
+            let n = src_file.read(&mut buffer).wrap_err(&self, top, src)?;
+            if n == 0 {
+                break;
+            }
+            dst_file
+                .write_all(&buffer[..n])
+                .wrap_err(&self, top, dest)?;
+
+            if let Some(pb) = self.progress.as_mut() {
+                pb.inc(n as u64);
+            }
+        }
+
+        if self.preserve_metadata {
+            self.preserve_metadata(top, src, dest)?;
+        }
+
+        Ok(true)
+    }
+
+    #[cfg(unix)]
+    fn handle_unix_special_file(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
+        use std::os::unix::fs::FileTypeExt;
+        let file_type = fs::symlink_metadata(src)?.file_type();
+
+        if file_type.is_fifo() {
+            // Recreate the FIFO rather than copying contents
+            nix::unistd::mkfifo(dest, nix::sys::stat::Mode::S_IRWXU)?;
+        } else if file_type.is_socket() {
+            my_warning!(self.scope, "Skipping socket: {}", self.scope.err_path(src));
+        } else if file_type.is_block_device() || file_type.is_char_device() {
+            my_warning!(
+                self.scope,
+                "Skipping device file: {}",
+                self.scope.err_path(src)
+            );
+        }
+        Ok(())
+    }
+
+    fn preserve_metadata(&self, top: &str, src: &Path, dest: &PathBuf) -> io::Result<()> {
+        // Get metadata of source file
+        let metadata = fs::metadata(src).wrap_err_with_msg(
+            &self,
+            top,
+            src,
+            Some("Could not read metadata"),
+        )?;
+
+        // Set timestamps on destination file
+        filetime::set_file_times(
+            dest,
+            FileTime::from_last_access_time(&metadata),
+            FileTime::from_last_modification_time(&metadata),
+        )
+        .wrap_err_with_msg(&self, top, dest, Some("Could not set file time"))?;
+
+        // Set permissions on the destination
+        fs::set_permissions(dest, metadata.permissions()).wrap_err(&self, top, dest)?;
+
+        #[cfg(unix)]
+        {
+            use nix::unistd::{chown, Gid, Uid};
+            use std::os::unix::fs::MetadataExt;
+
+            let uid = metadata.uid();
+            let gid = metadata.gid();
+
+            chown(dest, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))?;
+        }
+
+        Ok(())
+    }
+}
 
 fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -69,396 +559,6 @@ fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
     }
 }
 
-struct FileCopier<'a> {
-    dest: PathBuf,           // Destination
-    ignore_links: bool,      // Skip symbolic links
-    confirm_overwrite: bool, // Ask for overwrite confirmation?
-    no_hidden: bool,         // Ignore entries starting with '.'
-    preserve_metadata: bool,
-    progress: Option<ProgressBar>,
-    recursive: bool,
-    scope: &'a Rc<Scope>,
-    srcs: &'a [String], // Source paths from the command line
-    args: &'a [String], // All the original command line args
-    unique_srcs: HashSet<PathBuf>,
-}
-
-impl<'a> FileCopier<'a> {
-    fn new(
-        paths: &'a [String],
-        flags: &CommandFlags,
-        scope: &'a Rc<Scope>,
-        args: &'a [String],
-    ) -> Self {
-        Self {
-            dest: PathBuf::from(paths.last().unwrap()),
-            ignore_links: flags.is_present("no-dereference"),
-            confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
-            no_hidden: flags.is_present("no-hidden"),
-            preserve_metadata: !flags.is_present("no-preserve"),
-            progress: if flags.is_present("progress") {
-                let template = if scope.use_colors(&std::io::stdout()) {
-                    "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} {total_bytes}"
-                } else {
-                    "{spinner} [{elapsed_precise}] {msg:>30} {total_bytes}"
-                };
-                let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stdout());
-                pb.set_style(ProgressStyle::default_spinner().template(template).unwrap());
-                pb.enable_steady_tick(Duration::from_millis(100));
-                Some(pb)
-            } else {
-                None
-            },
-            recursive: flags.is_present("recursive"),
-            scope,
-            srcs: &paths[..paths.len() - 1],
-            args,
-            unique_srcs: HashSet::new(),
-        }
-    }
-
-    /// Add the path to the error reported to the caller.
-    fn wrap_error<E: std::fmt::Display>(&self, path: &Path, error: E) -> io::Error {
-        let path_str = path.display().to_string();
-
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "{}: {}",
-                self.scope.err_path_arg(&path_str, self.args),
-                error
-            ),
-        )
-    }
-
-    /// Collect info about one path and its size, recurse if directory.
-    /// Return Ok(false) if interrupted by Ctrl+C.
-    /// Update progress indicator in verbose mode.
-    fn collect_path_info(
-        &mut self,
-        start: &'a str,
-        path: &Path,
-        info: &mut (Vec<(&'a str, PathBuf)>, u64),
-    ) -> io::Result<bool> {
-        // Ignore files and dirs starting with '.'? Useful for
-        // copying project directories without .git, .vscode, etc.
-        if self.no_hidden
-            && path
-                .file_name()
-                .is_some_and(|f| f.to_string_lossy().starts_with("."))
-        {
-            return Ok(true);
-        }
-
-        if path.is_symlink() {
-            if !self.ignore_links {
-                // Follow all links, then recurse once.
-                match path.resolve() {
-                    Ok(path) => {
-                        if !self.unique_srcs.insert(path.clone()) {
-                            return Ok(true);
-                        }
-                        return self.collect_path_info(start, &path, info);
-                    }
-                    Err(e) => {
-                        // Show warning and move on.
-                        my_warning!(self.scope, "{}: {}", self.scope.err_path(path), e);
-                        return Ok(true);
-                    }
-                }
-            }
-        } else if path.is_dir() {
-            if !self.recursive {
-                my_warning!(self.scope, "Omitting dir: {}", self.scope.err_path(path));
-                return Ok(true);
-            }
-            // Replicate dirs from the source into the destination (even if empty)
-            info.0.push((start, path.to_path_buf()));
-
-            // Collect info recursively
-            for entry in fs::read_dir(path).map_err(|e| self.wrap_error(path, e))? {
-                if self.scope.is_interrupted() {
-                    return Ok(false);
-                }
-                let entry = entry.map_err(|e| self.wrap_error(path, e))?;
-                let child = entry.path();
-
-                if !self.collect_path_info(start, &child, info)? {
-                    return Ok(false); // User interrupted
-                }
-            }
-        } else {
-            let size = fs::metadata(&path)
-                .map_err(|e| self.wrap_error(&path, e))?
-                .len();
-
-            info.0.push((start, path.to_path_buf()));
-            info.1 += size;
-
-            // Update progress indicator, if set up (-v flag specified)
-            if let Some(pb) = &self.progress {
-                pb.set_message(format!("{}", Self::truncate_path(path)));
-                pb.set_position(info.1);
-            }
-        }
-        Ok(true)
-    }
-
-    /// Recursively collect the list of files to copy and their sizes.
-    /// Return Ok(false) if interrupted by the user pressing Ctrl+C.
-    fn collect_src_info(&mut self, info: &mut (Vec<(&'a str, PathBuf)>, u64)) -> io::Result<bool> {
-        for src in self.srcs {
-            let path = Path::new(src);
-            if !self.collect_path_info(src, path, info)? {
-                if let Some(pb) = self.progress.as_mut() {
-                    pb.finish_with_message("Aborted");
-                }
-                return Ok(false);
-            }
-        }
-
-        if let Some(pb) = self.progress.as_mut() {
-            pb.finish_with_message("Collected source file(s)");
-        }
-        Ok(true)
-    }
-
-    /// Truncate path for display in progress indicator.
-    fn truncate_path(path: &Path) -> String {
-        const MAX_LENGTH: usize = 30;
-        let filename = path.to_str().unwrap_or("");
-        if filename.len() <= MAX_LENGTH {
-            filename.to_uppercase()
-        } else {
-            let start_index = filename.len() - (MAX_LENGTH - 3);
-            format!("...{}", &filename[start_index..])
-        }
-    }
-
-    fn check_dest_dir(&self) -> io::Result<bool> {
-        let dest_is_dir = self.dest.is_dir();
-
-        if !dest_is_dir {
-            if self.srcs.len() > 1 {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Multiple sources with non-directory destination".to_string(),
-                ));
-            }
-
-            let path = Path::new(&self.srcs[0]);
-            let src_path = path.resolve().map_err(|e| {
-                self.wrap_error(path, format!("Failed to resolve source links: {}", e))
-            })?;
-
-            if src_path.is_dir() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Source is a directory and destination is not".to_string(),
-                ));
-            }
-        }
-
-        Ok(dest_is_dir)
-    }
-
-    fn reset_progress_indicator(&mut self, size: u64) {
-        if self.progress.is_some() {
-            let template = if self.scope.use_colors(&std::io::stdout()) {
-                "{spinner:.green} [{elapsed_precise}] {msg:>30.yellow} [{bar:45.green/}] {bytes}/{total_bytes} ({eta})"
-            } else {
-                "{spinner:} [{elapsed_precise}] {msg:>30} [{bar:45}] {bytes}/{total_bytes} ({eta})"
-            };
-
-            let pb = ProgressBar::with_draw_target(Some(size), ProgressDrawTarget::stdout());
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template(&template)
-                    .unwrap()
-                    .progress_chars("=> "),
-            );
-
-            self.progress = Some(pb);
-        }
-    }
-
-    /// Collect all source files, their total size, re-create all dirs in the
-    /// source(s) and copy the files; symlinks require Admin privilege on Windows.
-    fn copy(&mut self) -> io::Result<()> {
-        assert!(!self.srcs.is_empty());
-
-        self.dest = self
-            .dest
-            .resolve()
-            .map_err(|e| self.wrap_error(&self.dest, format!("Failed to resolve links: {}", e)))?;
-
-        let dest_is_dir = self.check_dest_dir()?;
-
-        // Collect sources and their total size
-        let mut info = (Vec::new(), 0u64);
-        if !self.collect_src_info(&mut info)? {
-            return Ok(());
-        }
-
-        self.reset_progress_indicator(info.1);
-
-        let many = info.0.len() > 1;
-
-        for (start, path) in &info.0 {
-            if self.scope.is_interrupted() {
-                if let Some(pb) = self.progress.as_mut() {
-                    pb.abandon_with_message("Interrupted");
-                }
-                return Ok(()); // User interrupted (pressed Ctrl+C)
-            }
-
-            let dest = if dest_is_dir {
-                let src_path = if let Some(parent) = Path::new(start).parent() {
-                    path.strip_prefix(parent)
-                        .map_err(|e| self.wrap_error(path, e))?
-                } else {
-                    path
-                };
-                self.dest.join(src_path)
-            } else {
-                self.dest.to_path_buf()
-            };
-
-            // Copy the individual entry
-            if !self.copy_entry(many, path, &dest)? {
-                if let Some(pb) = self.progress.as_mut() {
-                    pb.abandon_with_message("Aborted");
-                }
-                return Ok(());
-            }
-        }
-        if let Some(pb) = self.progress.as_mut() {
-            pb.finish_with_message("Ok");
-            println!();
-        }
-        Ok(())
-    }
-
-    /// Copy the individual entry: create a dir, symlink or copy regular file.
-    /// Update progress indicator in verbose mode.
-    fn copy_entry(&mut self, one_of_many: bool, src: &Path, dest: &PathBuf) -> io::Result<bool> {
-        if dest.exists() && src.canonicalize()? == dest.canonicalize()? {
-            return Err(self.wrap_error(dest, "Source and destination are the same"));
-        }
-
-        // Ask for confirmation if needed
-        if self.confirm_overwrite && dest.exists() && !dest.is_dir() {
-            match confirm(
-                format!("Overwrite {}", dest.display()),
-                self.scope,
-                one_of_many,
-            )? {
-                Answer::Yes => {}
-                Answer::No => return Ok(true), // Continue
-                Answer::All => {
-                    self.confirm_overwrite = false;
-                }
-                Answer::Quit => return Ok(false), // Cancel all
-            }
-        }
-
-        if let Some(pb) = self.progress.as_mut() {
-            pb.set_message(Self::truncate_path(src));
-        }
-
-        if src.is_dir() {
-            if !dest.exists() {
-                fs::create_dir(dest).map_err(|e| self.wrap_error(src, e))?;
-            }
-        } else if src.is_symlink() {
-            copy_symlink(src, &dest).map_err(|e| self.wrap_error(src, e))?;
-        } else {
-            #[cfg(unix)]
-            self.handle_unix_special_file(src, dest)?;
-
-            let mut src_file = File::open(src).map_err(|e| self.wrap_error(src, e))?;
-            let mut dst_file = File::create(&dest).map_err(|e| self.wrap_error(dest, e))?;
-            let mut buffer = [0; 8192]; // TODO: allow user to specify buffer size?
-            loop {
-                if self.scope.is_interrupted() {
-                    return Ok(false);
-                }
-                let n = src_file
-                    .read(&mut buffer)
-                    .map_err(|e| self.wrap_error(src, e))?;
-
-                if n == 0 {
-                    break;
-                }
-                dst_file
-                    .write_all(&buffer[..n])
-                    .map_err(|e| self.wrap_error(dest, e))?;
-
-                if let Some(pb) = self.progress.as_mut() {
-                    pb.inc(n as u64);
-                }
-            }
-        }
-
-        if self.preserve_metadata {
-            self.preserve_metadata(src, dest)?;
-        }
-
-        Ok(true)
-    }
-
-    #[cfg(unix)]
-    fn handle_unix_special_file(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
-        use std::os::unix::fs::FileTypeExt;
-        let file_type = fs::symlink_metadata(src)?.file_type();
-
-        if file_type.is_fifo() {
-            // Recreate the FIFO rather than copying contents
-            nix::unistd::mkfifo(dest, nix::sys::stat::Mode::S_IRWXU)?;
-        } else if file_type.is_socket() {
-            my_warning!(self.scope, "Skipping socket: {}", self.scope.err_path(src));
-        } else if file_type.is_block_device() || file_type.is_char_device() {
-            my_warning!(
-                self.scope,
-                "Skipping device file: {}",
-                self.scope.err_path(src)
-            );
-        }
-        Ok(())
-    }
-
-    fn preserve_metadata(&self, src: &Path, dest: &PathBuf) -> io::Result<()> {
-        // Get metadata of source file
-        let metadata = fs::metadata(src)
-            .map_err(|e| self.wrap_error(src, format!("Cannot read metadata: {}", e)))?;
-
-        // Set timestamps on destination file
-        filetime::set_file_times(
-            dest,
-            FileTime::from_last_access_time(&metadata),
-            FileTime::from_last_modification_time(&metadata),
-        )
-        .map_err(|e| self.wrap_error(dest, format!("Cannot set file time: {}", e)))?;
-
-        // Set permissions on the destination
-        fs::set_permissions(dest, metadata.permissions())
-            .map_err(|e| self.wrap_error(dest, format!("Cannot set permissions: {}", e)))?;
-
-        #[cfg(unix)]
-        {
-            use nix::unistd::{chown, Gid, Uid};
-            use std::os::unix::fs::MetadataExt;
-
-            let uid = metadata.uid();
-            let gid = metadata.gid();
-
-            chown(dest, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))?;
-        }
-
-        Ok(())
-    }
-}
-
 struct Cp {
     flags: CommandFlags,
 }
@@ -467,6 +567,7 @@ impl Cp {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('d', "debug", "Show debug details");
         flags.add_flag('v', "progress", "Show progress bar");
         flags.add_flag('r', "recursive", "Copy directories recursively");
         flags.add_flag('f', "force", "Overwrite without prompting");

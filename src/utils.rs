@@ -1,5 +1,4 @@
 use crate::scope::Scope;
-use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
@@ -290,6 +289,8 @@ pub fn read_symlink(path: &Path) -> io::Result<PathBuf> {
 /// Keep reading symbolic links until either non-link or cycle is detected.
 #[cfg(windows)]
 pub fn resolve_links(path: &Path) -> io::Result<PathBuf> {
+    use std::collections::HashSet;
+
     let mut visited = HashSet::new();
     let mut path = path.to_path_buf();
 
