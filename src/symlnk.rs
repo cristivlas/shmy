@@ -43,7 +43,6 @@ fn resolve_path(sym_path: &Path) -> io::Result<PathBuf> {
                 Cow::<'_, PathBuf>::Owned(partial_resolved)
             }
         };
-        // dbg!(&path, &resolved);
 
         if resolved.is_absolute() {
             path = resolved.into_owned();
