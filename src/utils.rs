@@ -102,6 +102,8 @@ pub mod win {
         Win32::System::IO::DeviceIoControl,
     };
 
+    use crate::symlnk::SymLink;
+
     pub const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
     pub const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
@@ -199,7 +201,7 @@ pub mod win {
 
                 Ok(String::from_utf8_lossy(target).into_owned().into())
             }
-            Err(_) => fs::read_link(path), // Fail over to fs
+            Err(e) => Err(e),
         }
     }
 
@@ -207,7 +209,7 @@ pub mod win {
     /// use FSCTL_DELETE_REPARSE_POINT to remove symbolic link,
     /// then remove the file or directory given by `path`.
     pub fn remove_link(path: &Path) -> std::io::Result<()> {
-        let is_dir = read_link(path)?.is_dir();
+        let is_dir = path.resolve()?.is_dir();
 
         // lifetime scope for the file to close automatically
         {
