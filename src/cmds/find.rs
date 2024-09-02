@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::resolve_links;
+use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use regex::Regex;
 use std::ffi::OsStr;
@@ -33,7 +33,7 @@ impl Find {
         }
 
         let search_path = if follow {
-            resolve_links(path).unwrap_or(path.to_path_buf())
+            path.resolve().unwrap_or(path.to_path_buf())
         } else {
             path.to_path_buf()
         };

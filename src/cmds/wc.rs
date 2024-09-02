@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::{format_error, resolve_links};
-use crate::{eval::Value, scope::Scope};
+use crate::utils::format_error;
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader};
 #[cfg(windows)]
@@ -27,7 +27,8 @@ impl WordCount {
         flags.add_flag('m', "chars", "Print the character counts");
         flags.add_flag('c', "bytes", "Print the byte counts");
         flags.add_flag('?', "help", "Display this help message");
-        WordCount { flags }
+
+        Self { flags }
     }
 
     fn count_file(path: &Path) -> io::Result<CountResult> {
@@ -138,7 +139,8 @@ impl Exec for WordCount {
             }
         } else {
             for file in &args {
-                let path = resolve_links(Path::new(&file))
+                let path = Path::new(&file)
+                    .resolve()
                     .map_err(|e| format_error(scope, file, &args, e))?;
 
                 if path.is_dir() {

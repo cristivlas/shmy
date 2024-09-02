@@ -1,9 +1,10 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use colored::*;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
+use std::path::Path;
 use std::rc::Rc;
 
 struct Diff {
@@ -15,14 +16,15 @@ impl Diff {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('o', "color", "Color output");
-        Diff { flags }
+
+        Self { flags }
     }
 }
 
 impl Exec for Diff {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let filenames = flags.parse(scope, args)?;
+        let fnames = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... FILE1 FILE2", name);
@@ -32,34 +34,45 @@ impl Exec for Diff {
             return Ok(Value::success());
         }
 
-        if filenames.len() != 2 {
+        if fnames.len() != 2 {
             return Err("diff requires exactly two filenames".to_string());
         }
 
-        let file1 = read_file(&filenames[0], scope, args)?;
-        let file2 = read_file(&filenames[1], scope, args)?;
+        let mut files = Vec::new();
+
+        for filename in fnames.iter().take(2) {
+            let path = Path::new(filename)
+                .resolve()
+                .map_err(|e| format_error(scope, filename, args, e))?;
+
+            files.push(read_file(filename, &path, scope, args)?);
+        }
 
         // Calculate the diff
         let mut grid = Grid::new();
-        diff(&file1, &file2, &mut grid);
+        diff(&files[0], &files[1], &mut grid);
 
         let color = flags.is_present("color") && scope.use_colors(&std::io::stdout());
 
-        // UnifiedView only, no context lines.
-        print(&grid, &file1, &file2, &filenames[0], &filenames[1], color)?;
+        // unified view with no context lines.
+        print(&grid, &files[0], &files[1], &fnames[0], &fnames[1], color)?;
 
         Ok(Value::success())
     }
 }
 
-fn read_file(filename: &str, scope: &Rc<Scope>, args: &Vec<String>) -> Result<Vec<String>, String> {
-    let file = File::open(filename)
-        .map_err(|e| format!("{}: {}", scope.err_path_arg(filename, args), e))?;
+fn read_file(
+    filename: &str, // As given in the command line
+    path: &Path,    // Resolved path
+    scope: &Rc<Scope>,
+    args: &Vec<String>,
+) -> Result<Vec<String>, String> {
+    let file = File::open(path).map_err(|e| format_error(scope, filename, args, e))?;
 
     io::BufReader::new(file)
         .lines()
         .collect::<Result<_, _>>()
-        .map_err(|e| format!("{}: {}", scope.err_path_arg(filename, args), e))
+        .map_err(|e| format_error(scope, filename, args, e))
 }
 
 #[derive(Clone)]

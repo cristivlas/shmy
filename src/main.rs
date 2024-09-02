@@ -23,10 +23,10 @@ mod cmds;
 mod eval;
 mod prompt;
 mod scope;
+mod symlnk;
 mod testcmds;
 mod testeval;
 mod utils;
-mod wsl;
 
 #[derive(Helper, Highlighter, Hinter, Validator)]
 struct CmdLineHelper {

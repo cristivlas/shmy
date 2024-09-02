@@ -1,5 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
+use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ impl Mv {
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('f', "force", "Do not prompt before overwriting");
         flags.add_flag('i', "interactive", "Prompt before overwriting files");
+        flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         Self { flags }
     }
@@ -78,7 +80,7 @@ impl Mv {
     }
 
     fn get_dest_path(scope: &Rc<Scope>, path: &str) -> Result<PathBuf, String> {
-        Ok(PathBuf::from(path).canonicalize().unwrap_or(
+        Ok(PathBuf::from(path).resolve().unwrap_or(
             Path::new(".")
                 .canonicalize()
                 .map_err(|e| format!("{}: {}", scope.err_path_str(path), e))?
@@ -107,6 +109,7 @@ impl Exec for Mv {
             return Err("Missing destination".to_string());
         }
 
+        let follow = flags.is_present("follow-links");
         let mut interactive = !flags.is_present("force") || flags.is_present("interactive");
 
         let dest = Self::get_dest_path(scope, args.last().unwrap())?;
@@ -115,10 +118,12 @@ impl Exec for Mv {
         let is_batch = sources.len() > 1;
 
         for src in sources {
-            let src_path = Path::new(src)
-                .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_path_str(src), e))?;
-
+            let mut src_path = PathBuf::from(src);
+            if follow {
+                src_path = src_path
+                    .resolve()
+                    .map_err(|e| format!("{}: {}", scope.err_path_str(src), e))?;
+            }
             if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)
             }

@@ -75,7 +75,7 @@ impl Sudo {
 impl Exec for Sudo {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut command_args = flags.parse(scope, args)?;
+        let mut command_args = flags.parse_all(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: sudo [OPTIONS] COMMAND [ARGS]...");

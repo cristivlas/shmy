@@ -1,13 +1,13 @@
 # A Command Line Interpreter in Rust
 
-This is a simple, lightweight command line interpreter with a few Unix-like built-in commands that I wrote to familiarize myself with Rust and to deal with those odd moments when muscle memory goes for the quick Unix command, only to realize that I am on Windows. (WSL is a solution, of course, but the file system is under /mnt/c, and everything relative to $HOME is different from the native environment.) And yeah, I wanted to see what the deal is with this rusty thing all the cool kids are so excited about.
+This is a simple, lightweight command line interpreter with a few Unix-like built-in commands that I wrote to familiarize myself with Rust and to deal with those odd moments when muscle memory goes for the quick Unix command, only to realize that I am on Windows. (WSL is a solution, of course; but the file system is slow, mounted under /mnt/c, and everything relative to $HOME is different from the native environment.) And yeah, I wanted to see what the deal is with this rusty thing all the cool kids are so excited about.
 
 I also wanted to address the bad habit of writing quick-and-dirty scripts in which I execute a bunch of commands but "forget" to handle the errors. In this command interpreter, when a command fails and its status is not checked with an IF expression, the script stops and the error is reported, like an unhandled exception - sort of.
 
 The interpreter works in interactive mode or can consume script files passed in the command line. In interactive mode, history and TAB expansion are supported via rustyline.
 
 ## Cool Features
- - Read and follow WSL symbolic links (currently in cd, cp, ls, and find commands only. Experimental)
+ - Support WSL symbolic links.
  - Enforce command result error checking.
 
 ## Expression Evaluation Random Notes
@@ -70,6 +70,10 @@ if (cp source/path dest/path) (echo Ok) else (echo $__errors)
 Use the following operators for redirects:
 - Output to file: `command => file`
 - Append to file: `command =>> file`
+
+Note that the redirect operators '=>', '=>>' are different for '>' and '>>' used by other shells.
+The reason is to avoid complications with inferring the meaning of '>' (could be greater-than) based on context.
+I decided to keep the implementation simple and just use different operator symbols.
 
 ### 5. Pipes
 Pipe output between commands:

@@ -1,5 +1,4 @@
 use crate::scope::Scope;
-use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
@@ -289,14 +288,16 @@ pub fn read_symlink(path: &Path) -> io::Result<PathBuf> {
 
 /// Keep reading symbolic links until either non-link or cycle is detected.
 pub fn resolve_links(path: &Path) -> io::Result<PathBuf> {
-    let mut visited_paths = HashSet::new();
+    use std::collections::HashSet;
+
+    let mut visited = HashSet::new();
     let mut path = path.to_path_buf();
 
     while path.is_symlink() {
-        if !visited_paths.insert(path.clone()) {
+        if !visited.insert(path.clone()) {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("Cycle detected in symbolic link: {}", path.display()),
+                format!("Cyclical symbolic link: {}", path.display()),
             ));
         }
         path = read_symlink(&path)?;
