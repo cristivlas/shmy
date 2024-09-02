@@ -1,9 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-#[cfg(windows)]
-use crate::utils::resolve_links;
 use crate::utils::{format_size, read_symlink};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
 use core::fmt;
@@ -203,7 +200,7 @@ mod win {
         };
 
         if metadata.is_symlink() {
-            match resolve_links(&path) {
+            match path.resolve() {
                 Ok(p) => path = p,
                 Err(_) => return (None, None),
             }
