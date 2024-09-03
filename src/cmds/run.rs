@@ -13,7 +13,18 @@ impl Run {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('L', "follow-links", "Follow symbolic links");
+        flags.add_flag('D', "debug", "Debug (dump) command line arguments");
+        flags.add_flag(
+            'r',
+            "raw",
+            "Arguments are passed as a raw string that needs to be tokenized",
+        );
         flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_option(
+            'd',
+            "delimiter",
+            "Specify custom delimiters for tokenizing when '--raw' is specified (default: whitespace)",
+        );
         Self { flags }
     }
 }
@@ -30,7 +41,6 @@ impl Exec for Run {
             print!("{}", flags.help());
             return Ok(Value::success());
         }
-
         if command_args.is_empty() {
             return Err("No command specified".to_string());
         }
@@ -50,6 +60,21 @@ impl Exec for Run {
             if let Some(cmd_flags) = flags.option("args") {
                 // Pass all args following -- (or --args) to the command.
                 command_args.extend(cmd_flags.split_ascii_whitespace().map(String::from));
+            }
+            if flags.is_present("raw") {
+                // Use custom delimiter if specified, otherwise use whitespace
+                let delimiters = flags.option("delimiter").unwrap_or(" \t\n\r");
+                command_args = command_args
+                    .iter()
+                    .flat_map(|s| {
+                        s.split(|c| delimiters.contains(c))
+                            .filter(|s| !s.is_empty())
+                            .map(ToString::to_string)
+                    })
+                    .collect();
+            }
+            if flags.is_present("debug") {
+                println!("cmd: \"{}\", args: {:?}", cmd.name(), &command_args);
             }
 
             return cmd.exec(cmd_name.as_str(), &command_args, scope);
