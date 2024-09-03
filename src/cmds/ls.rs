@@ -62,11 +62,10 @@ impl ColorScheme {
         }
     }
 
-    fn render_size(&self, path: &Path, mut size: String) -> ColoredString {
+    fn render_size(&self, path: &Path, size: String) -> ColoredString {
         let is_wsl = path.is_wsl_link().unwrap_or(false);
-        if is_wsl {
-            size = "WSL".to_string();
-        }
+        let size = if is_wsl { "wsl" } else { &size };
+
         if self.use_colors {
             if is_wsl {
                 size.bright_cyan()
@@ -430,10 +429,11 @@ fn print_file(path: &Path, metadata: &Metadata, args: &Options) -> Result<(), St
     if args.show_details {
         print_details(&PathBuf::from(path), metadata, args)?;
     } else if args.all_files || !path.starts_with(".") {
+        let name = path.canonicalize().map_err(|e| e.to_string())?;
         my_println!(
             "{}",
             args.colors
-                .render_file_name(path.to_str().unwrap_or(""), metadata)
+                .render_file_name(&name.to_string_lossy().to_string(), metadata)
         )?;
     }
     Ok(())
