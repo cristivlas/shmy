@@ -565,7 +565,9 @@ fn main() -> Result<(), ()> {
                 }
                 Ok(_) => {}
             };
-            prompt::read_input("\nPress Enter to continue... ").unwrap_or(String::default());
+            if shell.wait {
+                prompt::read_input("\nPress Enter to continue... ").unwrap_or(String::default());
+            }
         }
     }
     Ok(())
