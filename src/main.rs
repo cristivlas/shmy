@@ -9,12 +9,12 @@ use rustyline::history::{DefaultHistory, SearchDirection};
 use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
 use scope::Scope;
 use std::collections::HashSet;
-use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::{env, usize};
 
 #[macro_use]
 mod macros;
@@ -103,57 +103,82 @@ fn split_delim(line: &str) -> (String, String) {
     }
 }
 
-#[cfg(not(windows))]
-fn match_wsl_symlinks(_: &str) -> Vec<completion::Pair> {
-    vec![]
-}
-
 #[cfg(windows)]
 /// The rustyline file auto-completer does not recognize WSL symbolic links
 /// (because the standard fs lib does not support them). This function implements some
 /// rudimentary support by matching the file_name prefix (not dealing with quotes and
 /// escapes at this time).
-///
-/// TODO: Since this is Windows-specific, the matching should be case-insensitive.
-///
-fn match_wsl_symlinks(word: &str) -> Vec<completion::Pair> {
+fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     use crate::symlnk::SymLink;
+    use std::path::Path;
 
-    let mut candidates = Vec::new();
-    let cur_dir = env::current_dir().unwrap_or(PathBuf::default());
+    let path = std::path::Path::new(word);
+    let mut name = path.file_name().unwrap_or_default().to_string_lossy();
+    let cwd = env::current_dir().unwrap_or(PathBuf::default());
+    let mut dir = path.parent().unwrap_or(&cwd).resolve().unwrap_or_default();
 
-    let mut base_dir = env::current_dir().unwrap_or(PathBuf::default());
-
-    if let Some(dir) = std::path::Path::new(word).parent() {
-        if dir.to_str().is_some_and(|s| !s.is_empty()) {
-            base_dir = dir.resolve().unwrap_or(dir.to_path_buf());
+    if let Ok(resolved) = Path::new(name.as_ref()).resolve() {
+        if resolved.exists() {
+            dir = resolved;
+            name = std::borrow::Cow::Borrowed("");
         }
     }
 
-    if let Ok(dir) = &mut fs::read_dir(&base_dir) {
-        for entry in dir {
+    if let Ok(read_dir) = &mut fs::read_dir(&dir) {
+        for entry in read_dir {
             if let Ok(dir_entry) = &entry {
-                match dir_entry.path().strip_prefix(&cur_dir) {
-                    Ok(path) => {
-                        if path.to_string_lossy().starts_with(word) {
-                            let display = path.to_string_lossy().to_string();
-                            let replacement = display.clone();
-                            candidates.push(completion::Pair {
-                                display,
-                                replacement,
-                            })
-                        }
-                    }
-                    _ => {
+                let file_name = &dir_entry.file_name();
+
+                if file_name.to_string_lossy().starts_with(name.as_ref()) {
+                    // Skip if already filled out by the rustyline FilenameCompleter.
+                    if candidates
+                        .iter()
+                        .position(|c| file_name.eq(c.display.as_str()))
+                        .is_some()
+                    {
                         continue;
                     }
+
+                    let display = path
+                        .parent()
+                        .unwrap_or(&cwd)
+                        .join(file_name)
+                        .to_string_lossy()
+                        .to_string();
+
+                    let replacement = if path.resolve().unwrap_or(path.to_path_buf()).is_dir() {
+                        format!("{}\\", display)
+                    } else {
+                        display.clone()
+                    };
+
+                    candidates.push(completion::Pair {
+                        display,
+                        replacement,
+                    })
                 }
             }
         }
     }
-
-    candidates
 }
+
+#[cfg(windows)]
+fn match_wsl_symlinks(
+    line: &str,
+    word: &str,
+    pos: &mut usize,
+    candidates: &mut Vec<completion::Pair>,
+) {
+    if let Some(i) = line.to_lowercase().find(word) {
+        if i == *pos || candidates.is_empty() {
+            *pos = i;
+            match_path_prefix(word, candidates);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn match_wsl_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
@@ -247,12 +272,7 @@ impl completion::Completer for CmdLineHelper {
                 }
             }
 
-            // Patch in WSL symlink support.
-            let i = line.find(&tail).unwrap_or(0);
-            if i == kw_pos || keywords.is_empty() {
-                kw_pos = i;
-                keywords.extend(match_wsl_symlinks(&tail));
-            }
+            match_wsl_symlinks(line, &tail, &mut kw_pos, &mut keywords);
         }
 
         Ok((kw_pos, keywords))
