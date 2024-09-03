@@ -172,10 +172,12 @@ fn match_wsl_symlinks(
     pos: &mut usize,
     candidates: &mut Vec<completion::Pair>,
 ) {
-    if let Some(i) = line.to_lowercase().find(word) {
-        if i == *pos || candidates.is_empty() {
-            *pos = i;
-            match_path_prefix(word, candidates);
+    if !word.is_empty() {
+        if let Some(i) = line.to_lowercase().find(word) {
+            if i == *pos || candidates.is_empty() {
+                *pos = i;
+                match_path_prefix(word, candidates);
+            }
         }
     }
 }
