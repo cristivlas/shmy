@@ -110,17 +110,18 @@ fn split_delim(line: &str) -> (String, String) {
 /// escapes at this time).
 fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     use crate::symlnk::SymLink;
-    use std::path::Path;
 
     let path = std::path::Path::new(word);
     let mut name = path.file_name().unwrap_or_default().to_string_lossy();
     let cwd = env::current_dir().unwrap_or(PathBuf::default());
     let mut dir = path.parent().unwrap_or(&cwd).resolve().unwrap_or_default();
 
-    if let Ok(resolved) = Path::new(name.as_ref()).resolve() {
-        if resolved.exists() {
-            dir = resolved;
-            name = std::borrow::Cow::Borrowed("");
+    if word.ends_with("\\") {
+        if let Ok(resolved) = path.resolve() {
+            if resolved.exists() {
+                dir = resolved;
+                name = std::borrow::Cow::Borrowed("");
+            }
         }
     }
 
