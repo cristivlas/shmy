@@ -287,6 +287,7 @@ type CmdLineEditor = Editor<CmdLineHelper, DefaultHistory>;
 struct Shell {
     source: Option<Box<dyn BufRead>>,
     interactive: bool,
+    wait: bool,
     interp: Interp,
     home_dir: Option<PathBuf>,
     history_path: Option<PathBuf>,
@@ -321,6 +322,7 @@ impl Shell {
         Self {
             source: None,
             interactive: true,
+            wait: false,
             interp,
             home_dir: None,
             history_path: None,
@@ -522,7 +524,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
     let args: Vec<String> = env::args().collect();
     for (i, arg) in args.iter().enumerate().skip(1) {
         if arg.starts_with("-") {
-            if arg == "-c" {
+            if arg == "-c" || arg == "-k" {
                 if !shell.interactive {
                     Err("Cannot specify -c command and scripts at the same time")?;
                 }
@@ -531,6 +533,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
                     args[i + 1..].join(" ")
                 ))));
                 shell.interactive = false;
+                shell.wait = arg == "-k";
                 break;
             }
         } else {
@@ -555,12 +558,15 @@ fn main() -> Result<(), ()> {
         Err(e) => {
             eprint!("Command line error: {}.", e);
         }
-        Ok(shell) => match shell.eval_input() {
-            Err(e) => {
-                eprintln!("{}", e);
-            }
-            Ok(_) => {}
-        },
+        Ok(shell) => {
+            match shell.eval_input() {
+                Err(e) => {
+                    eprintln!("{}", e);
+                }
+                Ok(_) => {}
+            };
+            prompt::read_input("\nPress Enter to continue... ").unwrap_or(String::default());
+        }
     }
     Ok(())
 }

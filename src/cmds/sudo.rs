@@ -116,18 +116,10 @@ impl Exec for Sudo {
                     (path, command_args.join(" "))
                 }
             } else {
-                // Internal command, run it via an instance of this shell.
-                // Spawn the shell via cmd.exe (for now) for the /K option.
-                let interp = executable().map_err(|e| format!("Could not get own path: {}", e))?;
+                // Internal command, run it by spawning an instance of this shell.
                 (
-                    "cmd.exe".to_owned(),
-                    format!(
-                        "/K cd {} && set NO_COLOR=_ && {} -c {} {}",
-                        cur_dir.display(),
-                        interp,
-                        cmd_name,
-                        command_args.join(" ")
-                    ),
+                    executable().map_err(|e| format!("Could not get executable path: {}", e))?,
+                    format!("-k NO_COLOR=_; {} {}", cmd_name, command_args.join(" ")),
                 )
             }
         } else {

@@ -46,10 +46,14 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, one_of_many: bool) -> io::Resu
     };
 
     let question = format!("{}? ({}) ", prompt, options);
+    let input = read_input(&question)?;
+    process_answer(&input, one_of_many)
+}
 
+pub fn read_input(message: &str) -> io::Result<String> {
     // Open the TTY for writing the prompt
     let mut tty = open_tty_for_writing()?;
-    write!(tty, "{}", question)?;
+    write!(tty, "{}", message)?;
     tty.flush()?;
 
     enable_raw_mode()?;
@@ -81,11 +85,10 @@ pub fn confirm(prompt: String, scope: &Rc<Scope>, one_of_many: bool) -> io::Resu
             _ => {}
         }
     }
-
-    write!(tty, "\r")?;
     disable_raw_mode()?;
 
-    process_answer(&input, one_of_many)
+    write!(tty, "\r")?;
+    Ok(input)
 }
 
 fn process_answer(input: &str, many: bool) -> io::Result<Answer> {
