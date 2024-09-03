@@ -111,6 +111,9 @@ fn split_delim(line: &str) -> (String, String) {
 fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     use crate::symlnk::SymLink;
 
+    if word.ends_with("..") {
+        return; // do not navigate the parent dir
+    }
     let path = std::path::Path::new(word);
     let mut name = path.file_name().unwrap_or_default().to_string_lossy();
     let cwd = env::current_dir().unwrap_or(PathBuf::default());
@@ -124,7 +127,6 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
             }
         }
     }
-
     if let Ok(read_dir) = &mut fs::read_dir(&dir) {
         for entry in read_dir {
             if let Ok(dir_entry) = &entry {
