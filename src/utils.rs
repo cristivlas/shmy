@@ -199,7 +199,10 @@ pub mod win {
                 );
                 let target = &buffer[WSL_LINK_SIZE..][..target_length];
 
-                Ok(String::from_utf8_lossy(target).into_owned().into())
+                Ok(String::from_utf8_lossy(target)
+                    .into_owned()
+                    .replace("/", "\\")
+                    .into())
             }
             Err(e) => Err(e),
         }

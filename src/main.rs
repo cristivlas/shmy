@@ -142,13 +142,11 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                         continue;
                     }
 
-                    let display = path
-                        .parent()
-                        .unwrap_or(&cwd)
-                        .join(file_name)
-                        .to_string_lossy()
-                        .to_string();
-
+                    let display = if dir == cwd {
+                        file_name.to_string_lossy().to_string()
+                    } else {
+                        dir.join(file_name).to_string_lossy().to_string()
+                    };
                     let replacement = if path.resolve().unwrap_or(path.to_path_buf()).is_dir() {
                         format!("{}\\", display)
                     } else {
@@ -223,7 +221,7 @@ impl completion::Completer for CmdLineHelper {
             if let Some(v) = self.scope.lookup("HOME") {
                 keywords.push(completion::Pair {
                     display: String::default(),
-                    replacement: format!("{}{}{}", head, v.value().as_str(), &tail[1..]),
+                    replacement: format!("{}{}\\{}", head, v.value().as_str(), &tail[1..]),
                 });
                 kw_pos = 0;
             }
