@@ -103,6 +103,58 @@ fn split_delim(line: &str) -> (String, String) {
     }
 }
 
+#[cfg(not(windows))]
+fn match_wsl_symlinks(_: &str) -> Vec<completion::Pair> {
+    vec![]
+}
+
+#[cfg(windows)]
+/// The rustyline file auto-completer does not recognize WSL symbolic links
+/// (because the standard fs lib does not support them). This function implements some
+/// rudimentary support by matching the file_name prefix (not dealing with quotes and
+/// escapes at this time).
+///
+/// TODO: Since this is Windows-specific, the matching should be case-insensitive.
+///
+fn match_wsl_symlinks(word: &str) -> Vec<completion::Pair> {
+    use crate::symlnk::SymLink;
+
+    let mut candidates = Vec::new();
+    let cur_dir = env::current_dir().unwrap_or(PathBuf::default());
+
+    let mut base_dir = env::current_dir().unwrap_or(PathBuf::default());
+
+    if let Some(dir) = std::path::Path::new(word).parent() {
+        if dir.to_str().is_some_and(|s| !s.is_empty()) {
+            base_dir = dir.resolve().unwrap_or(dir.to_path_buf());
+        }
+    }
+
+    if let Ok(dir) = &mut fs::read_dir(&base_dir) {
+        for entry in dir {
+            if let Ok(dir_entry) = &entry {
+                match dir_entry.path().strip_prefix(&cur_dir) {
+                    Ok(path) => {
+                        if path.to_string_lossy().starts_with(word) {
+                            let display = path.to_string_lossy().to_string();
+                            let replacement = display.clone();
+                            candidates.push(completion::Pair {
+                                display,
+                                replacement,
+                            })
+                        }
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
+}
+
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -189,8 +241,17 @@ impl completion::Completer for CmdLineHelper {
                             candidate
                         })
                         .collect();
-                    return Ok((start, escaped_completions));
+
+                    kw_pos = start;
+                    keywords = escaped_completions;
                 }
+            }
+
+            // Patch in WSL symlink support.
+            let i = line.find(&tail).unwrap_or(0);
+            if i == kw_pos || keywords.is_empty() {
+                kw_pos = i;
+                keywords.extend(match_wsl_symlinks(&tail));
             }
         }
 
