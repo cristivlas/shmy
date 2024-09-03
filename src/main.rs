@@ -221,7 +221,7 @@ impl completion::Completer for CmdLineHelper {
             if let Some(v) = self.scope.lookup("HOME") {
                 keywords.push(completion::Pair {
                     display: String::default(),
-                    replacement: format!("{}{}\\{}", head, v.value().as_str(), &tail[1..]),
+                    replacement: format!("{}{}{}", head, v.value().as_str(), &tail[1..]),
                 });
                 kw_pos = 0;
             }

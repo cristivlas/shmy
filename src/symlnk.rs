@@ -26,7 +26,6 @@ fn resolve_path(sym_path: &Path) -> io::Result<PathBuf> {
 
     for component in sym_path.components() {
         match component {
-            // Component::RootDir => path.push(component),
             Component::CurDir => continue,
             Component::ParentDir => {
                 path.pop();
