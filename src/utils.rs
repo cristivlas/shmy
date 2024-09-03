@@ -141,7 +141,7 @@ pub mod win {
     pub fn read_reparse_data<'a, D: Sized>(
         path: &Path,
         buffer: &'a mut Vec<u8>,
-    ) -> io::Result<&'a D> {
+    ) -> io::Result<&'a mut D> {
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
@@ -172,7 +172,7 @@ pub mod win {
             ))
         } else {
             // Cast the buffer into a reference of type D
-            let header = unsafe { &*(buffer.as_ptr() as *const D) };
+            let header = unsafe { &mut *(buffer.as_mut_ptr() as *mut D) };
 
             Ok(header)
         }
@@ -223,28 +223,14 @@ pub mod win {
             let handle = HANDLE(file.as_raw_handle());
 
             let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
-            let mut bytes_returned = 0;
 
             // First read the parse point, because the tag passed to
             // FSCTL_DELETE_REPARSE_POINT must match the existing one.
-            unsafe {
-                DeviceIoControl(
-                    handle,
-                    FSCTL_GET_REPARSE_POINT,
-                    None,
-                    0,
-                    Some(buffer.as_mut_ptr() as *mut _),
-                    buffer.len() as u32,
-                    Some(&mut bytes_returned),
-                    None,
-                )
-            }
-            .map_err(|_| std::io::Error::last_os_error())?;
+            let header = read_reparse_data::<ReparseHeader>(path, &mut buffer)?;
+            let mut bytes_returned = std::mem::size_of::<ReparseHeader>() as u32;
 
             // Clear the data_length
             // https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-delete-reparse-point
-            let header: &mut ReparseHeader =
-                unsafe { &mut *(buffer.as_mut_ptr() as *mut ReparseHeader) };
             header.data_length = 0;
 
             let header_size = if header.reparse_tag == IO_REPARSE_TAG_LX_SYMLINK {
