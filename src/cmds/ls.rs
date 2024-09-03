@@ -62,12 +62,11 @@ impl ColorScheme {
         }
     }
 
-    fn render_size(&self, path: &Path, size: String) -> ColoredString {
-        let is_wsl = path.is_wsl_link().unwrap_or(false);
-        let size = if is_wsl { "wsl" } else { &size };
+    fn render_size(&self, is_wsl_link: bool, size: String) -> ColoredString {
+        let size = if is_wsl_link { "wsl" } else { &size };
 
         if self.use_colors {
-            if is_wsl {
+            if is_wsl_link {
                 size.bright_cyan()
             } else {
                 size.green()
@@ -179,10 +178,7 @@ mod win {
     use windows_sys::Win32::Foundation::LocalFree;
 
     /// Return a pair of Option<String> for the names of the owner and the group.
-    fn get_owner_and_group_sids(
-        mut path: PathBuf,
-        metadata: &fs::Metadata,
-    ) -> (Option<String>, Option<String>) {
+    fn get_owner_and_group_sids(path: &Path) -> (Option<String>, Option<String>) {
         let get_sid_string = |psid: PSID| unsafe {
             let mut sid_string_ptr = PWSTR::null();
 
@@ -197,13 +193,6 @@ mod win {
                 None
             }
         };
-
-        if metadata.is_symlink() {
-            match path.resolve() {
-                Ok(p) => path = p,
-                Err(_) => return (None, None),
-            }
-        }
 
         let file = match OpenOptions::new()
             .read(true)
@@ -300,8 +289,8 @@ mod win {
         }
     }
 
-    pub fn get_owner_and_group(path: PathBuf, metadata: &fs::Metadata) -> (String, String) {
-        let (owner_sid, group_sid) = get_owner_and_group_sids(path, metadata);
+    pub fn get_owner_and_group(path: &Path, _: &fs::Metadata) -> (String, String) {
+        let (owner_sid, group_sid) = get_owner_and_group_sids(path);
         (name_from_sid(owner_sid), name_from_sid(group_sid))
     }
 
@@ -324,7 +313,7 @@ mod win {
 }
 
 #[cfg(unix)]
-fn get_owner_and_group(_: PathBuf, metadata: &fs::Metadata) -> (String, String) {
+fn get_owner_and_group(_: &Path, metadata: &fs::Metadata) -> (String, String) {
     use std::os::unix::fs::MetadataExt;
     use uzers::{get_group_by_gid, get_user_by_uid};
 
@@ -373,7 +362,7 @@ fn get_permissions(_metadata: &fs::Metadata) -> String {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn get_owner_and_group(_: PathBuf, _: &fs::Metadata) -> (String, String) {
+fn get_owner_and_group(_: &Path, _: &fs::Metadata) -> (String, String) {
     ("-".to_string(), "-".to_string())
 }
 
@@ -533,16 +522,29 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
         .unwrap()
         .to_string_lossy();
 
+    let (is_wsl, real_path) = if path.is_wsl_link().unwrap_or(false) {
+        (true, read_symlink(path).unwrap_or_default())
+    } else {
+        (
+            false,
+            if path.is_symlink() {
+                path.read_link().unwrap_or(PathBuf::from("[...]"))
+            } else {
+                path.to_path_buf()
+            },
+        )
+    };
+
     if args.all_files || !base_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
-            let link_path = read_symlink(path).unwrap_or(PathBuf::from("[...]"));
+            let link_path = &real_path;
             format!("{} -> {}", base_name, link_path.display())
         } else {
             base_name.to_string()
         };
 
         let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH), args.use_utc);
-        let (owner, group) = get_owner_and_group(PathBuf::from(path), &metadata);
+        let (owner, group) = get_owner_and_group(&real_path, &metadata);
 
         my_println!(
             "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
@@ -550,7 +552,7 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
             args.colors.render_permissions(get_permissions(&metadata)),
             owner,
             group,
-            args.colors.render_size(path, file_size(&metadata, args)),
+            args.colors.render_size(is_wsl, file_size(&metadata, args)),
             args.colors.render_mod_time(modified_time),
             args.colors.render_file_name(&file_name, metadata)
         )?;
