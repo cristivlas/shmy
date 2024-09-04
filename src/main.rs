@@ -524,7 +524,7 @@ impl Shell {
             }
             Err(e) => {
                 e.show(&scope, input);
-                if !self.interactive {
+                if !self.interactive && !self.wait {
                     std::process::exit(500);
                 }
             }
@@ -562,7 +562,13 @@ fn parse_cmd_line() -> Result<Shell, String> {
                     args[i + 1..].join(" ")
                 ))));
                 shell.interactive = false;
-                shell.wait = arg == "-k";
+                if arg == "-k" {
+                    shell.wait = true;
+                    shell
+                        .interp
+                        .global_scope()
+                        .insert("NO_COLOR".to_string(), eval::Value::Int(1));
+                }
                 break;
             }
         } else {
@@ -593,7 +599,8 @@ fn main() -> Result<(), ()> {
                     eprintln!("{}", e);
                 }
                 Ok(_) => {}
-            };
+            }
+
             if shell.wait {
                 prompt::read_input("\nPress Enter to continue... ").unwrap_or(String::default());
             }

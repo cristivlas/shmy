@@ -119,7 +119,7 @@ impl Exec for Sudo {
                 // Internal command, run it by spawning an instance of this shell.
                 (
                     executable().map_err(|e| format!("Could not get executable path: {}", e))?,
-                    format!("-k NO_COLOR=_; {} {}", cmd_name, command_args.join(" ")),
+                    format!("-k {} {}", cmd_name, command_args.join(" ")),
                 )
             }
         } else {
