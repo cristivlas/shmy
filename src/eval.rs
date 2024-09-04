@@ -193,7 +193,7 @@ impl Location {
             match &self.file {
                 Some(file) => format!(
                     "{}:{}:{} {}",
-                    scope.err_path_str(file),
+                    scope.err_str(file),
                     self.line,
                     self.col,
                     message.bright_red()
@@ -1588,21 +1588,22 @@ impl BinExpr {
                 return Ok(rhs_val); // Return unchecked Status
             }
         }
-        let all = value_as_bool(&lhs_val, &self.scope) && value_as_bool(&rhs_val, &self.scope);
+        let all = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?
+            && value_as_bool(&*self.rhs, &rhs_val, &self.scope)?;
 
         Ok(Value::Int(all as _))
     }
 
     fn eval_or(&self) -> EvalResult<Value> {
         let lhs_val = self.lhs.eval()?;
-        let mut any = value_as_bool(&lhs_val, &self.scope);
+        let mut any = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?;
 
         if !any {
             let rhs_val = self.rhs.eval()?;
             if let Value::Stat(_) = &rhs_val {
                 return Ok(rhs_val); // Return delayed Status
             }
-            any = value_as_bool(&rhs_val, &self.scope);
+            any = value_as_bool(&*self.rhs, &rhs_val, &self.scope)?;
         }
 
         Ok(Value::Int(any as _))
@@ -1984,7 +1985,7 @@ impl BinExpr {
                         self.loc(),
                         format!(
                             "Failed to open {}: {}",
-                            self.scope.err_path_str(&filename),
+                            self.scope.err_str(&filename),
                             e.to_string()
                         ),
                     )
@@ -2264,7 +2265,7 @@ impl Redirection {
             .map_err(|error| {
                 format!(
                     "Failed to open {} for {} redirection: {}",
-                    scope.err_path_str(path),
+                    scope.err_str(path),
                     name,
                     error
                 )
@@ -2279,7 +2280,7 @@ impl Redirection {
             format!(
                 "Failed to redirect {} to file {}: {}",
                 name,
-                scope.err_path_str(path),
+                scope.err_str(path),
                 error
             )
         })?;
@@ -2388,21 +2389,27 @@ fn hoist(scope: &Rc<Scope>, var_name: &str) {
     }
 }
 
-fn value_as_bool(val: &Value, scope: &Rc<Scope>) -> bool {
+fn value_as_bool<L: HasLocation>(loc: &L, val: &Value, scope: &Rc<Scope>) -> EvalResult<bool> {
     let result = match val {
         Value::Int(i) => *i != 0,
         Value::Real(r) => *r != 0.0,
-        Value::Str(s) => !s.is_empty(),
+        Value::Str(s) => {
+            return Err(EvalError::new(
+                loc.loc(),
+                format!("Cannot evaluate string '{}' as boolean", scope.err_str(s)),
+            ));
+        }
         Value::Stat(s) => s.borrow_mut().as_bool(&scope),
     };
 
     hoist(scope, "__errors");
 
-    result
+    Ok(result)
 }
 
 fn eval_as_bool(expr: &Rc<Expression>, scope: &Rc<Scope>) -> EvalResult<bool> {
-    Ok(value_as_bool(&expr.eval()?, &scope))
+    let value = expr.eval()?;
+    value_as_bool(&**expr, &value, &scope)
 }
 
 impl ExprNode for BranchExpr {
@@ -2653,7 +2660,7 @@ fn eval_unary<T: HasLocation>(
                 s.borrow_mut().negated = true;
                 Ok(val)
             } else {
-                Ok(Value::Int(!value_as_bool(&val, &scope) as _))
+                Ok(Value::Int(!value_as_bool(loc, &val, &scope)? as _))
             }
         }
         _ => error(loc, "Unexpected unary operation"),
@@ -2705,7 +2712,7 @@ impl Interp {
         }
     }
 
-    pub fn eval_unchecked(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
         if self.scope.lookup("__dump_ast").is_some() {
@@ -2714,8 +2721,9 @@ impl Interp {
         ast.eval()
     }
 
-    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
-        let result = self.eval_unchecked(input, scope);
+    #[cfg(test)]
+    pub fn eval_status(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+        let result = self.eval(input, scope);
         Status::check_result(result, false)
     }
 

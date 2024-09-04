@@ -83,7 +83,7 @@ impl Mv {
         Ok(PathBuf::from(path).resolve().unwrap_or(
             Path::new(".")
                 .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_path_str(path), e))?
+                .map_err(|e| format!("{}: {}", scope.err_str(path), e))?
                 .join(path),
         ))
     }
@@ -122,7 +122,7 @@ impl Exec for Mv {
             if follow {
                 src_path = src_path
                     .resolve()
-                    .map_err(|e| format!("{}: {}", scope.err_path_str(src), e))?;
+                    .map_err(|e| format!("{}: {}", scope.err_str(src), e))?;
             }
             if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)

@@ -476,6 +476,20 @@ impl Shell {
         self.interp.set_var("HOME", home_dir);
     }
 
+    fn show_result(&self, value: &eval::Value) {
+        match value {
+            Value::Str(s) => {
+                eprintln!("Command not found: {}", s);
+                let cmds = list_registered_commands(false);
+                if let Some(near) = cmds.iter().min_by_key(|&item| strsim::levenshtein(item, s)) {
+                    let scope = self.interp.global_scope();
+                    eprintln!("Did you mean '{}'?", scope.err_str(near));
+                }
+            }
+            _ => println!("{}", value),
+        }
+    }
+
     fn source_profile(&self) -> Result<(), String> {
         // Source the ~/.mysh/profile if found
         if let Some(profile) = &self.profile {
@@ -497,8 +511,16 @@ impl Shell {
         let scope = self.new_top_scope();
 
         match &self.interp.eval(input, Some(Rc::clone(&scope))) {
-            Ok(result) => {
-                my_dbg!(&result);
+            Ok(value) => {
+                // Did the expression eval result in running a command? Check for errors.
+                if let Value::Stat(status) = &value {
+                    if let Err(e) = &status.borrow().result {
+                        e.show(&scope, input);
+                        return;
+                    }
+                } else if self.interactive {
+                    self.show_result(value);
+                }
             }
             Err(e) => {
                 e.show(&scope, input);

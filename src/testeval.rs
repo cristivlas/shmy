@@ -8,7 +8,7 @@ pub mod tests {
         let __stdout = io::stdout().lock();
 
         let mut interp = Interp::new();
-        let result = interp.eval(input, None);
+        let result = interp.eval_status(input, None);
         my_dbg!(&result);
         result
     }
@@ -105,7 +105,7 @@ pub mod tests {
         interp
             .global_scope()
             .insert("HOME".to_string(), Value::from("abc"));
-        let result = interp.eval("for i in ~/foo; ($i)", None);
+        let result = interp.eval_status("for i in ~/foo; ($i)", None);
         dbg!(&result);
         assert!(matches!(result, Ok(ref v) if v.to_string() == "abc/foo"));
     }

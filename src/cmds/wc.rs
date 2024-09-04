@@ -162,7 +162,7 @@ impl Exec for WordCount {
                         total.bytes += result.bytes;
                     }
                     Err(e) => {
-                        my_warning!(scope, "{}: {}", scope.err_path_str(file), e);
+                        my_warning!(scope, "{}: {}", scope.err_str(file), e);
                     }
                 }
             }

@@ -29,7 +29,7 @@ impl ChangeDir {
         let path = Path::new(dir).resolve().map_err(|e| e.to_string())?;
 
         env::set_current_dir(&path)
-            .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_path_str(dir), e))?;
+            .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_str(dir), e))?;
         Ok(())
     }
 

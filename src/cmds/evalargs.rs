@@ -65,7 +65,7 @@ impl Exec for Evaluate {
                 arg.to_owned()
             };
 
-            match interp.eval_unchecked(&input, Some(Rc::clone(&scope))) {
+            match interp.eval(&input, Some(Rc::clone(&scope))) {
                 Err(e) => {
                     e.show(scope, &input);
                     let err_expr = if scope.use_colors(&std::io::stderr()) {

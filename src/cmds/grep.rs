@@ -91,7 +91,7 @@ impl Grep {
                     my_warning!(
                         scope,
                         "Omitting directory (-r/--recursive option not set): {}",
-                        scope.err_path_str(p)
+                        scope.err_str(p)
                     );
                 }
             } else if path.is_symlink() {
@@ -106,14 +106,14 @@ impl Grep {
                             visited,
                         )),
                         Err(e) => {
-                            my_warning!(scope, "Could not resolve {}: {}", scope.err_path_str(p), e)
+                            my_warning!(scope, "Could not resolve {}: {}", scope.err_str(p), e)
                         }
                     }
                 } else {
                     my_warning!(
                         scope,
                         "Omitting symlink (-L/--follow-links option not set): {}",
-                        scope.err_path_str(p)
+                        scope.err_str(p)
                     );
                 }
             } else if path.is_file() {
