@@ -1,14 +1,18 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::format_error;
 use crate::utils::{format_size, win::root_path};
 use crate::{eval::Value, scope::Scope};
-use std::collections::HashSet;
-use std::ffi::OsStr;
+use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
 use std::io::Error;
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use windows::core::PCWSTR;
-use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetLogicalDrives};
+use windows::Win32::Foundation::{ERROR_NO_MORE_FILES, MAX_PATH};
+use windows::Win32::Storage::FileSystem::{
+    FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, GetDiskFreeSpaceExW, GetLogicalDrives,
+};
 
 struct DiskFree {
     flags: CommandFlags,
@@ -31,6 +35,12 @@ impl DiskFreeInfo {
     }
 }
 
+fn string_from_wide(wide: &mut Vec<u16>) -> String {
+    let sz = wide.iter().position(|c| *c == 0).unwrap_or(wide.len());
+    wide.resize(sz, 0);
+    OsString::from_wide(wide).to_string_lossy().to_string()
+}
+
 impl DiskFree {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
@@ -40,6 +50,8 @@ impl DiskFree {
             "human-readable",
             "Print sizes in human readable format (e.g., 1.1G)",
         );
+        flags.add_flag('a', "all", "Enumerate All volumes");
+
         Self { flags }
     }
 
@@ -87,21 +99,22 @@ impl DiskFree {
         let h = flags.is_present("human-readable");
 
         my_println!(
-            "{:<max_len$} {:>16} {:>16} {:>16}",
+            "{:<max_len$} {:>16} {:>16}   {:3.2}%",
             path.display(),
-            format_size(info.free_bytes_available, 1, h),
             format_size(info.total_bytes, 1, h),
-            format_size(info.total_free_bytes, 1, h)
+            format_size(info.total_free_bytes, 1, h),
+            info.total_free_bytes as f64 * 100.0 / info.total_bytes as f64
         )?;
         Ok(())
     }
+
     fn print_disk_free_header(len: usize) -> Result<(), String> {
         my_println!(
-            "{:<len$} {:>16} {:>16} {:>16}",
+            "{:<len$} {:>16} {:>16} {:>8}",
             "Path",
-            "Free",
             "Total",
-            "Total Free"
+            "Free",
+            "% Free"
         )
     }
 }
@@ -109,7 +122,7 @@ impl DiskFree {
 fn root_path_from_str(scope: &Rc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
     let canonical_path = Path::new(path)
         .canonicalize()
-        .map_err(|e| format!("{}: {}", scope.err_path_arg(&path, args), e))?;
+        .map_err(|e| format_error(scope, path, args, e))?;
 
     Ok(root_path(&canonical_path))
 }
@@ -131,10 +144,43 @@ fn enumerate_drives() -> Vec<String> {
     roots
 }
 
+fn enumerate_volumes() -> Vec<String> {
+    let mut volumes = Vec::new();
+    let mut volume_name: Vec<u16> = vec![0u16; MAX_PATH as usize + 1];
+
+    unsafe {
+        // Start volume enumeration
+        let find_handle = match FindFirstVolumeW(&mut volume_name) {
+            Ok(h) => h,
+            Err(error) => {
+                eprintln!("Failed to find the first volume: {}", error);
+                return volumes;
+            }
+        };
+        volumes.push(string_from_wide(&mut volume_name));
+
+        loop {
+            volume_name.resize(MAX_PATH as usize + 1, 0);
+
+            if let Err(error) = FindNextVolumeW(find_handle, &mut volume_name) {
+                if error.code() == ERROR_NO_MORE_FILES.to_hresult() {
+                    break;
+                } else {
+                    eprintln!("Failed to find the next volume: {}", error);
+                    break;
+                }
+            }
+            volumes.push(string_from_wide(&mut volume_name));
+        }
+        _ = FindVolumeClose(find_handle);
+        volumes
+    }
+}
+
 impl Exec for DiskFree {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut paths = flags.parse(scope, args)?;
+        let volumes = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
             println!("Usage: df [OPTIONS] [PATH]");
@@ -144,13 +190,32 @@ impl Exec for DiskFree {
             return Ok(Value::success());
         }
 
-        if paths.is_empty() {
-            paths = enumerate_drives();
-        }
-        let paths = paths
-            .iter()
-            .map(|path| root_path_from_str(scope, path, args))
-            .collect::<Result<HashSet<_>, _>>()?;
+        let paths: BTreeSet<PathBuf> = {
+            let vec_paths: Vec<PathBuf> = if volumes.is_empty() {
+                if flags.is_present("all") {
+                    // Collect paths directly into a Vec<PathBuf>
+                    enumerate_volumes()
+                        .iter()
+                        .map(|s| PathBuf::from(s))
+                        .collect()
+                } else {
+                    // Collect results and handle errors
+                    enumerate_drives()
+                        .iter()
+                        .map(|s| root_path_from_str(scope, s, args))
+                        .collect::<Result<Vec<PathBuf>, String>>()?
+                }
+            } else {
+                // Collect results and handle errors
+                volumes
+                    .iter()
+                    .map(|s| root_path_from_str(scope, s, args))
+                    .collect::<Result<Vec<PathBuf>, String>>()?
+            };
+
+            // De-dupe, in case the user has specified multiple directories on the same volume
+            vec_paths.into_iter().collect()
+        };
 
         // Compute the maximum path length across all processed paths
         let max_len = paths
@@ -162,7 +227,7 @@ impl Exec for DiskFree {
         Self::print_disk_free_header(max_len)?;
 
         for path in &paths {
-            Self::print_disk_free(scope, &flags, &path, max_len, args)?;
+            Self::print_disk_free(scope, &flags, &path, max_len, args).unwrap_or(());
         }
         Ok(Value::success())
     }

@@ -370,7 +370,7 @@ impl Shell {
         Ok(self.history_path.as_ref().unwrap())
     }
 
-    /// Populate global scope with special variables.
+    /// Populate global scope with argument variables.
     /// Return new child scope.
     fn new_top_scope(&self) -> Rc<Scope> {
         let scope = &self.interp.global_scope();
