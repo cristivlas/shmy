@@ -1,4 +1,5 @@
 use cmds::{get_command, list_registered_commands, Exec};
+use console::Term;
 use directories::UserDirs;
 use eval::{Interp, Value, KEYWORDS};
 use prompt::PromptBuilder;
@@ -411,6 +412,12 @@ impl Shell {
             rl.load_history(&self.init_interactive_mode()?).unwrap();
 
             self.source_profile()?; // source ~/.mysh/profile if found
+
+            if !Term::stdout().features().colors_supported() {
+                self.interp
+                    .global_scope()
+                    .insert("NO_COLOR".to_string(), Value::Int(1));
+            }
 
             while !self.interp.quit {
                 // run interactive read-evaluate loop

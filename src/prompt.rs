@@ -119,6 +119,7 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
 pub struct PromptBuilder {
     scope: Rc<Scope>,
     prompt: String,
+    elevated: bool,
 }
 
 impl PromptBuilder {
@@ -126,6 +127,7 @@ impl PromptBuilder {
         Self {
             scope: Rc::clone(&scope),
             prompt: String::new(),
+            elevated: Self::is_elevated(),
         }
     }
 
@@ -163,8 +165,19 @@ impl PromptBuilder {
         }
     }
 
+    #[cfg(windows)]
+    fn is_elevated() -> bool {
+        use crate::utils::win::is_elevated;
+        is_elevated().unwrap_or(false)
+    }
+
+    #[cfg(not(windows))]
+    fn is_elevated() -> bool {
+        false
+    }
+
     fn is_root(&self) -> bool {
-        self.username().as_str() == "root"
+        self.elevated || self.username().as_str() == "root"
     }
 
     fn push_username(&mut self) {

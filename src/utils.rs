@@ -87,12 +87,17 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
 
 #[cfg(windows)]
 pub mod win {
+    use crate::symlnk::SymLink;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::mem;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
-    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
@@ -101,8 +106,6 @@ pub mod win {
         Win32::System::Ioctl::{FSCTL_DELETE_REPARSE_POINT, FSCTL_GET_REPARSE_POINT},
         Win32::System::IO::DeviceIoControl,
     };
-
-    use crate::symlnk::SymLink;
 
     pub const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
     pub const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
@@ -261,6 +264,38 @@ pub mod win {
             fs::remove_dir(path)
         } else {
             fs::remove_file(path)
+        }
+    }
+
+    pub fn is_elevated() -> io::Result<bool> {
+        unsafe {
+            // Open the process token
+            let process_handle = GetCurrentProcess();
+            let mut token_handle = HANDLE::default();
+
+            match OpenProcessToken(process_handle, TOKEN_QUERY, &mut token_handle) {
+                Ok(_) => {
+                    let mut elevation: TOKEN_ELEVATION = std::mem::zeroed();
+                    let mut return_length = 0;
+
+                    // Query the token elevation
+                    let result = GetTokenInformation(
+                        token_handle,
+                        TokenElevation,
+                        Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
+                        std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                        &mut return_length,
+                    );
+
+                    CloseHandle(token_handle).unwrap_or(());
+
+                    match result {
+                        Ok(_) => Ok(elevation.TokenIsElevated != 0),
+                        Err(_) => Err(std::io::Error::last_os_error()),
+                    }
+                }
+                Err(_) => Err(std::io::Error::last_os_error()),
+            }
         }
     }
 }
