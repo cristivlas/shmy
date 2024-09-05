@@ -134,15 +134,6 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                 let file_name = &dir_entry.file_name();
 
                 if file_name.to_string_lossy().starts_with(name.as_ref()) {
-                    // Skip if already filled out by the rustyline FilenameCompleter.
-                    if candidates
-                        .iter()
-                        .position(|c| file_name.eq(c.display.as_str()))
-                        .is_some()
-                    {
-                        continue;
-                    }
-
                     let display = if dir == cwd {
                         file_name.to_string_lossy().to_string()
                     } else {
@@ -173,10 +164,8 @@ fn match_wsl_symlinks(
 ) {
     if !word.is_empty() {
         if let Some(i) = line.to_lowercase().find(word) {
-            if i == *pos || candidates.is_empty() {
-                *pos = i;
-                match_path_prefix(word, candidates);
-            }
+            *pos = i;
+            match_path_prefix(word, candidates);
         }
     }
 }
@@ -254,6 +243,8 @@ impl completion::Completer for CmdLineHelper {
             }
         }
 
+        match_wsl_symlinks(line, &tail, &mut kw_pos, &mut keywords);
+
         if keywords.is_empty() {
             // Try the file completer next ...
             let completions = self.completer.complete(line, pos, ctx);
@@ -271,12 +262,9 @@ impl completion::Completer for CmdLineHelper {
                         })
                         .collect();
 
-                    kw_pos = start;
-                    keywords = escaped_completions;
+                    return Ok((start, escaped_completions));
                 }
             }
-
-            match_wsl_symlinks(line, &tail, &mut kw_pos, &mut keywords);
         }
 
         Ok((kw_pos, keywords))

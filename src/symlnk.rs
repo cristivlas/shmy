@@ -1,4 +1,9 @@
+use crate::utils::resolve_links;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::env;
 use std::io;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 
 pub trait SymLink {
@@ -8,16 +13,7 @@ pub trait SymLink {
 
 /// Resolve symbolic links, including WSL links, which
 /// are not handled by fs::canonicalize on Windows.
-fn resolve_path(sym_path: &Path) -> io::Result<PathBuf> {
-    use crate::utils::resolve_links;
-    use std::borrow::Cow;
-    use std::collections::HashMap;
-    use std::env;
-    use std::path::Component;
-
-    // map paths with possible symlink components to resolved
-    let mut visited: HashMap<PathBuf, PathBuf> = HashMap::new();
-
+fn resolve_path(sym_path: &Path, visited: &mut HashMap<PathBuf, PathBuf>) -> io::Result<PathBuf> {
     let mut path = if sym_path.is_absolute() {
         PathBuf::new()
     } else {
@@ -49,6 +45,11 @@ fn resolve_path(sym_path: &Path) -> io::Result<PathBuf> {
             path.pop();
             path.push(&*resolved);
         }
+
+        // Recurse in case the path resolved so far contains ".."
+        if visited.get(&path).is_none() {
+            path = resolve_path(&path, visited)?;
+        }
     }
 
     // Do not canonicalize here, to avoid UNC trouble
@@ -77,7 +78,9 @@ impl SymLink for Path {
     }
 
     fn resolve(&self) -> io::Result<PathBuf> {
-        resolve_path(self)
+        // map paths with possible symlink components to resolved
+        let mut visited: HashMap<PathBuf, PathBuf> = HashMap::new();
+        resolve_path(self, &mut visited)
     }
 }
 
@@ -87,6 +90,6 @@ impl SymLink for PathBuf {
     }
 
     fn resolve(&self) -> io::Result<PathBuf> {
-        resolve_path(self)
+        self.as_path().resolve()
     }
 }
