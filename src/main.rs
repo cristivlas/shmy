@@ -505,9 +505,8 @@ impl Shell {
                 if let Value::Stat(status) = &value {
                     if let Err(e) = &status.borrow().result {
                         e.show(&scope, input);
-                        return;
                     }
-                } else if self.interactive {
+                } else if self.interactive && !input.trim().is_empty() {
                     self.show_result(value);
                 }
             }
@@ -583,7 +582,7 @@ fn main() -> Result<(), ()> {
             eprint!("Command line error: {}.", e);
         }
         Ok(shell) => {
-            match shell.eval_input() {
+            match &shell.eval_input() {
                 Err(e) => {
                     eprintln!("{}", e);
                 }
