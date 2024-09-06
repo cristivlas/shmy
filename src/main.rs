@@ -131,7 +131,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
             if let Ok(dir_entry) = &entry {
                 let file_name = &dir_entry.file_name();
 
-                if file_name.to_string_lossy().starts_with(name.as_ref()) {
+                if file_name.to_string_lossy().to_lowercase().starts_with(name.as_ref()) {
                     let display = if dir == cwd {
                         file_name.to_string_lossy().to_string()
                     } else {
@@ -180,7 +180,9 @@ fn has_links(path: &Path) -> bool {
 #[cfg(windows)]
 fn match_symlinks(line: &str, word: &str, pos: &mut usize, candidates: &mut Vec<completion::Pair>) {
     if !word.is_empty() {
-        if let Some(i) = line.to_lowercase().find(word) {
+        if let Some(mut i) = line.to_lowercase().find(&format!(" {}", word)) {
+            i += 1;
+
             // Check that the position is compatible with previous
             // completions before attempting to match path prefix
             if *pos == i || candidates.is_empty() {
