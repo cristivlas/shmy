@@ -1,4 +1,4 @@
-use cmds::{get_command, list_registered_commands, Exec};
+use cmds::{get_command, registered_commands, Exec};
 use console::Term;
 use directories::UserDirs;
 use eval::{Interp, Value, KEYWORDS};
@@ -48,7 +48,7 @@ impl CmdLineHelper {
     }
 
     fn keywords(&self) -> Vec<String> {
-        list_registered_commands(false)
+        registered_commands(false)
             .into_iter()
             .chain(KEYWORDS.iter().map(|s| s.to_string()))
             .collect()
@@ -465,14 +465,24 @@ impl Shell {
         self.interp.set_var("HOME", home_dir);
     }
 
-    fn show_result(&self, value: &eval::Value) {
+    fn show_result(&self, scope: &Rc<Scope>, input: &str, value: &eval::Value) {
+        if input.is_empty() {
+            return;
+        }
         match value {
             Value::Str(s) => {
-                eprintln!("Command not found: {}", s);
-                let cmds = list_registered_commands(false);
-                if let Some(near) = cmds.iter().min_by_key(|&item| strsim::levenshtein(item, s)) {
-                    let scope = self.interp.global_scope();
-                    eprintln!("Did you mean '{}'?", scope.err_str(near));
+                println!("{}", s);
+
+                if !input.contains(" ") {
+                    let cmds = registered_commands(false);
+                    if let Some(near) = cmds.iter().min_by_key(|&item| strsim::levenshtein(item, s))
+                    {
+                        eprintln!(
+                            "{} was evaluated as a string. Did you mean '{}'?",
+                            scope.err_str(input),
+                            scope.err_str(near)
+                        );
+                    }
                 }
             }
             _ => println!("{}", value),
@@ -506,8 +516,8 @@ impl Shell {
                     if let Err(e) = &status.borrow().result {
                         e.show(&scope, input);
                     }
-                } else if self.interactive && !input.trim().is_empty() {
-                    self.show_result(value);
+                } else if self.interactive {
+                    self.show_result(&scope, &input.trim(), &value);
                 }
             }
             Err(e) => {

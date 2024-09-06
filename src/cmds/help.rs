@@ -1,5 +1,5 @@
 use super::{
-    flags::CommandFlags, get_command, list_registered_commands, register_command, Exec,
+    flags::CommandFlags, get_command, registered_commands, register_command, Exec,
     ShellCommand,
 };
 use crate::{eval::Value, scope::Scope};
@@ -148,7 +148,7 @@ impl Help {
     }
 
     fn print_available_commands(indent: usize, spacing: usize) {
-        let commands = list_registered_commands(true);
+        let commands = registered_commands(true);
         if !commands.is_empty() {
             println!("BUILT-IN COMMANDS");
         }

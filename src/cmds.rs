@@ -133,7 +133,7 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
     cmd
 }
 
-pub fn list_registered_commands(internal_only: bool) -> Vec<String> {
+pub fn registered_commands(internal_only: bool) -> Vec<String> {
     let registry = COMMAND_REGISTRY.lock().unwrap();
 
     let mut commands: Vec<String> = if internal_only {
