@@ -1700,11 +1700,12 @@ impl BinExpr {
         }
     }
 
-    fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
-        Err(EvalError::new(
-            self.loc(),
-            "Integer division is not yet implemented",
-        ))
+    fn eval_int_div(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
+        if let (Value::Int(i), Value::Int(j)) = (lhs, rhs) {
+            Ok(Value::Int(i / j))
+        } else {
+            error(self, "Invalid operand types")
+        }
     }
 
     fn eval_minus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
@@ -1730,11 +1731,12 @@ impl BinExpr {
         }
     }
 
-    fn eval_mod(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
-        Err(EvalError::new(
-            self.loc(),
-            "Modulo operation is not yet implemented",
-        ))
+    fn eval_mod(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
+        if let (Value::Int(i), Value::Int(j)) = (lhs, rhs) {
+            Ok(Value::Int(i % j))
+        } else {
+            error(self, "Invalid operand types")
+        }
     }
 
     fn eval_mul(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
