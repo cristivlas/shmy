@@ -270,9 +270,9 @@ impl completion::Completer for CmdLineHelper {
         }
 
         // Handle (Windows-native and WSL) symbolic links using custom logic.
-        if has_links(Path::new(&tail)) {
-            match_symlinks(line, &tail, &mut kw_pos, &mut keywords);
-        } else if keywords.is_empty() {
+        match_symlinks(line, &tail, &mut kw_pos, &mut keywords);
+
+        if keywords.is_empty() && !has_links(Path::new(&tail)) {
             // Try rustyline file completion next ...
             let completions = self.completer.complete(line, pos, ctx);
 
