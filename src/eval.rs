@@ -836,6 +836,7 @@ where
                 }
             }
         }
+
         if self.in_quotes {
             return error(self, "Unbalanced quotes");
         }
@@ -1759,11 +1760,28 @@ impl BinExpr {
         }
     }
 
-    fn eval_power(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
-        Err(EvalError::new(
-            self.loc(),
-            "The power operation is not yet implemented",
-        ))
+    fn eval_power(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
+        match lhs {
+            Value::Int(i) => match rhs {
+                Value::Int(j) => {
+                    if j < 0 {
+                        Ok(Value::Real(1.0 / (i as f64).powi(-j as _)))
+                    } else {
+                        Ok(Value::Int(i.saturating_pow(j as _)))
+                    }
+                }
+                Value::Real(j) => Ok(Value::Real((i as f64).powf(j))),
+                Value::Str(_) => error(self, "Exponent cannot be a string"),
+                Value::Stat(_) => error(self, "Exponent cannot be a command status"),
+            },
+            Value::Real(i) => match rhs {
+                Value::Int(j) => Ok(Value::Real(i.powf(j as _))),
+                Value::Real(j) => Ok(Value::Real(i.powf(j))),
+                Value::Str(_) => error(self, "Exponent cannot be a string"),
+                Value::Stat(_) => error(self, "Exponent cannot be a command status"),
+            },
+            _ => error(self, "Invalid base type"),
+        }
     }
 
     /// Evaluate expr and redirect output into a String
