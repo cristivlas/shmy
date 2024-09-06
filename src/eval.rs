@@ -48,6 +48,7 @@ enum Op {
     Or,
     Pipe,
     Plus,
+    Power,
     Write,
 }
 
@@ -72,6 +73,7 @@ impl fmt::Display for Op {
             Op::Or => write!(f, "||"),
             Op::Pipe => write!(f, "|"),
             Op::Plus => write!(f, "+"),
+            Op::Power => write!(f, "^"),
             Op::Write => write!(f, "=>"),
         }
     }
@@ -412,10 +414,10 @@ pub struct EvalError {
 }
 
 impl EvalError {
-    fn new(loc: Location, message: String) -> Self {
+    fn new<S: AsRef<str>>(loc: Location, message: S) -> Self {
         Self {
             loc,
-            message,
+            message: message.as_ref().to_string(),
             jump: None,
         }
     }
@@ -459,7 +461,7 @@ trait Eval {
 }
 
 fn error<S: HasLocation, R>(source: &S, message: &str) -> EvalResult<R> {
-    Err(EvalError::new(source.loc(), message.to_string()))
+    Err(EvalError::new(source.loc(), message))
 }
 
 /// Non-terminal AST node.
@@ -591,7 +593,7 @@ where
         } else if c == '#' && self.text == "$" {
             false // Special case for $# variable (holding number of command line arguments)
         } else {
-            const DELIMITERS: &str = " \t\n\r()+=;|&<>#";
+            const DELIMITERS: &str = " \t\n\r()+=;|&<>#^";
             DELIMITERS.contains(c)
         }
     }
@@ -694,6 +696,7 @@ where
                 ')' => token!(self, tok, Token::RightParen),
                 ';' => token!(self, tok, Token::Semicolon),
                 '+' => token!(self, tok, Token::Operator(Op::Plus)),
+                '^' => token!(self, tok, Token::Operator(Op::Power)),
                 '&' => token!(self, tok, '&', Token::Operator(Op::And)),
                 '|' => token!(self, tok, '|', Token::Operator(Op::Pipe), Token::Operator(Op::Or)),
                 '!' => token!(self, tok, '=', Token::Operator(Op::Not), Token::Operator(Op::NotEquals)),
@@ -1011,10 +1014,7 @@ where
 
     fn pop_group(&mut self) -> EvalResult {
         if self.group_stack.is_empty() {
-            return Err(EvalError::new(
-                self.loc(),
-                "Unbalanced parentheses?".to_string(),
-            ));
+            return Err(EvalError::new(self.loc(), "Unbalanced parentheses?"));
         }
 
         Self::close_group(&self.group);
@@ -1702,7 +1702,7 @@ impl BinExpr {
     fn eval_int_div(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
         Err(EvalError::new(
             self.loc(),
-            "Integer division not implemented".to_string(),
+            "Integer division is not yet implemented",
         ))
     }
 
@@ -1732,7 +1732,7 @@ impl BinExpr {
     fn eval_mod(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
         Err(EvalError::new(
             self.loc(),
-            "Modulo operation not implemented".to_string(),
+            "Modulo operation is not yet implemented",
         ))
     }
 
@@ -1757,6 +1757,13 @@ impl BinExpr {
             },
             Value::Stat(_) => error(self, "Cannot multiply command statuses"),
         }
+    }
+
+    fn eval_power(&self, _lhs: Value, _rhs: Value) -> EvalResult<Value> {
+        Err(EvalError::new(
+            self.loc(),
+            "The power operation is not yet implemented",
+        ))
     }
 
     /// Evaluate expr and redirect output into a String
@@ -2041,6 +2048,7 @@ impl Eval for BinExpr {
                 Op::Or => self.eval_or(),
                 Op::Pipe => self.eval_pipe(&self.lhs, &self.rhs),
                 Op::Plus => eval_bin!(self, eval_plus),
+                Op::Power => eval_bin!(self, eval_power),
                 Op::Write => self.eval_write(false),
             }
         }

@@ -12,7 +12,7 @@ use scope::Scope;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::{env, usize};
@@ -112,9 +112,6 @@ fn split_delim(line: &str) -> (String, String) {
 fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     use crate::symlnk::SymLink;
 
-    if word.ends_with("..") {
-        return; // do not navigate the parent dir
-    }
     let path = std::path::Path::new(word);
     let mut name = path.file_name().unwrap_or_default().to_string_lossy();
     let cwd = env::current_dir().unwrap_or(PathBuf::default());
@@ -128,6 +125,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
             }
         }
     }
+
     if let Ok(read_dir) = &mut fs::read_dir(&dir) {
         for entry in read_dir {
             if let Ok(dir_entry) = &entry {
@@ -156,22 +154,50 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
 }
 
 #[cfg(windows)]
-fn match_wsl_symlinks(
-    line: &str,
-    word: &str,
-    pos: &mut usize,
-    candidates: &mut Vec<completion::Pair>,
-) {
+fn has_links(path: &Path) -> bool {
+    use std::path::Component;
+
+    let mut buf = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                buf.pop();
+            }
+            _ => {
+                buf.push(component);
+            }
+        }
+
+        if buf.is_symlink() {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(windows)]
+fn match_symlinks(line: &str, word: &str, pos: &mut usize, candidates: &mut Vec<completion::Pair>) {
     if !word.is_empty() {
         if let Some(i) = line.to_lowercase().find(word) {
-            *pos = i;
-            match_path_prefix(word, candidates);
+            // Check that the position is compatible with previous
+            // completions before attempting to match path prefix
+            if *pos == i || candidates.is_empty() {
+                *pos = i;
+                match_path_prefix(word, candidates);
+            }
         }
     }
 }
 
 #[cfg(not(windows))]
-fn match_wsl_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
+fn has_links(_: &Path) -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+fn match_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
@@ -243,10 +269,11 @@ impl completion::Completer for CmdLineHelper {
             }
         }
 
-        match_wsl_symlinks(line, &tail, &mut kw_pos, &mut keywords);
-
-        if keywords.is_empty() {
-            // Try the file completer next ...
+        // Handle (Windows-native and WSL) symbolic links using custom logic.
+        if has_links(Path::new(&tail)) {
+            match_symlinks(line, &tail, &mut kw_pos, &mut keywords);
+        } else if keywords.is_empty() {
+            // Try rustyline file completion next ...
             let completions = self.completer.complete(line, pos, ctx);
 
             if let Ok((start, v)) = completions {
@@ -466,6 +493,8 @@ impl Shell {
     }
 
     fn show_result(&self, scope: &Rc<Scope>, input: &str, value: &eval::Value) {
+        use strsim::levenshtein;
+
         if input.is_empty() {
             return;
         }
@@ -475,13 +504,18 @@ impl Shell {
 
                 if !input.contains(" ") {
                     let cmds = registered_commands(false);
-                    if let Some(near) = cmds.iter().min_by_key(|&item| strsim::levenshtein(item, s))
+                    if let Some((near, distance)) = cmds
+                        .iter()
+                        .map(|item| (item, levenshtein(item, s)))
+                        .min_by_key(|&(_, distance)| distance)
                     {
-                        eprintln!(
-                            "{} was evaluated as a string. Did you mean '{}'?",
-                            scope.err_str(input),
-                            scope.err_str(near)
-                        );
+                        if distance < std::cmp::max(near.len(), input.len()) {
+                            eprintln!(
+                                "{} was evaluated as a string. Did you mean '{}'?",
+                                scope.err_str(input),
+                                scope.err_str(near),
+                            );
+                        }
                     }
                 }
             }
@@ -490,7 +524,7 @@ impl Shell {
     }
 
     fn source_profile(&self) -> Result<(), String> {
-        // Source the ~/.mysh/profile if found
+        // Source ~/.mysh/profile if it exists
         if let Some(profile) = &self.profile {
             if profile.exists() {
                 let scope = self.new_top_scope();
