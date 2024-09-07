@@ -334,9 +334,9 @@ pub fn resolve_links(path: &Path) -> io::Result<PathBuf> {
 
 pub fn format_error<E: std::fmt::Display>(
     scope: &Scope,
-    filename: &str,
+    value: &str,
     args: &[String],
     error: E,
 ) -> String {
-    format!("{}: {}", scope.err_path_arg(filename, args), error)
+    format!("{}: {}", scope.err_path_arg(value, args), error)
 }

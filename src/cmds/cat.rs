@@ -56,7 +56,10 @@ impl Exec for CatHeadTail {
         let line_num: bool = flags.is_present("number");
         let lines = flags
             .option("lines")
-            .map(|v| v.parse::<usize>().map_err(|e| e.to_string()))
+            .map(|v| {
+                v.parse::<usize>()
+                    .map_err(|e| format_error(&scope, v, args, e))
+            })
             .unwrap_or(Ok(10))?;
         if filenames.is_empty() {
             let stdin = io::stdin();

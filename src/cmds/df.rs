@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_error;
-use crate::utils::{format_size, win::root_path};
+use crate::utils::{format_error, format_size, win::root_path};
 use crate::{eval::Value, scope::Scope};
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
