@@ -196,7 +196,7 @@ fn match_symlinks(line: &str, word: &str, pos: &mut usize, candidates: &mut Vec<
             // completions before attempting to match path prefix
             if *pos == i || candidates.is_empty() {
                 *pos = i;
-                match_path_prefix(word, candidates);
+                match_path_prefix(&line[i..], candidates);
             }
         }
     }
@@ -584,8 +584,8 @@ impl Shell {
 }
 
 pub fn current_dir() -> Result<String, String> {
-    match env::current_dir() {
-        Ok(path) => Ok(path.to_path_buf().to_string_lossy().to_string()),
+    match &env::current_dir() {
+        Ok(path) => Ok(path.display().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
 }
