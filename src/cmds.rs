@@ -130,6 +130,7 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
             cmd = COMMAND_REGISTRY.lock().unwrap().get(name).cloned();
         }
     }
+
     cmd
 }
 

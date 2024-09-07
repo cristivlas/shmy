@@ -527,7 +527,7 @@ macro_rules! token {
     }};
 
     // Single or double character token
-    ($self:expr, $tok:expr,$second:expr, $single_token:expr, $double_token:expr) => {{
+    ($self:expr, $tok:expr, $second:expr, $single_token:expr, $double_token:expr) => {{
         check_text!($self, $tok);
         $self.next();
         if let Some(&next_c) = $self.chars.peek() {
@@ -1464,15 +1464,15 @@ impl Expression {
 
     fn priority(&self) -> Priority {
         match self {
-            Expression::Args(_) => Priority::High,
             Expression::Bin(bin_expr) => bin_expr.borrow().op.priority(),
-            Expression::Cmd(_) => Priority::High,
-            Expression::Branch(_) => Priority::High,
-            Expression::Group(_) => Priority::High,
-            Expression::For(_) => Priority::High,
-            Expression::Empty => Priority::High,
-            Expression::Leaf(_) => Priority::High,
-            Expression::Loop(_) => Priority::High,
+            Expression::Args(_)
+            | Expression::Branch(_)
+            | Expression::Cmd(_)
+            | Expression::Empty
+            | Expression::For(_)
+            | Expression::Group(_)
+            | Expression::Leaf(_)
+            | Expression::Loop(_) => Priority::High,
         }
     }
 }
@@ -1482,11 +1482,11 @@ impl fmt::Display for Expression {
         match self {
             Expression::Args(group) => write!(f, "{}", group.borrow()),
             Expression::Bin(bin_expr) => write!(f, "{}", bin_expr.borrow()),
-            Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
             Expression::Branch(branch) => write!(f, "{}", branch.borrow()),
-            Expression::Group(group) => write!(f, "{}", group.borrow()),
-            Expression::For(for_expr) => write!(f, "{}", for_expr.borrow()),
+            Expression::Cmd(cmd) => write!(f, "{}", cmd.borrow()),
             Expression::Empty => write!(f, ""),
+            Expression::For(for_expr) => write!(f, "{}", for_expr.borrow()),
+            Expression::Group(group) => write!(f, "{}", group.borrow()),
             Expression::Leaf(literal) => write!(f, "{}", literal),
             Expression::Loop(loop_expr) => write!(f, "{}", loop_expr.borrow()),
         }
@@ -1498,11 +1498,11 @@ impl HasLocation for Expression {
         match self {
             Expression::Args(group) => group.borrow().loc(),
             Expression::Bin(bin_expr) => bin_expr.borrow().loc(),
-            Expression::Cmd(cmd) => cmd.borrow().loc(),
             Expression::Branch(branch) => branch.borrow().loc(),
-            Expression::Group(group) => group.borrow().loc(),
-            Expression::For(for_expr) => for_expr.borrow().loc(),
+            Expression::Cmd(cmd) => cmd.borrow().loc(),
             Expression::Empty => panic!("Empty expression"),
+            Expression::For(for_expr) => for_expr.borrow().loc(),
+            Expression::Group(group) => group.borrow().loc(),
             Expression::Leaf(literal) => literal.loc(),
             Expression::Loop(loop_expr) => loop_expr.borrow().loc(),
         }
