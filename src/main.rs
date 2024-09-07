@@ -131,12 +131,21 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
             if let Ok(dir_entry) = &entry {
                 let file_name = &dir_entry.file_name();
 
-                if file_name.to_string_lossy().to_lowercase().starts_with(name.as_ref()) {
+                if file_name
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .starts_with(name.as_ref())
+                {
                     let display = if dir == cwd {
                         file_name.to_string_lossy().to_string()
                     } else {
+                        if dir.starts_with(&cwd) {
+                            dir = dir.strip_prefix(&cwd).unwrap_or(&dir).to_path_buf();
+                        }
+
                         dir.join(file_name).to_string_lossy().to_string()
                     };
+
                     let replacement = if path.resolve().unwrap_or(path.to_path_buf()).is_dir() {
                         format!("{}\\", display)
                     } else {
@@ -392,19 +401,19 @@ impl Shell {
     /// Return new child scope.
     fn new_top_scope(&self) -> Rc<Scope> {
         let scope = &self.interp.global_scope();
-        // Number of args (except $0)
+        // Number of args (not including $0)
         scope.insert(
             "#".to_string(),
             Value::Int(env::args().count().saturating_sub(1) as _),
         );
-        // All args except $0
+        // All args (not including $0)
         scope.insert(
             "@".to_string(),
             Value::Str(Rc::new(
                 env::args().skip(1).collect::<Vec<String>>().join(" "),
             )),
         );
-        // Interpreter pid
+        // Interpreter process id
         scope.insert("$".to_string(), Value::Int(std::process::id() as _));
         // $0, $1, ...
         for (i, arg) in env::args().enumerate() {
