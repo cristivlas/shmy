@@ -105,13 +105,13 @@ impl Grid {
         Self { nodes: Vec::new() }
     }
 
-    fn at(&self, i: usize, j: usize) -> Option<Node> {
+    fn at(&self, i: usize, j: usize) -> Option<&Node> {
         if self.nodes.len() <= i {
             None
         } else if self.nodes[i].len() <= j {
             None
         } else {
-            self.nodes[i][j].clone()
+            self.nodes[i][j].as_ref().clone()
         }
     }
 
