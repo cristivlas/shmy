@@ -106,7 +106,7 @@ fn du_size(
         return Ok(0);
     }
 
-    let mut size: u64 = estimate_disk_size(scope, &opts, file_ids, path)
+    let mut size: u64 = estimate_disk_size(&opts, file_ids, path)
         .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
 
     if path.is_dir() {
@@ -137,7 +137,6 @@ fn du_size(
 }
 
 fn estimate_disk_size(
-    _scope: &Rc<Scope>,
     opts: &Options,
     file_ids: &mut HashSet<(u64, u64)>,
     path: &Path,
@@ -148,7 +147,8 @@ fn estimate_disk_size(
     }
     #[cfg(windows)]
     {
-        win::disk_size(_scope, opts, file_ids, path)
+        let mut blk_sz = std::collections::HashMap::new();
+        win::disk_size(&mut blk_sz, opts, file_ids, path)
     }
 }
 
@@ -184,7 +184,7 @@ fn unix_disk_size(
 mod win {
     use super::*;
     use crate::utils::win::root_path;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::ffi::OsStr;
     use std::fs;
     use std::fs::OpenOptions;
@@ -201,7 +201,7 @@ mod win {
     };
 
     pub fn disk_size(
-        scope: &Rc<Scope>,
+        blk_sz: &mut HashMap<PathBuf, u64>,
         opts: &Options,
         file_ids: &mut HashSet<(u64, u64)>,
         path: &Path,
@@ -218,15 +218,14 @@ mod win {
         if opts.apparent {
             Ok(metadata.len())
         } else {
-            let block_size = block_size(scope, &root_path(&path))?;
+            let block_size = block_size(blk_sz, &root_path(&path))?;
             Ok(((metadata.file_size() + block_size - 1) / block_size) * block_size)
         }
     }
 
-    fn block_size(scope: &Rc<Scope>, root_path: &Path) -> Result<u64, Error> {
-        let cache_var = format!("blksz_{}", root_path.display());
-        if let Some(v) = scope.lookup_value(&cache_var) {
-            return Ok(i64::try_from(v)? as _);
+    fn block_size(blk_sz: &mut HashMap<PathBuf, u64>, root_path: &Path) -> Result<u64, Error> {
+        if let Some(sz) = blk_sz.get(root_path) {
+            return Ok(*sz);
         }
 
         let path_wide: Vec<u16> = OsStr::new(root_path)
@@ -252,8 +251,8 @@ mod win {
         // Calculate block size
         let block_size = sectors_per_cluster as u64 * bytes_per_sector as u64;
 
-        // Cache it in the current scope
-        scope.insert(cache_var, Value::Int(block_size as _));
+        // Cache it
+        blk_sz.insert(root_path.to_path_buf(), block_size);
 
         Ok(block_size)
     }
