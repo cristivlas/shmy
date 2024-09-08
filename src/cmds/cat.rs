@@ -22,7 +22,7 @@ struct CatHeadTail {
 impl CatHeadTail {
     fn new(mode: Mode) -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_flag('n', "number", "Number all output lines");
+        flags.add_flag('n', "number", "Number output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
             flags.add_option('l', "lines", "Specify the number of lines to output");

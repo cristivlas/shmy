@@ -1902,12 +1902,6 @@ impl BinExpr {
             Err(e) => return error(self, &format!("Failed to create pipe: {}", e)),
         };
 
-        // Redirect stdout to the pipe
-        let redirect = match Redirect::stdout(writer) {
-            Ok(r) => r,
-            Err(e) => return error(self, &format!("Failed to redirect stdout: {}", e)),
-        };
-
         // Get our own program name
         let program = executable().map_err(|e| EvalError::new(self.loc(), e))?;
 
@@ -1926,11 +1920,17 @@ impl BinExpr {
             .arg("-c")
             .arg(&rhs_str)
             .stdin(Stdio::from(reader))
-            .stdout(Stdio::piped())
+            .stdout(Stdio::inherit())
             .spawn()
             .map_err(|e| {
                 EvalError::new(rhs.loc(), format!("Failed to spawn child process: {}", e))
             })?;
+
+        // Redirect stdout to the pipe
+        let redirect = match Redirect::stdout(writer) {
+            Ok(r) => r,
+            Err(e) => return error(self, &format!("Failed to redirect stdout: {}", e)),
+        };
 
         // Left-side evaluation's stdout goes into the pipe.
         let lhs_result = Status::check_result(lhs.eval(), false);

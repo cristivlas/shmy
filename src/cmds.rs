@@ -33,6 +33,7 @@ mod exit;
 mod find;
 mod grep;
 mod help;
+mod less;
 mod ln;
 mod ls;
 mod mkdir;
