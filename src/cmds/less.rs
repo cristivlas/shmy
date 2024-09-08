@@ -19,8 +19,6 @@ use std::path::Path;
 use std::rc::Rc;
 use terminal_size::{terminal_size, Height, Width};
 
-const LINE_NUM_WIDTH: usize = 5;
-
 struct LessViewer {
     lines: Vec<String>,
     current_line: usize,
@@ -29,6 +27,7 @@ struct LessViewer {
     screen_height: usize,
     last_search: Option<String>,
     last_search_direction: bool,
+    line_num_width: usize,
     search_start_index: usize,
     show_line_numbers: bool,
     status: Option<String>,
@@ -41,6 +40,7 @@ impl LessViewer {
         let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
 
         Ok(LessViewer {
+            line_num_width: lines.len().to_string().len() + 1,
             lines,
             current_line: 0,
             horizontal_scroll: 0,
@@ -63,7 +63,7 @@ impl LessViewer {
         for (index, line) in self.lines[self.current_line..end].iter().enumerate() {
             if self.show_line_numbers {
                 let line_number = self.current_line + index + 1;
-                buffer.push_str(&format!("{:>LINE_NUM_WIDTH$} ", line_number));
+                buffer.push_str(&format!("{:>w$}", line_number, w = self.line_num_width));
             }
             self.display_line(line, buffer)?;
         }
@@ -97,12 +97,7 @@ impl LessViewer {
         let displayed = &displayed[..displayed.len().min(self.screen_width)];
 
         if self.show_line_numbers {
-            let line_number_width = std::cmp::max(
-                (self.current_line + 1).to_string().len() + 2,
-                LINE_NUM_WIDTH,
-            );
-            let padding = " ".repeat(line_number_width);
-            buffer.push_str(&padding);
+            buffer.push_str("  ");
         }
 
         if let Some(ref search) = self.last_search {
