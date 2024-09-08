@@ -55,6 +55,10 @@ impl LessViewer {
         })
     }
 
+    fn clear_search(&mut self) {
+        self.last_search = None;
+    }
+
     fn display_page(&self, stdout: &mut std::io::Stdout, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
         buffer.push('\n');
@@ -249,6 +253,7 @@ impl LessViewer {
                     KeyCode::Char('f') => self.next_page(),
                     KeyCode::Char(' ') => self.next_page(),
                     KeyCode::Char('G') => self.last_page(),
+                    KeyCode::Esc => self.clear_search(),
                     KeyCode::Enter => self.next_line(),
                     KeyCode::Up => self.prev_line(),
                     KeyCode::Down => self.next_line(),

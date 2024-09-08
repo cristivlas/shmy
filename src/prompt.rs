@@ -72,6 +72,9 @@ pub fn read_input(message: &str) -> io::Result<String> {
                         writeln!(tty)?;
                         break;
                     }
+                    KeyCode::Esc => {
+                        break;
+                    }
                     KeyCode::Backspace => {
                         if !input.is_empty() {
                             input.pop();

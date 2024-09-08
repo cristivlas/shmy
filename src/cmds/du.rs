@@ -258,7 +258,7 @@ mod win {
     }
 
     /// Build a unique id from the volume serial number and the file index.
-    /// Used with a hash set to avoid double counting of hard link.
+    /// Used with a hash set to avoid double counting of links.
     fn unique_file_id(path: &Path) -> Result<(u64, u64), Error> {
         let file = OpenOptions::new()
             .read(true)
