@@ -132,7 +132,7 @@ impl LessViewer {
     }
 
     fn next_line(&mut self) {
-        if self.current_line < self.lines.len() - 1 {
+        if self.current_line < self.lines.len().saturating_sub(1) {
             self.current_line += 1;
             if self.current_line + self.screen_height > self.lines.len() {
                 self.current_line = self.lines.len().saturating_sub(self.screen_height);
