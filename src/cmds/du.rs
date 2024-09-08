@@ -1,8 +1,8 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_size;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::format_size};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Error;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -87,8 +87,8 @@ impl DiskUtilization {
 
 struct Options {
     all: bool,
-    apparent: bool,
-    human: bool,
+    apparent: bool, // show apparent size on disk
+    human: bool,    // show size in human-readble format
     summarize: bool,
     block_size: u64,
     max_depth: Option<usize>,
@@ -106,7 +106,8 @@ fn du_size(
         return Ok(0);
     }
 
-    let mut size: u64 = estimate_disk_size(scope, &opts, file_ids, path)?;
+    let mut size: u64 = estimate_disk_size(scope, &opts, file_ids, path)
+        .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
 
     if path.is_dir() {
         match fs::read_dir(path) {
@@ -119,7 +120,7 @@ fn du_size(
                         return Ok(size);
                     }
 
-                    let entry = entry.map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+                    let entry = &entry.map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
                     size += du_size(&entry.path(), &opts, scope, depth + 1, file_ids)?;
                 }
             }
@@ -136,31 +137,30 @@ fn du_size(
 }
 
 fn estimate_disk_size(
-    scope: &Rc<Scope>,
+    _scope: &Rc<Scope>,
     opts: &Options,
     file_ids: &mut HashSet<(u64, u64)>,
     path: &Path,
-) -> Result<u64, String> {
+) -> Result<u64, Error> {
     #[cfg(unix)]
     {
-        unix_disk_size(scope, opts, file_ids, path)
+        unix_disk_size(opts, file_ids, path)
     }
     #[cfg(windows)]
     {
-        win::disk_size(scope, opts, file_ids, path)
+        win::disk_size(_scope, opts, file_ids, path)
     }
 }
 
 #[cfg(unix)]
 fn unix_disk_size(
-    scope: &Rc<Scope>,
     opts: &Options,
     file_ids: &mut HashSet<(u64, u64)>,
     path: &Path,
-) -> Result<u64, String> {
+) -> Result<u64, Error> {
     use std::os::unix::fs::MetadataExt;
 
-    let metadata = fs::metadata(path).map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+    let metadata = fs::metadata(path)?;
 
     // Avoid double-counting hard links
     let inode = (metadata.dev(), metadata.ino());
@@ -182,13 +182,12 @@ fn unix_disk_size(
 
 #[cfg(windows)]
 mod win {
-    use super::{Options, Path, Rc, Scope, Value};
+    use super::*;
     use crate::utils::win::root_path;
     use std::collections::HashSet;
     use std::ffi::OsStr;
     use std::fs;
     use std::fs::OpenOptions;
-    use std::io::Error;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::MetadataExt;
     use std::os::windows::fs::OpenOptionsExt;
@@ -206,11 +205,9 @@ mod win {
         opts: &Options,
         file_ids: &mut HashSet<(u64, u64)>,
         path: &Path,
-    ) -> Result<u64, String> {
-        let metadata =
-            fs::metadata(path).map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
-
-        let id = unique_file_id(scope, path)?;
+    ) -> Result<u64, Error> {
+        let metadata = fs::metadata(path)?;
+        let id = unique_file_id(path)?;
 
         // Check if we've seen this file before, avoid double-counting hard links
         if file_ids.contains(&id) {
@@ -226,7 +223,7 @@ mod win {
         }
     }
 
-    fn block_size(scope: &Rc<Scope>, root_path: &Path) -> Result<u64, String> {
+    fn block_size(scope: &Rc<Scope>, root_path: &Path) -> Result<u64, Error> {
         let cache_var = format!("blksz_{}", root_path.display());
         if let Some(v) = scope.lookup_value(&cache_var) {
             return Ok(i64::try_from(v)? as _);
@@ -243,21 +240,13 @@ mod win {
         let mut _total_clusters = 0;
 
         unsafe {
-            if GetDiskFreeSpaceW(
+            GetDiskFreeSpaceW(
                 PCWSTR(path_wide.as_ptr()),
                 Some(&mut sectors_per_cluster),
                 Some(&mut bytes_per_sector),
                 Some(&mut _free_clusters),
                 Some(&mut _total_clusters),
-            )
-            .is_err()
-            {
-                return Err(format!(
-                    "Failed to get disk space info for {}: {}",
-                    scope.err_path(root_path),
-                    Error::last_os_error()
-                ));
-            }
+            )?;
         }
 
         // Calculate block size
@@ -271,25 +260,16 @@ mod win {
 
     /// Build a unique id from the volume serial number and the file index.
     /// Used with a hash set to avoid double counting of hard link.
-    fn unique_file_id(scope: &Rc<Scope>, path: &Path) -> Result<(u64, u64), String> {
+    fn unique_file_id(path: &Path) -> Result<(u64, u64), Error> {
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
-            .open(path)
-            .map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
+            .open(path)?;
 
         let handle = HANDLE(file.as_raw_handle());
         let mut file_info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
 
-        let result = unsafe { GetFileInformationByHandle(handle, &mut file_info) };
-
-        if result.is_err() {
-            return Err(format!(
-                "Failed to get file information: {} {}",
-                scope.err_path(path),
-                Error::last_os_error()
-            ));
-        }
+        unsafe { GetFileInformationByHandle(handle, &mut file_info) }?;
 
         let volume_serial_number = file_info.dwVolumeSerialNumber as u64;
         let file_index =

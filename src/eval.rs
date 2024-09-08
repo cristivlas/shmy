@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{self, IsTerminal, Read};
+use std::io::{self, ErrorKind, IsTerminal, Read};
 use std::iter::Peekable;
 use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
@@ -355,23 +355,29 @@ impl From<&str> for Value {
 }
 
 impl TryFrom<Value> for i64 {
-    type Error = String;
+    type Error = io::Error;
 
     fn try_from(v: Value) -> Result<Self, Self::Error> {
         match v {
             Value::Int(i) => Ok(i as _),
-            _ => Err(format!("{} is not integer", v)),
+            _ => Err(io::Error::new(
+                ErrorKind::Other,
+                format!("{} is not integer", v),
+            )),
         }
     }
 }
 
 impl TryFrom<Value> for f64 {
-    type Error = String;
+    type Error = io::Error;
 
     fn try_from(v: Value) -> Result<Self, Self::Error> {
         match v {
             Value::Real(f) => Ok(f),
-            _ => Err(format!("{} is not a number", v)),
+            _ => Err(io::Error::new(
+                ErrorKind::Other,
+                format!("{} is not a number", v),
+            )),
         }
     }
 }
