@@ -254,6 +254,7 @@ impl LessViewer {
                     KeyCode::Char('f') => self.next_page(),
                     KeyCode::Char(' ') => self.next_page(),
                     KeyCode::Char('G') => self.last_page(),
+                    KeyCode::Enter => self.next_line(),
                     KeyCode::Up => self.prev_line(),
                     KeyCode::Down => self.next_line(),
                     KeyCode::Left => self.scroll_left(),
