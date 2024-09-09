@@ -68,7 +68,7 @@ impl LessViewer {
 
     fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
-        buffer.push_str("\r\n");
+        buffer.push_str("\r");
 
         let end = (self.current_line + self.screen_height).min(self.lines.len());
 
@@ -82,9 +82,6 @@ impl LessViewer {
 
         // Fill any remaining lines with empty space
         for _ in end..self.current_line + self.screen_height {
-            if self.show_line_numbers {
-                buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
-            }
             buffer.push_str("\r\n");
         }
 
