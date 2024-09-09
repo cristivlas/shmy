@@ -100,12 +100,18 @@ impl LessViewer {
     }
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
+        let effective_width = if self.show_line_numbers {
+            self.screen_width.saturating_sub(self.line_num_width + 2)
+        } else {
+            self.screen_width
+        };
+
         let displayed = if line.len() > self.horizontal_scroll {
             &line[self.horizontal_scroll..]
         } else {
             ""
         };
-        let displayed = &displayed[..displayed.len().min(self.screen_width)];
+        let displayed = &displayed[..displayed.len().min(effective_width)];
 
         if self.show_line_numbers {
             buffer.push_str("  ");
