@@ -9,8 +9,7 @@ use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::io::IsTerminal;
 use std::path::Path;
-use std::rc::Rc;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{atomic::Ordering::SeqCst, Arc};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Variable {
@@ -113,12 +112,12 @@ impl Ident {
     }
 }
 
-#[derive(PartialEq)]
 pub struct Scope {
-    pub parent: Option<Rc<Scope>>,
+    pub parent: Option<Arc<Scope>>,
     pub vars: RefCell<HashMap<Ident, Variable>>,
     err_arg: RefCell<usize>,
 }
+unsafe impl Sync for Scope {} // TODO: Fix
 
 impl Debug for Scope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -132,22 +131,22 @@ impl Debug for Scope {
 }
 
 impl Scope {
-    pub fn new(parent: Option<Rc<Scope>>) -> Rc<Scope> {
-        Rc::new(Self {
+    pub fn new(parent: Option<Arc<Scope>>) -> Arc<Scope> {
+        Arc::new(Self {
             parent,
             vars: RefCell::new(HashMap::new()),
             err_arg: RefCell::default(),
         })
     }
 
-    pub fn with_env_vars() -> Rc<Scope> {
+    pub fn with_env_vars() -> Arc<Scope> {
         env::set_var("SHELL", executable().unwrap_or("mysh".to_string()));
 
         let vars: HashMap<Ident, Variable> = env::vars()
             .map(|(key, value)| (Ident(key), Variable::from(value.as_str())))
             .collect::<HashMap<_, _>>();
 
-        Rc::new(Scope {
+        Arc::new(Scope {
             parent: None,
             vars: RefCell::new(vars),
             err_arg: RefCell::default(),

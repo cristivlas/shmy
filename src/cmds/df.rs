@@ -7,6 +7,7 @@ use std::io::Error;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{ERROR_NO_MORE_FILES, MAX_PATH};
 use windows::Win32::Storage::FileSystem::{
@@ -55,7 +56,7 @@ impl DiskFree {
     }
 
     fn disk_free_info(
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         path: &Path,
         args: &[String],
     ) -> Result<DiskFreeInfo, String> {
@@ -87,7 +88,7 @@ impl DiskFree {
     }
 
     fn print_disk_free(
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         flags: &CommandFlags,
         path: &Path,
         max_len: usize,
@@ -118,7 +119,7 @@ impl DiskFree {
     }
 }
 
-fn root_path_from_str(scope: &Rc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
+fn root_path_from_str(scope: &Arc<Scope>, path: &str, args: &[String]) -> Result<PathBuf, String> {
     let canonical_path = Path::new(path)
         .canonicalize()
         .map_err(|e| format_error(scope, path, args, e))?;
@@ -177,7 +178,7 @@ fn enumerate_volumes() -> Vec<String> {
 }
 
 impl Exec for DiskFree {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let volumes = flags.parse(scope, args)?;
 

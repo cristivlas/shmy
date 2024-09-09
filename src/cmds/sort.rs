@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Sort {
     flags: CommandFlags,
@@ -62,7 +63,7 @@ impl Sort {
 }
 
 impl Exec for Sort {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 

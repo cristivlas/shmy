@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Evaluate {
     flags: CommandFlags,
@@ -23,7 +24,7 @@ impl Evaluate {
 }
 
 impl Exec for Evaluate {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let eval_args = flags.parse(scope, args)?;
 
@@ -65,7 +66,7 @@ impl Exec for Evaluate {
                 arg.to_owned()
             };
 
-            match interp.eval(&input, Some(Rc::clone(&scope))) {
+            match interp.eval(&input, Some(Arc::clone(&scope))) {
                 Err(e) => {
                     e.show(scope, &input);
                     let err_expr = if scope.use_colors(&std::io::stderr()) {

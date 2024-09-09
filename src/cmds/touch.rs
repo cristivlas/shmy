@@ -6,6 +6,7 @@ use filetime::FileTime;
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 struct Touch {
@@ -27,7 +28,7 @@ impl Touch {
 }
 
 impl Exec for Touch {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let command_args = flags.parse_all(scope, args);
 

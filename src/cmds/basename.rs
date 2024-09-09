@@ -2,6 +2,7 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Basename {
     flags: CommandFlags,
@@ -16,7 +17,7 @@ impl Basename {
 }
 
 impl Exec for Basename {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
 

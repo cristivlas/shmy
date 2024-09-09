@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use url::Url;
 
 struct Grep {
@@ -49,7 +50,7 @@ impl Grep {
 
     fn collect_files(
         &self,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         args: &[String], // Original args, for finding bad arg index in case of error
         paths: &[String],
         follow: bool,
@@ -182,7 +183,7 @@ impl Grep {
 }
 
 impl Exec for Grep {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let grep_args = flags.parse(scope, args)?;
 

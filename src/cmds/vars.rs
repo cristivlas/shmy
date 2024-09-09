@@ -3,6 +3,7 @@ use crate::{eval::Value, scope::Ident, scope::Scope, scope::Variable};
 use std::collections::BTreeMap;
 use std::env;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Vars {
     flags: CommandFlags,
@@ -16,9 +17,9 @@ impl Vars {
         Vars { flags }
     }
 
-    fn collect_vars(scope: &Rc<Scope>, local_only: bool) -> BTreeMap<Ident, Variable> {
+    fn collect_vars(scope: &Arc<Scope>, local_only: bool) -> BTreeMap<Ident, Variable> {
         let mut all_vars = BTreeMap::new();
-        let mut current_scope = Some(Rc::clone(scope));
+        let mut current_scope = Some(Arc::clone(scope));
 
         while let Some(scope) = current_scope {
             for (key, value) in scope.vars.borrow().iter() {
@@ -29,7 +30,7 @@ impl Vars {
             if local_only {
                 break;
             }
-            current_scope = scope.parent.as_ref().map(Rc::clone);
+            current_scope = scope.parent.as_ref().map(Arc::clone);
         }
 
         all_vars
@@ -37,7 +38,7 @@ impl Vars {
 }
 
 impl Exec for Vars {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
 

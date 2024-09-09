@@ -5,6 +5,7 @@ use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Mv {
     flags: CommandFlags,
@@ -26,7 +27,7 @@ impl Mv {
         dest: &Path,
         interactive: &mut bool,
         one_of_many: bool,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
     ) -> Result<bool, String> {
         let final_dest = if dest.is_dir() {
             dest.join(
@@ -79,7 +80,7 @@ impl Mv {
         Ok(true) // Continue with next file, if any
     }
 
-    fn get_dest_path(scope: &Rc<Scope>, path: &str) -> Result<PathBuf, String> {
+    fn get_dest_path(scope: &Arc<Scope>, path: &str) -> Result<PathBuf, String> {
         Ok(PathBuf::from(path).resolve().unwrap_or(
             Path::new(".")
                 .canonicalize()
@@ -90,7 +91,7 @@ impl Mv {
 }
 
 impl Exec for Mv {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 

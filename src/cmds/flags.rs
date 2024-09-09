@@ -1,6 +1,6 @@
 use crate::scope::Scope;
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone)]
 struct Flag {
@@ -57,7 +57,7 @@ impl CommandFlags {
         self.add(Some(short), long, true, help);
     }
 
-    pub fn parse(&mut self, scope: &Rc<Scope>, args: &[String]) -> Result<Vec<String>, String> {
+    pub fn parse(&mut self, scope: &Arc<Scope>, args: &[String]) -> Result<Vec<String>, String> {
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
 
@@ -78,7 +78,7 @@ impl CommandFlags {
     /// Parse flags ignoring unrecognized flags.
     /// Useful when command needs to process arguments containing dashes, e.g. ```chmod a-w```
     /// and when passing commands to `run` and `sudo`.
-    pub fn parse_all(&mut self, scope: &Rc<Scope>, args: &[String]) -> Vec<String> {
+    pub fn parse_all(&mut self, scope: &Arc<Scope>, args: &[String]) -> Vec<String> {
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
 
@@ -102,7 +102,7 @@ impl CommandFlags {
 
     fn handle_long_flag(
         &mut self,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         arg: &str,
         args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
@@ -128,7 +128,7 @@ impl CommandFlags {
 
     fn handle_short_flags(
         &mut self,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         arg: &str,
         args_iter: &mut ArgsIter,
     ) -> Result<(), String> {

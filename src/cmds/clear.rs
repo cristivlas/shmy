@@ -2,6 +2,7 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use clearscreen;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Clear {
     flags: CommandFlags,
@@ -17,7 +18,7 @@ impl Clear {
 }
 
 impl Exec for Clear {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
 

@@ -3,6 +3,7 @@ use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Run {
     flags: CommandFlags,
@@ -30,7 +31,7 @@ impl Run {
 }
 
 impl Exec for Run {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut command_args = flags.parse_all(scope, args);
 

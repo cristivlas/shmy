@@ -4,6 +4,7 @@ use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use open;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Open {
     flags: CommandFlags,
@@ -21,7 +22,7 @@ impl Open {
 }
 
 impl Exec for Open {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 

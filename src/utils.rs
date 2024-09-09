@@ -3,11 +3,11 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Copy variables from the current scope outwards into the environment of the
 /// command to be executed, but do not carry over special redirect variables.
-pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Rc<Scope>) {
+pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Arc<Scope>) {
     // Override existing environment variables
     command.env_clear();
 

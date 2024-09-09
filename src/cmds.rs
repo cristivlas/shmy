@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use which::which;
 mod flags;
 use flags::CommandFlags;
@@ -50,7 +50,7 @@ mod vars;
 mod wc;
 
 pub trait Exec {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String>;
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String>;
 
     fn is_external(&self) -> bool {
         false
@@ -86,7 +86,7 @@ impl Debug for ShellCommand {
 }
 
 impl Exec for ShellCommand {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
     }
 
@@ -234,7 +234,7 @@ impl External {
 }
 
 impl Exec for External {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut command = self.prepare_command(args);
         copy_vars_to_command_env(&mut command, &scope);
 
@@ -298,7 +298,7 @@ impl Which {
 }
 
 impl Exec for Which {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
 

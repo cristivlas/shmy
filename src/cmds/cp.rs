@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::io::{self, ErrorKind::Other, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
@@ -82,7 +83,7 @@ struct FileCopier<'a> {
     preserve_metadata: bool,
     progress: Option<ProgressBar>,
     recursive: bool,
-    scope: &'a Rc<Scope>,
+    scope: &'a Arc<Scope>,
     srcs: &'a [String], // Source paths from the command line
     args: &'a [String], // All the original command line args
     visited: HashSet<PathBuf>,
@@ -94,7 +95,7 @@ impl<'a> FileCopier<'a> {
     fn new(
         paths: &'a [String],
         flags: &CommandFlags,
-        scope: &'a Rc<Scope>,
+        scope: &'a Arc<Scope>,
         args: &'a [String],
     ) -> Self {
         Self {
@@ -606,7 +607,7 @@ impl Cp {
 }
 
 impl Exec for Cp {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let paths = flags.parse(scope, args)?;
 

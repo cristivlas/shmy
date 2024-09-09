@@ -17,6 +17,7 @@ use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::Arc;
 use terminal_size::{terminal_size, Width};
 
 pub const KEYWORDS: [&str; 8] = [
@@ -190,7 +191,7 @@ impl Location {
     }
 
     /// Format error message with this location.
-    pub fn error<T: IsTerminal>(&self, scope: &Rc<Scope>, message: &str, output: &T) -> String {
+    pub fn error<T: IsTerminal>(&self, scope: &Arc<Scope>, message: &str, output: &T) -> String {
         if scope.use_colors(output) {
             match &self.file {
                 Some(file) => format!(
@@ -245,7 +246,7 @@ impl Status {
         }))
     }
 
-    fn as_bool(&mut self, scope: &Rc<Scope>) -> bool {
+    fn as_bool(&mut self, scope: &Arc<Scope>) -> bool {
         if let Err(e) = &self.result {
             Self::append_line_to(scope, "__errors", format!("{}: {}", self.cmd, &e.message));
         }
@@ -283,7 +284,7 @@ impl Status {
         result
     }
 
-    fn append_line_to(scope: &Rc<Scope>, var_name: &str, info: String) {
+    fn append_line_to(scope: &Arc<Scope>, var_name: &str, info: String) {
         match &scope.lookup_local(var_name) {
             Some(v) => {
                 v.assign(Value::new_str(format!("{}\n{}", v.value().as_str(), info)));
@@ -429,7 +430,7 @@ impl EvalError {
     }
 
     /// Show error details, with colors.
-    pub fn show(&self, scope: &Rc<Scope>, input: &str) {
+    pub fn show(&self, scope: &Arc<Scope>, input: &str) {
         let stderr = std::io::stderr();
         eprintln!("{}", self.loc.error(scope, &self.message, &stderr));
 
@@ -485,9 +486,9 @@ struct Parser<I: Iterator<Item = char>> {
     expect_else_expr: bool,
     empty: Rc<Expression>,
     current_expr: Rc<Expression>,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
     expr_stack: Vec<Rc<Expression>>,
-    scope_stack: Vec<Rc<Scope>>,
+    scope_stack: Vec<Arc<Scope>>,
     group: Rc<Expression>,
     group_stack: Vec<Rc<Expression>>,
     globbed_tokens: Vec<String>,
@@ -551,7 +552,7 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
-    fn new(input: T, scope: &Rc<Scope>, file: Option<Rc<String>>) -> Self {
+    fn new(input: T, scope: &Arc<Scope>, file: Option<Rc<String>>) -> Self {
         let empty = Rc::new(Expression::Empty);
         let loc = Location::with_file(file);
 
@@ -565,7 +566,7 @@ where
             expect_else_expr: false,
             empty: Rc::clone(&empty),
             current_expr: Rc::clone(&empty),
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
             expr_stack: Vec::new(),
             scope_stack: Vec::new(),
             group: new_group(&loc, &scope),
@@ -993,7 +994,7 @@ where
     fn push(&mut self, group: Group) -> EvalResult {
         if group != Group::None {
             // Save the current scope
-            let current_scope = Rc::clone(&self.scope);
+            let current_scope = Arc::clone(&self.scope);
             self.scope_stack.push(current_scope.clone());
             // Create new scope and make it current
             self.scope = Scope::new(Some(current_scope));
@@ -1080,7 +1081,7 @@ where
                             else_branch: self.empty(),
                             expect_else: false, // becomes true once "else" keyword is seen
                             loc: self.prev_loc.clone(),
-                            scope: Rc::clone(&self.scope),
+                            scope: Arc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "IN" {
@@ -1110,7 +1111,7 @@ where
                             args: self.empty(),
                             body: self.empty(),
                             loc: self.prev_loc.clone(),
-                            scope: Rc::clone(&self.scope),
+                            scope: Arc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                         self.current_expr = expr;
@@ -1119,14 +1120,14 @@ where
                             cond: self.empty(),
                             body: self.empty(),
                             loc: self.prev_loc.clone(),
-                            scope: Rc::clone(&self.scope),
+                            scope: Arc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     } else if word == "BREAK" || word == "CONTINUE" {
                         let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                             text: Text::new(word.to_owned(), false, false),
                             loc: self.prev_loc.clone(),
-                            scope: Rc::clone(&self.scope),
+                            scope: Arc::clone(&self.scope),
                         })));
                         self.add_expr(&expr)?;
                     }
@@ -1138,7 +1139,7 @@ where
                                 cmd,
                                 args: self.empty(),
                                 loc: self.prev_loc.clone(),
-                                scope: Rc::clone(&self.scope),
+                                scope: Arc::clone(&self.scope),
                             })));
                             self.add_expr(&expr)?;
 
@@ -1152,7 +1153,7 @@ where
                     let expr = Rc::new(Expression::Leaf(Rc::new(Literal {
                         text: text.clone(),
                         loc: self.prev_loc.clone(),
-                        scope: Rc::clone(&self.scope),
+                        scope: Arc::clone(&self.scope),
                     })));
                     if !self.current_expr.is_empty() || !self.rewrite_pipeline(&expr)? {
                         self.add_expr(&expr)?;
@@ -1174,7 +1175,7 @@ where
                         lhs: Rc::clone(&self.current_expr),
                         rhs: self.empty(),
                         loc: self.prev_loc.clone(),
-                        scope: Rc::clone(&self.scope),
+                        scope: Arc::clone(&self.scope),
                     })));
 
                     self.prev_loc = self.loc();
@@ -1245,7 +1246,7 @@ where
                 lhs: Rc::clone(&head),
                 rhs: Rc::clone(&expr),
                 loc: expr.loc(),
-                scope: Rc::clone(&self.scope),
+                scope: Arc::clone(&self.scope),
             })));
 
             Ok(true)
@@ -1281,7 +1282,7 @@ where
 /// "${NAME/(\\w+) (\\w+)/\\2, \\1}"   -> "Doe, John"
 /// "${GREETING/(Hello), (World)!/\\2 says \\1}" -> "World says Hello"
 /// ```
-fn parse_value(s: &str, loc: &Location, scope: &Rc<Scope>) -> EvalResult<Value> {
+fn parse_value(s: &str, loc: &Location, scope: &Arc<Scope>) -> EvalResult<Value> {
     let re = Regex::new(r"\$\{([^}]+)\}|\$([a-zA-Z0-9_$@#][a-zA-Z0-9_]*)")
         .map_err(|e| EvalError::new(loc.clone(), e.to_string()))?;
 
@@ -1521,7 +1522,7 @@ struct BinExpr {
     lhs: Rc<Expression>,
     rhs: Rc<Expression>,
     loc: Location,
-    scope: Rc<Scope>, // Scope needed for assignment op.
+    scope: Arc<Scope>, // Scope needed for assignment op.
 }
 
 derive_has_location!(BinExpr);
@@ -2092,28 +2093,28 @@ enum Group {
 struct GroupExpr {
     kind: Group,
     closed: bool,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
     content: Vec<Rc<Expression>>,
     loc: Location,
 }
 
 impl GroupExpr {
-    fn new_args(loc: &Location, scope: &Rc<Scope>) -> Self {
+    fn new_args(loc: &Location, scope: &Arc<Scope>) -> Self {
         Self {
             kind: Group::Args,
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
             content: Vec::new(),
             loc: loc.clone(),
             closed: false,
         }
     }
 
-    fn new_group(loc: &Location, scope: &Rc<Scope>) -> Self {
+    fn new_group(loc: &Location, scope: &Arc<Scope>) -> Self {
         Self {
             kind: Group::Block,
             content: Vec::new(),
             loc: loc.clone(),
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
             closed: false,
         }
     }
@@ -2192,7 +2193,7 @@ struct Command {
     cmd: ShellCommand,
     args: Rc<Expression>,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 derive_has_location!(Command);
@@ -2228,7 +2229,7 @@ enum Redirection {
 
 impl Redirection {
     fn with_scope(
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         name: &str,
         other: &str,
         other_desc: &str,
@@ -2244,7 +2245,7 @@ impl Redirection {
     }
 
     fn redirect(
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         name: &str,
         other: &str,
         other_desc: &str,
@@ -2397,7 +2398,7 @@ struct BranchExpr {
     else_branch: Rc<Expression>,
     expect_else: bool,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 derive_has_location!(BranchExpr);
@@ -2412,7 +2413,7 @@ impl BranchExpr {
     }
 }
 
-fn hoist(scope: &Rc<Scope>, var_name: &str) {
+fn hoist(scope: &Arc<Scope>, var_name: &str) {
     if let Some(v) = scope.lookup_local(var_name) {
         if let Some(parent) = &scope.parent {
             // topmost scope is for environment vars
@@ -2423,7 +2424,7 @@ fn hoist(scope: &Rc<Scope>, var_name: &str) {
     }
 }
 
-fn value_as_bool<L: HasLocation>(loc: &L, val: &Value, scope: &Rc<Scope>) -> EvalResult<bool> {
+fn value_as_bool<L: HasLocation>(loc: &L, val: &Value, scope: &Arc<Scope>) -> EvalResult<bool> {
     let result = match val {
         Value::Int(i) => *i != 0,
         Value::Real(r) => *r != 0.0,
@@ -2441,7 +2442,7 @@ fn value_as_bool<L: HasLocation>(loc: &L, val: &Value, scope: &Rc<Scope>) -> Eva
     Ok(result)
 }
 
-fn eval_as_bool(expr: &Rc<Expression>, scope: &Rc<Scope>) -> EvalResult<bool> {
+fn eval_as_bool(expr: &Rc<Expression>, scope: &Arc<Scope>) -> EvalResult<bool> {
     let value = expr.eval()?;
     value_as_bool(&**expr, &value, &scope)
 }
@@ -2505,7 +2506,7 @@ impl fmt::Display for BranchExpr {
 struct Literal {
     text: Text,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 derive_has_location!(Literal);
@@ -2535,7 +2536,7 @@ struct LoopExpr {
     cond: Rc<Expression>,
     body: Rc<Expression>,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 derive_has_location!(LoopExpr);
@@ -2614,7 +2615,7 @@ struct ForExpr {
     args: Rc<Expression>,
     body: Rc<Expression>,
     loc: Location,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 derive_has_location!(ForExpr);
@@ -2679,7 +2680,7 @@ fn eval_unary<T: HasLocation>(
     loc: &T,
     op: &Op,
     val: Value,
-    scope: &Rc<Scope>,
+    scope: &Arc<Scope>,
 ) -> EvalResult<Value> {
     match op {
         Op::Minus => match val {
@@ -2720,18 +2721,18 @@ impl Eval for Expression {
 }
 
 pub struct Interp {
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
     file: Option<Rc<String>>,
     pub quit: bool,
 }
 
-fn new_args(loc: &Location, scope: &Rc<Scope>) -> Rc<Expression> {
+fn new_args(loc: &Location, scope: &Arc<Scope>) -> Rc<Expression> {
     Rc::new(Expression::Args(RefCell::new(GroupExpr::new_args(
         loc, &scope,
     ))))
 }
 
-fn new_group(loc: &Location, scope: &Rc<Scope>) -> Rc<Expression> {
+fn new_group(loc: &Location, scope: &Arc<Scope>) -> Rc<Expression> {
     Rc::new(Expression::Group(RefCell::new(GroupExpr::new_group(
         loc, &scope,
     ))))
@@ -2746,7 +2747,7 @@ impl Interp {
         }
     }
 
-    pub fn eval(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+    pub fn eval(&mut self, input: &str, scope: Option<Arc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
         if self.scope.lookup("__dump_ast").is_some() {
@@ -2756,19 +2757,19 @@ impl Interp {
     }
 
     #[cfg(test)]
-    pub fn eval_status(&mut self, input: &str, scope: Option<Rc<Scope>>) -> EvalResult<Value> {
+    pub fn eval_status(&mut self, input: &str, scope: Option<Arc<Scope>>) -> EvalResult<Value> {
         let result = self.eval(input, scope);
         Status::check_result(result, false)
     }
 
-    fn parse(&mut self, input: &str, eval_scope: Option<Rc<Scope>>) -> EvalResult<Rc<Expression>> {
+    fn parse(&mut self, input: &str, eval_scope: Option<Arc<Scope>>) -> EvalResult<Rc<Expression>> {
         let scope = {
             if let Some(scope) = eval_scope {
                 scope
             } else {
                 // Create a child scope of the global scope; the global scope contains
                 // the environmental vars, which should be preserved between evaluations.
-                Scope::new(Some(Rc::clone(&self.scope)))
+                Scope::new(Some(Arc::clone(&self.scope)))
             }
         };
 
@@ -2781,8 +2782,8 @@ impl Interp {
         self.scope.insert(name.to_string(), Value::new_str(value))
     }
 
-    pub fn global_scope(&self) -> Rc<Scope> {
-        Rc::clone(&self.scope)
+    pub fn global_scope(&self) -> Arc<Scope> {
+        Arc::clone(&self.scope)
     }
 
     pub fn set_file(&mut self, file: Option<Rc<String>>) {

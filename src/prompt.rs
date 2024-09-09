@@ -8,6 +8,7 @@ use regex::{escape, Regex};
 use std::env;
 use std::io::{self, Write};
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(PartialEq)]
 pub enum Answer {
@@ -17,7 +18,7 @@ pub enum Answer {
     Quit,
 }
 
-pub fn confirm(prompt: String, scope: &Rc<Scope>, one_of_many: bool) -> io::Result<Answer> {
+pub fn confirm(prompt: String, scope: &Arc<Scope>, one_of_many: bool) -> io::Result<Answer> {
     // Bypass confirmation?
     if scope.lookup("NO_CONFIRM").is_some() {
         return Ok(Answer::Yes);
@@ -120,15 +121,15 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
 }
 
 pub struct PromptBuilder {
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
     prompt: String,
     elevated: bool,
 }
 
 impl PromptBuilder {
-    pub fn with_scope(scope: &Rc<Scope>) -> Self {
+    pub fn with_scope(scope: &Arc<Scope>) -> Self {
         Self {
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
             prompt: String::new(),
             elevated: Self::is_elevated(),
         }
@@ -144,7 +145,7 @@ impl PromptBuilder {
         self.build(spec.as_str())
     }
 
-    fn prompt_spec(scope: &Rc<Scope>) -> Rc<String> {
+    fn prompt_spec(scope: &Arc<Scope>) -> Rc<String> {
         if let Some(var) = scope.lookup("__prompt") {
             var.value().to_rc_string()
         } else {

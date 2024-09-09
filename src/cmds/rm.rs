@@ -6,13 +6,14 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Context {
     interactive: bool,
     recursive: bool,
     many: bool,
     quit: bool,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 impl Context {
@@ -123,7 +124,7 @@ impl Remove {
 }
 
 impl Exec for Remove {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let paths = flags.parse(scope, args)?;
 
@@ -144,7 +145,7 @@ impl Exec for Remove {
             recursive: flags.is_present("recursive"),
             many: paths.len() > 1,
             quit: false,
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
         };
 
         // Use a set to dedupe inputs, e.g. avoid ```rm *.rs *.rs``` resulting in error.

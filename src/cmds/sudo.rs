@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
 use std::rc::Rc;
+use std::sync::Arc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
 use windows::Win32::System::Registry::HKEY;
@@ -73,7 +74,7 @@ impl Sudo {
 }
 
 impl Exec for Sudo {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut command_args = flags.parse_all(scope, args);
 

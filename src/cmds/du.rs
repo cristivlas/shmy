@@ -5,13 +5,14 @@ use std::fs;
 use std::io::Error;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct DiskUtilization {
     flags: CommandFlags,
 }
 
 impl Exec for DiskUtilization {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut paths: Vec<String> = flags.parse(scope, args)?;
 
@@ -42,7 +43,8 @@ impl Exec for DiskUtilization {
             // Set the argument index in case there's an error
             scope.err_path_arg(p, args);
 
-            let mut file_ids = HashSet::new();
+            let mut file_ids: HashSet<(u64, u64)> = HashSet::new();
+
             let path = PathBuf::from(p);
             let size = du_size(&path, &opts, scope, 0, &mut file_ids)?;
 
@@ -97,7 +99,7 @@ struct Options {
 fn du_size(
     path: &Path,
     opts: &Options,
-    scope: &Rc<Scope>,
+    scope: &Scope,
     depth: usize,
     file_ids: &mut HashSet<(u64, u64)>,
 ) -> Result<u64, String> {
@@ -105,8 +107,7 @@ fn du_size(
     if path.is_symlink() {
         return Ok(0);
     }
-
-    let mut size: u64 = estimate_disk_size(&opts, file_ids, path)
+    let mut size = estimate_disk_size(&opts, file_ids, path)
         .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
 
     if path.is_dir() {

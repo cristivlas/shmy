@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Diff {
     flags: CommandFlags,
@@ -22,7 +23,7 @@ impl Diff {
 }
 
 impl Exec for Diff {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let fnames = flags.parse(scope, args)?;
 
@@ -64,7 +65,7 @@ impl Exec for Diff {
 fn read_file(
     filename: &str, // As given in the command line
     path: &Path,    // Resolved path
-    scope: &Rc<Scope>,
+    scope: &Arc<Scope>,
     args: &Vec<String>,
 ) -> Result<Vec<String>, String> {
     let file = File::open(path).map_err(|e| format_error(scope, filename, args, e))?;

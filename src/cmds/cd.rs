@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::env;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct ChangeDir {
     stack: RefCell<Vec<String>>,
@@ -25,7 +26,7 @@ impl ChangeDir {
         }
     }
 
-    fn do_chdir(&self, scope: &Rc<Scope>, dir: &str) -> Result<(), String> {
+    fn do_chdir(&self, scope: &Arc<Scope>, dir: &str) -> Result<(), String> {
         let path = Path::new(dir).resolve().map_err(|e| e.to_string())?;
 
         env::set_current_dir(&path)
@@ -33,7 +34,7 @@ impl ChangeDir {
         Ok(())
     }
 
-    fn chdir(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn chdir(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(scope, args)?;
 
@@ -95,7 +96,7 @@ impl ChangeDir {
 }
 
 impl Exec for ChangeDir {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         self.chdir(name, args, scope)
     }
 }
@@ -109,7 +110,7 @@ impl PrintWorkingDir {
 }
 
 impl Exec for PrintWorkingDir {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let _ = flags.parse(scope, args)?;
 

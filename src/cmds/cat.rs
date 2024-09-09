@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 enum Mode {
     Cat,
@@ -41,7 +42,7 @@ impl CatHeadTail {
 }
 
 impl Exec for CatHeadTail {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(scope, args)?;
 

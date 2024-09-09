@@ -15,6 +15,7 @@ use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::sync::Arc;
 use std::{env, usize};
 
 #[macro_use]
@@ -35,15 +36,15 @@ struct CmdLineHelper {
     completer: FilenameCompleter,
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 impl CmdLineHelper {
-    fn new(scope: Rc<Scope>) -> Self {
+    fn new(scope: Arc<Scope>) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
         }
     }
 
@@ -399,7 +400,7 @@ impl Shell {
 
     /// Populate global scope with argument variables.
     /// Return new child scope.
-    fn new_top_scope(&self) -> Rc<Scope> {
+    fn new_top_scope(&self) -> Arc<Scope> {
         let scope = &self.interp.global_scope();
         // Number of args (not including $0)
         scope.insert(
@@ -420,7 +421,7 @@ impl Shell {
             scope.insert(format!("{}", i), Value::Str(Rc::new(arg)));
         }
 
-        Scope::new(Some(Rc::clone(&scope)))
+        Scope::new(Some(Arc::clone(&scope)))
     }
 
     fn prompt(&mut self) -> &str {
@@ -503,7 +504,7 @@ impl Shell {
         self.interp.set_var("HOME", home_dir);
     }
 
-    fn show_result(&self, scope: &Rc<Scope>, input: &str, value: &eval::Value) {
+    fn show_result(&self, scope: &Arc<Scope>, input: &str, value: &eval::Value) {
         use strsim::levenshtein;
 
         if input.is_empty() {
@@ -554,7 +555,7 @@ impl Shell {
         INTERRUPT.store(false, SeqCst);
         let scope = self.new_top_scope();
 
-        match &self.interp.eval(input, Some(Rc::clone(&scope))) {
+        match &self.interp.eval(input, Some(Arc::clone(&scope))) {
             Ok(value) => {
                 // Did the expression eval result in running a command? Check for errors.
                 if let Value::Stat(status) = &value {

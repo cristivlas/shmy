@@ -3,6 +3,7 @@ use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Mkdir {
     flags: CommandFlags,
@@ -19,7 +20,7 @@ impl Mkdir {
 }
 
 impl Exec for Mkdir {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 

@@ -17,6 +17,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 use terminal_size::{terminal_size, Height, Width};
 
 struct LessViewer {
@@ -336,7 +337,7 @@ impl Less {
 }
 
 impl Exec for Less {
-    fn exec(&self, name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(scope, args)?;
 
@@ -370,7 +371,7 @@ impl Exec for Less {
 }
 
 fn run_less_viewer<R: BufRead>(
-    scope: &Rc<Scope>,
+    scope: &Arc<Scope>,
     flags: &CommandFlags,
     reader: R,
 ) -> io::Result<()> {

@@ -1,11 +1,11 @@
 use super::{
-    flags::CommandFlags, get_command, registered_commands, register_command, Exec,
-    ShellCommand,
+    flags::CommandFlags, get_command, register_command, registered_commands, Exec, ShellCommand,
 };
 use crate::{eval::Value, scope::Scope};
 use gag::BufferRedirect;
 use std::io::Read;
 use std::rc::Rc;
+use std::sync::Arc;
 use terminal_size::terminal_size;
 
 struct Help {
@@ -16,7 +16,8 @@ impl Help {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        Help { flags }
+
+        Self { flags }
     }
 
     fn print_interpreter_help() {
@@ -83,7 +84,7 @@ impl Help {
         println!();
     }
 
-    fn print_command_help(command: &str, scope: &Rc<Scope>) -> Result<(), String> {
+    fn print_command_help(command: &str, scope: &Arc<Scope>) -> Result<(), String> {
         match command {
             "exit" => {
                 println!("NAME");
@@ -179,7 +180,7 @@ impl Help {
 }
 
 impl Exec for Help {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 
@@ -194,9 +195,8 @@ impl Exec for Help {
         if args.is_empty() {
             Self::print_interpreter_help();
         } else {
-            for command in args {
+            for command in &args {
                 Self::print_command_help(&command, scope)?;
-
                 println!();
             }
         }

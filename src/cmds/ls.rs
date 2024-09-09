@@ -7,19 +7,20 @@ use core::fmt;
 use std::fs::{self, DirEntry, Metadata};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
 
 struct ColorScheme {
     use_colors: bool,
-    scope: Rc<Scope>,
+    scope: Arc<Scope>,
 }
 
 impl ColorScheme {
-    fn with_scope(scope: &Rc<Scope>) -> Self {
+    fn with_scope(scope: &Arc<Scope>) -> Self {
         Self {
             use_colors: scope.use_colors(&std::io::stdout()),
-            scope: Rc::clone(&scope),
+            scope: Arc::clone(&scope),
         }
     }
 
@@ -117,7 +118,7 @@ impl Dir {
         Self { flags }
     }
 
-    fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<Options, String> {
+    fn parse_args(&self, scope: &Arc<Scope>, args: &[String]) -> Result<Options, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(scope, args)?;
 
@@ -147,7 +148,7 @@ impl Dir {
 }
 
 impl Exec for Dir {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let opts = self.parse_args(scope, args)?;
         if opts.help {
             self.print_help();
@@ -369,7 +370,7 @@ fn get_owner_and_group(_: &Path, _: &fs::Metadata) -> (String, String) {
 #[cfg(windows)]
 use win::{get_owner_and_group, get_permissions};
 
-fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
+fn list_entries(scope: &Arc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
     for entry_path in &opts.paths {
         let path = Path::new(entry_path)
             .resolve()
@@ -392,7 +393,7 @@ fn list_entries(scope: &Rc<Scope>, opts: &Options, args: &Vec<String>) -> Result
     Ok(Value::success())
 }
 
-fn print_dir(scope: &Rc<Scope>, path: &Path, args: &Options) -> Result<(), String> {
+fn print_dir(scope: &Arc<Scope>, path: &Path, args: &Options) -> Result<(), String> {
     let entries =
         fs::read_dir(path).map_err(|e| format!("Cannot access {}: {}", path.display(), e))?;
 
@@ -483,7 +484,7 @@ fn print_simple_entries(
 }
 
 fn print_detailed_entries(
-    scope: &Rc<Scope>,
+    scope: &Arc<Scope>,
     entries: &Vec<DirEntry>,
     args: &Options,
 ) -> Result<(), String> {

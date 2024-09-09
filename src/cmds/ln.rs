@@ -4,6 +4,7 @@ use crate::scope::Scope;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Link {
     flags: CommandFlags,
@@ -26,7 +27,7 @@ impl Link {
         Self { flags }
     }
 
-    fn parse_args(&self, scope: &Rc<Scope>, args: &[String]) -> Result<Options, String> {
+    fn parse_args(&self, scope: &Arc<Scope>, args: &[String]) -> Result<Options, String> {
         let mut flags = self.flags.clone();
         let parsed_args = flags.parse(scope, args)?;
 
@@ -60,7 +61,7 @@ impl Link {
 }
 
 impl Exec for Link {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let opts = self.parse_args(scope, args)?;
 
         if opts.target.is_none() || opts.link_name.is_none() {
@@ -81,7 +82,7 @@ fn create_link(
     target: &str,
     link_name: &str,
     opts: &Options,
-    scope: &Rc<Scope>,
+    scope: &Arc<Scope>,
 ) -> Result<Value, String> {
     let target_path = Path::new(target);
     let link_path = Path::new(link_name);

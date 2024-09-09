@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Find {
     flags: CommandFlags,
@@ -22,7 +23,7 @@ impl Find {
 
     fn search(
         &self,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         file_name: &OsStr,
         path: &Path,
         regex: &Regex,
@@ -74,7 +75,7 @@ impl Find {
 }
 
 impl Exec for Find {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 

@@ -4,6 +4,7 @@ use chrono::prelude::*;
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Date {
     flags: CommandFlags,
@@ -27,7 +28,7 @@ impl Date {
 
     fn get_time_in_timezone(
         &self,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
         args: &[String],
         zone: &str,
     ) -> Result<DateTime<Tz>, String> {
@@ -53,7 +54,7 @@ impl Date {
 }
 
 impl Exec for Date {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let _args = flags.parse(scope, args)?;
 

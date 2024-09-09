@@ -3,6 +3,7 @@ use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 struct Chmod {
     flags: CommandFlags,
@@ -23,7 +24,7 @@ impl Chmod {
         mode: u32,
         recursive: bool,
         verbose: bool,
-        scope: &Rc<Scope>,
+        scope: &Arc<Scope>,
     ) -> Result<(), String> {
         if verbose {
             println!("changing permissions of '{}' to {:o}", path.display(), mode);
@@ -191,7 +192,7 @@ impl Chmod {
 }
 
 impl Exec for Chmod {
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Rc<Scope>) -> Result<Value, String> {
+    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let paths = flags.parse_all(scope, args);
 
