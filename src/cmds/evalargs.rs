@@ -89,7 +89,7 @@ impl Exec for Evaluate {
 
                     if export {
                         // Export variables from the eval scope to the global scope
-                        for (key, var) in scope.vars.borrow().iter() {
+                        for (key, var) in scope.vars().iter() {
                             if !key.is_special_var() {
                                 global_scope.insert(key.to_string(), var.value().clone());
                             }

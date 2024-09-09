@@ -22,7 +22,7 @@ impl Vars {
         let mut current_scope = Some(Arc::clone(scope));
 
         while let Some(scope) = current_scope {
-            for (key, value) in scope.vars.borrow().iter() {
+            for (key, value) in scope.vars().iter() {
                 if !all_vars.contains_key(key) {
                     all_vars.insert(key.clone(), value.clone());
                 }

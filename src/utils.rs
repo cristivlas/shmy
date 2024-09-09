@@ -13,7 +13,7 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Arc
 
     let mut current_scope = Some(scope);
     while let Some(scope) = &current_scope {
-        for (key, variable) in scope.vars.borrow().iter() {
+        for (key, variable) in scope.vars().iter() {
             if !key.is_special_var() {
                 command.env(&key.view(), variable.value().to_string());
             }
@@ -27,7 +27,7 @@ pub fn sync_env_vars(scope: &Scope) {
     // Remove each environment variable
     env::vars().for_each(|(key, _)| env::remove_var(key));
 
-    for (key, var) in scope.vars.borrow().iter() {
+    for (key, var) in scope.vars().iter() {
         env::set_var(key.as_str(), var.to_string());
     }
 }

@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::{atomic::Ordering::SeqCst, Arc};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Variable {
     val: RefCell<Value>,
 }
@@ -114,10 +114,9 @@ impl Ident {
 
 pub struct Scope {
     pub parent: Option<Arc<Scope>>,
-    pub vars: RefCell<HashMap<Ident, Variable>>,
-    err_arg: RefCell<usize>,
+    vars: RefCell<HashMap<Ident, Variable>>,
+    err_arg: RefCell<usize>, // Index of argument with error.
 }
-unsafe impl Sync for Scope {} // TODO: Fix
 
 impl Debug for Scope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -236,6 +235,11 @@ impl Scope {
         }
     }
 
+    pub fn vars(&self) -> Ref<HashMap<Ident, Variable>> {
+        self.vars.borrow()
+    }
+
+    /// Getter and setter for the index of argument with error.
     pub fn err_arg(&self) -> usize {
         *self.err_arg.borrow()
     }
