@@ -445,6 +445,19 @@ impl Shell {
                 self.interp
                     .global_scope()
                     .insert("NO_COLOR".to_string(), Value::Int(1));
+            } else {
+                //
+                // The colored crate has a SHOULD_COLORIZE singleton
+                // https://github.com/colored-rs/colored/blob/775ec9f19f099a987a604b85dc72ca83784f4e38/src/control.rs#L79
+                //
+                // If the very first command executed from our shell is redirected or piped, e.g.
+                // ```ls -al | cat```
+                // then the output of the command does not output to a terminal, and the 'colored' crate
+                // will cache that state and never colorize for the lifetime of the shell instance.
+                //
+                // The line below forces SHOULD_COLORIZE to be initialized early rather than lazily.
+                //
+                colored::control::unset_override();
             }
 
             while !self.interp.quit {
