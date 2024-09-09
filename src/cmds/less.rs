@@ -453,7 +453,13 @@ fn run_less_viewer<R: BufRead>(
 
     viewer.show_line_numbers = flags.is_present("number");
     viewer.use_color = scope.use_colors(&std::io::stdout());
-    viewer.status = filename;
+    if viewer.use_color {
+        if let Some(filename) = filename {
+            viewer.status = Some(format!("\x1b[7m{}\x1b[0m", &filename));
+        }
+    } else {
+        viewer.status = filename;
+    }
 
     viewer.run()
 }
