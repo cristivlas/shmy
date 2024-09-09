@@ -66,11 +66,12 @@ impl LessViewer {
         self.last_search = None;
     }
 
-    fn display_page(&self, stdout: &mut std::io::Stdout, buffer: &mut String) -> io::Result<()> {
+    fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
-        buffer.push('\n');
+        buffer.push_str("\r\n");
 
         let end = (self.current_line + self.screen_height).min(self.lines.len());
+
         for (index, line) in self.lines[self.current_line..end].iter().enumerate() {
             if self.show_line_numbers {
                 let line_number = self.current_line + index + 1;
@@ -84,7 +85,7 @@ impl LessViewer {
             if self.show_line_numbers {
                 buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
             }
-            buffer.push('\n');
+            buffer.push_str("\r\n");
         }
 
         if let Some(ref message) = self.status {
@@ -93,50 +94,62 @@ impl LessViewer {
             buffer.push(':');
         }
 
-        print!("{}", buffer);
+        write!(stdout, "{}", buffer)?;
         stdout.flush()?;
 
         Ok(())
     }
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
+        // Determine the effective width of the line to be displayed
         let effective_width = if self.show_line_numbers {
             self.screen_width.saturating_sub(self.line_num_width + 2)
         } else {
             self.screen_width
         };
 
-        let displayed = if line.len() > self.horizontal_scroll {
-            &line[self.horizontal_scroll..]
-        } else {
-            ""
-        };
-        let displayed = &displayed[..displayed.len().min(effective_width)];
+        // Compute the starting point based on horizontal scroll
+        let start_index = self.horizontal_scroll.min(line.len());
+        let end_index = (start_index + effective_width).min(line.len());
 
         if self.show_line_numbers {
             buffer.push_str("  ");
         }
 
+        // Handle search highlighting if present
         if let Some(ref search) = self.last_search {
-            let mut start = 0;
-            while let Some(index) = displayed[start..].find(search) {
-                let end = start + index + search.len();
-                buffer.push_str(&displayed[start..start + index]);
+            let mut start = start_index;
+            while let Some(index) = line[start..end_index].find(search) {
+                let search_start = start + index;
+                let search_end = search_start + search.len();
+
+                // Add text before the search match
+                buffer.push_str(&line[start..search_start]);
+
+                // Highlight the search term if colors are enabled
                 if self.use_color {
                     buffer.push_str("\x1b[43m\x1b[30m");
                 }
-                buffer.push_str(&displayed[start + index..end]);
+                buffer.push_str(&line[search_start..search_end]);
+
+                // Reset color after the match
                 if self.use_color {
                     buffer.push_str("\x1b[0m");
                 }
-                start = end;
+
+                // Move start after the matched search term
+                start = search_end;
             }
-            buffer.push_str(&displayed[start..]);
+
+            // Append any remaining text after the last search match
+            buffer.push_str(&line[start..end_index]);
         } else {
-            buffer.push_str(displayed);
+            // If no search, append the entire visible portion of the line
+            buffer.push_str(&line[start_index..end_index]);
         }
 
-        buffer.push('\n');
+        buffer.push_str("\r\n");
+
         Ok(())
     }
 
@@ -325,7 +338,6 @@ impl LessViewer {
                     _ => {}
                 }
 
-                // display_page if anythi
                 if current_line != self.current_line
                     || horizontal_scroll != self.horizontal_scroll
                     || search_dir != self.last_search_direction
@@ -358,12 +370,22 @@ impl LessViewer {
     }
 
     fn show_help(&self) -> io::Result<()> {
+        let help_text = if self.use_color {
+            "\x1b[7mb\x1b[0m Prev Page | \
+            \x1b[7mf\x1b[0m Next Page | \
+            \x1b[7m/\x1b[0m Search | \
+            \x1b[7m?\x1b[0m Search Backward | \
+            \x1b[7m:n\x1b[0m Next File | \
+            \x1b[7m:p\x1b[0m Prev File | \
+            \x1b[7m:q\x1b[0m Quit"
+        } else {
+            "b Prev Page | f Next Page | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit"
+        };
+
         io::stdout()
             .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(
-                "b Prev Page | f Next Page | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit".to_string(),
-            ))?
+            .queue(Print(help_text))?
             .flush()
     }
 }
