@@ -356,7 +356,7 @@ impl LessViewer {
             .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
             .queue(Print(
-                "b Prev Page | f Next Page | / Search | ? Search Backwards | :n Next File | :p Previous File | :q Quit".to_string(),
+                "b Prev Page | f Next Page | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit".to_string(),
             ))?
             .flush()
     }
