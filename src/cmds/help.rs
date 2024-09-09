@@ -1,9 +1,9 @@
 use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, Exec, ShellCommand,
 };
+use crate::utils::executable;
 use crate::{eval::Value, scope::Scope};
-use gag::BufferRedirect;
-use std::io::Read;
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 use terminal_size::terminal_size;
@@ -84,7 +84,7 @@ impl Help {
         println!();
     }
 
-    fn print_command_help(command: &str, scope: &Arc<Scope>) -> Result<(), String> {
+    fn print_command_help(command: &str, _scope: &Arc<Scope>) -> Result<(), String> {
         match command {
             "exit" => {
                 println!("NAME");
@@ -108,17 +108,17 @@ impl Help {
             }
             _ => match get_command(command) {
                 Some(cmd) => {
-                    let mut redirect = BufferRedirect::stdout()
-                        .map_err(|e| format!("Failed to set up buffer redirect: {}", e))?;
+                    let mut std_cmd = Command::new(executable()?);
+                    let child = std_cmd
+                        .arg("-c")
+                        .arg(cmd.name())
+                        .arg("-?")
+                        .stdout(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|e| e.to_string())?;
 
-                    cmd.exec(command, &vec!["-?".to_string()], scope)?;
-                    let mut output = String::new();
-                    redirect
-                        .read_to_string(&mut output)
-                        .map_err(|e| format!("Failed to read output: {}", e))?;
-                    drop(redirect);
-
-                    Self::print_help_output(command, &output);
+                    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+                    Self::print_help_output(command, &String::from_utf8_lossy(&output.stdout));
                 }
                 None => return Err(format!("Unknown command: {}", command)),
             },
