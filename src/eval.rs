@@ -1408,7 +1408,6 @@ impl Expression {
         match self {
             Expression::Args(group) => group.borrow().closed,
             Expression::Bin(bin_expr) => !&bin_expr.borrow().rhs.is_empty(),
-            Expression::Cmd(cmd) => !&cmd.borrow().args.is_empty(),
             Expression::Branch(branch) => {
                 let b = branch.borrow();
                 if b.expect_else && b.else_branch.is_empty() {
@@ -1416,9 +1415,10 @@ impl Expression {
                 }
                 !&b.if_branch.is_empty()
             }
-            Expression::Group(group) => group.borrow().closed,
-            Expression::For(for_expr) => !&for_expr.borrow().body.is_empty(),
+            Expression::Cmd(cmd) => !&cmd.borrow().args.is_empty(),
             Expression::Empty => false,
+            Expression::For(for_expr) => !&for_expr.borrow().body.is_empty(),
+            Expression::Group(group) => group.borrow().closed,
             Expression::Leaf(_) => true,
             Expression::Loop(loop_expr) => !&loop_expr.borrow().body.is_empty(),
         }
@@ -2709,11 +2709,11 @@ impl Eval for Expression {
             Expression::Bin(b) => b.borrow().eval(),
             Expression::Branch(b) => b.borrow().eval(),
             Expression::Cmd(c) => c.borrow().eval(),
-            Expression::Group(g) => g.borrow().eval(),
-            Expression::For(f) => f.borrow().eval(),
             Expression::Empty => {
                 panic!("Empty expression");
             }
+            Expression::For(f) => f.borrow().eval(),
+            Expression::Group(g) => g.borrow().eval(),
             Expression::Leaf(lit) => lit.eval(),
             Expression::Loop(l) => l.borrow().eval(),
         }
