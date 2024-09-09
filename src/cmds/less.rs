@@ -20,6 +20,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 use terminal_size::{terminal_size, Height, Width};
 
+enum FileAction {
+    NextFile,
+    PrevFile,
+    Quit,
+}
+
 struct LessViewer {
     lines: Vec<String>,
     current_line: usize,
@@ -225,19 +231,21 @@ impl LessViewer {
         }
     }
 
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> io::Result<FileAction> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
 
+        let mut action = FileAction::NextFile;
         let mut buffer = String::with_capacity(self.screen_width * self.screen_height);
 
         self.display_page(&mut stdout, &mut buffer)?;
 
         loop {
-            let (mut current_line, horizontal_scroll, search_term, show_lines) = (
+            let (mut current_line, horizontal_scroll, search_dir, search_term, show_lines) = (
                 self.current_line,
                 self.horizontal_scroll,
+                self.last_search_direction,
                 self.last_search.clone(),
                 self.show_line_numbers,
             );
@@ -249,7 +257,23 @@ impl LessViewer {
                 }
 
                 match key_event.code {
-                    KeyCode::Char('q') => break,
+                    KeyCode::F(1) => self.show_help()?,
+                    KeyCode::Char('h') => self.show_help()?,
+                    KeyCode::Char(':') => {
+                        let cmd = self.prompt_for_command(":")?;
+                        if cmd == "n" {
+                            action = FileAction::NextFile;
+                        } else if cmd == "p" {
+                            action = FileAction::PrevFile;
+                        } else if cmd == "q" {
+                            action = FileAction::Quit;
+                        }
+                        break;
+                    }
+                    KeyCode::Char('q') => {
+                        action = FileAction::Quit;
+                        break;
+                    }
                     KeyCode::Char('b') => self.prev_page(),
                     KeyCode::Char('f') => self.next_page(),
                     KeyCode::Char(' ') => self.next_page(),
@@ -271,17 +295,19 @@ impl LessViewer {
                             cursor::RestorePosition
                         )?;
 
-                        let prompt_char = if key_event.code == KeyCode::Char('/') {
-                            '/'
+                        let (prompt, forward) = if key_event.code == KeyCode::Char('/') {
+                            ("Search forward: ", true)
                         } else {
-                            '?'
+                            self.search_start_index = self.lines.len().saturating_sub(1);
+                            ("Search backward: ", false)
                         };
-                        let query = self.prompt_for_query(prompt_char)?;
+
+                        let query = self.prompt_for_command(&prompt)?;
                         if query.is_empty() {
                             self.status = None;
                             current_line = usize::MAX;
                         } else {
-                            self.search(&query, prompt_char == '/');
+                            self.search(&query, forward);
                         }
                     }
                     KeyCode::Char('n') => {
@@ -293,8 +319,10 @@ impl LessViewer {
                     _ => {}
                 }
 
+                // display_page if anythi
                 if current_line != self.current_line
                     || horizontal_scroll != self.horizontal_scroll
+                    || search_dir != self.last_search_direction
                     || search_term != self.last_search
                     || show_lines != self.show_line_numbers
                 {
@@ -305,21 +333,32 @@ impl LessViewer {
 
         execute!(stdout, LeaveAlternateScreen)?;
         disable_raw_mode()?;
-        Ok(())
+
+        Ok(action)
     }
 
-    fn prompt_for_query(&mut self, prompt_char: char) -> io::Result<String> {
+    fn prompt_for_command(&mut self, prompt: &str) -> io::Result<String> {
         let mut stdout = io::stdout();
         stdout
             .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(prompt_char.to_string()))?
+            .queue(Clear(ClearType::CurrentLine))?
             .flush()?;
 
-        let query = crate::prompt::read_input("Search: ")?;
+        let cmd = crate::prompt::read_input(prompt)?;
 
         stdout.queue(cursor::RestorePosition)?.flush()?;
-        Ok(query.trim().to_string())
+        Ok(cmd.trim().to_string())
+    }
+
+    fn show_help(&self) -> io::Result<()> {
+        io::stdout()
+            .queue(cursor::SavePosition)?
+            .queue(cursor::MoveTo(0, self.screen_height as u16))?
+            .queue(Print(
+                "b Prev Page | f Next Page | / Search | ? Search Backwards | :n Next File | :p Previous File | :q Quit".to_string(),
+            ))?
+            .flush()
     }
 }
 
@@ -352,9 +391,11 @@ impl Exec for Less {
         if filenames.is_empty() {
             let stdin = io::stdin();
             let reader = stdin.lock();
-            run_less_viewer(scope, &flags, reader).map_err(|e| e.to_string())?;
+            run_less_viewer(scope, &flags, reader, None).map_err(|e| e.to_string())?;
         } else {
-            for filename in &filenames {
+            let mut i: usize = 0;
+            loop {
+                let filename = filenames.get(i).unwrap();
                 let path = Path::new(filename)
                     .resolve()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
@@ -362,7 +403,14 @@ impl Exec for Less {
                 let file =
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let reader = BufReader::new(file);
-                run_less_viewer(scope, &flags, reader).map_err(|e| e.to_string())?;
+
+                match run_less_viewer(scope, &flags, reader, Some(filename.clone()))
+                    .map_err(|e| e.to_string())?
+                {
+                    FileAction::PrevFile => i = i.saturating_sub(1),
+                    FileAction::NextFile => i = std::cmp::min(i + 1, filenames.len() - 1),
+                    FileAction::Quit => break,
+                }
             }
         };
 
@@ -374,11 +422,13 @@ fn run_less_viewer<R: BufRead>(
     scope: &Arc<Scope>,
     flags: &CommandFlags,
     reader: R,
-) -> io::Result<()> {
+    filename: Option<String>,
+) -> io::Result<FileAction> {
     let mut viewer = LessViewer::new(reader)?;
 
     viewer.show_line_numbers = flags.is_present("number");
     viewer.use_color = scope.use_colors(&std::io::stdout());
+    viewer.status = filename;
 
     viewer.run()
 }
