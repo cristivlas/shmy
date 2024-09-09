@@ -1,6 +1,5 @@
 use crate::utils::copy_vars_to_command_env;
 use crate::{eval::Value, scope::Scope};
-use lazy_static::lazy_static;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -9,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use which::which;
 mod flags;
 use flags::CommandFlags;
@@ -105,10 +104,8 @@ impl Exec for ShellCommand {
 
 unsafe impl Send for ShellCommand {}
 
-lazy_static! {
-    pub static ref COMMAND_REGISTRY: Mutex<HashMap<String, ShellCommand>> =
-        Mutex::new(HashMap::new());
-}
+pub static COMMAND_REGISTRY: LazyLock<Mutex<HashMap<String, ShellCommand>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn register_command(command: ShellCommand) {
     COMMAND_REGISTRY
