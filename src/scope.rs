@@ -233,6 +233,10 @@ impl Scope {
         self.vars.insert(&Ident::from(name), val);
     }
 
+    pub fn insert_value(&self, name: &Arc<String>, val: Value) {
+        self.vars.insert(&Ident(Arc::clone(name)), val);
+    }
+
     pub fn lookup(&self, name: &str) -> Option<Ref<Variable>> {
         self.lookup_by_ident(&Ident::from(name))
     }

@@ -5,7 +5,7 @@ pub mod tests {
 
     pub fn eval(input: &str) -> EvalResult<Value> {
         // Workaround for cargo test using stdout redirection
-        let __stdout = io::stdout().lock();
+        let _stdout = io::stdout().lock();
 
         let mut interp = Interp::new();
         let result = interp.eval_status(input, None);

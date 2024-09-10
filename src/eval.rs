@@ -114,21 +114,29 @@ impl Op {
 
 #[derive(Clone, Debug, PartialEq)]
 struct Text {
-    value: String,
+    value: Arc<String>,
     quoted: bool,
     raw: bool,
 }
 
 impl Text {
     fn new(value: String, quoted: bool, raw: bool) -> Self {
-        Self { value, quoted, raw }
+        Self {
+            value: Arc::new(value),
+            quoted,
+            raw,
+        }
+    }
+
+    fn value(&self) -> String {
+        (*self.value).clone()
     }
 }
 
 impl From<String> for Token {
     fn from(value: String) -> Self {
         Token::Literal(Text {
-            value,
+            value: Arc::new(value),
             quoted: false,
             raw: false,
         })
@@ -236,8 +244,8 @@ pub struct Status {
 derive_has_location!(Status);
 
 impl Status {
-    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self {
+    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Arc<RefCell<Self>> {
+        Arc::new(RefCell::new(Self {
             checked: false,
             cmd,
             negated: false,
@@ -306,13 +314,13 @@ impl fmt::Display for Status {
 pub enum Value {
     Int(i64),
     Real(f64),
-    Str(Rc<String>),
-    Stat(Rc<RefCell<Status>>),
+    Str(Arc<String>),
+    Stat(Arc<RefCell<Status>>),
 }
 
 impl Default for Value {
     fn default() -> Self {
-        Value::Str(Rc::default())
+        Value::Str(Arc::default())
     }
 }
 
@@ -392,17 +400,17 @@ impl Value {
     }
 
     pub fn new_str(value: String) -> Self {
-        Value::Str(Rc::new(value))
+        Value::Str(Arc::new(value))
     }
 
     pub fn success() -> Self {
         Value::Int(0)
     }
 
-    pub fn to_rc_string(&self) -> Rc<String> {
+    pub fn to_rc_string(&self) -> Arc<String> {
         match self {
-            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Rc::new(self.to_string()),
-            Value::Str(s) => Rc::clone(&s),
+            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Arc::new(self.to_string()),
+            Value::Str(s) => Arc::clone(&s),
         }
     }
 }
@@ -1434,7 +1442,7 @@ impl Expression {
                     let quoted = if let Expression::Leaf(lit) = &**expr {
                         if lit.text.raw {
                             assert!(lit.text.quoted);
-                            tokens.push(lit.text.value.clone());
+                            tokens.push(lit.text.value());
                             continue;
                         }
                         lit.text.quoted
@@ -1639,7 +1647,7 @@ impl BinExpr {
                 }
             } else {
                 // Create new variable in the current scope
-                self.scope.insert(var_name.to_owned(), rhs.clone());
+                self.scope.insert_value(var_name, rhs.clone());
                 return Ok(rhs);
             }
         }
@@ -1881,7 +1889,7 @@ impl BinExpr {
                 self.eval_redirect(lhs)?
             };
             let value = Value::from_str(output.trim())?;
-            self.scope.insert(lit.text.value.clone(), value.clone());
+            self.scope.insert_value(&lit.text.value, value.clone());
 
             return Ok(Some(value));
         }
@@ -2648,7 +2656,7 @@ impl ExprNode for ForExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
             if let Expression::Leaf(lit) = &**child {
-                self.var = lit.text.value.clone();
+                self.var = lit.text.value();
                 return Ok(());
             }
             return error(self, "Expecting identifier in FOR expression");
