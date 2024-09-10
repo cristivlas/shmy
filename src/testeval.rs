@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod tests {
     use crate::eval::*;
-    use std::io;
+    use std::{io, str::FromStr};
 
     pub fn eval(input: &str) -> EvalResult<Value> {
         // Workaround for cargo test using stdout redirection
@@ -32,6 +32,18 @@ pub mod tests {
                 Ok(_) => panic!("Expected an error for expression '{}', but got Ok", $expr),
             }
         }};
+    }
+
+    #[test]
+    fn test_add() {
+        assert_eval_ok!("i = 2; $i + 1", Value::Int(3));
+        assert_eval_ok!("hello + 0", Value::from_str("hello0").unwrap());
+        assert_eval_ok!(
+            "hello + \" world!\"",
+            Value::from_str("hello world!").unwrap()
+        );
+        assert_eval_err!("1 + (echo)", "Cannot add number and command status");
+        assert_eval_err!("(echo) + 1", "Cannot add to command status");
     }
 
     #[test]
@@ -255,6 +267,10 @@ pub mod tests {
     fn test_mul() {
         assert_eval_err!("x = 2; y = 3; x * y", "Cannot multiply strings");
         assert_eval_ok!("x = 2; y = 3; $x * $y", Value::Int(6));
+
+        assert_eval_err!("x * 2", "Cannot multiply string by number");
+        assert_eval_err!("2 * x", "Cannot multiply number by string");
+        assert_eval_err!("(echo) * 2", "Cannot multiply command statuses");
     }
 
     #[test]
@@ -294,6 +310,32 @@ pub mod tests {
         assert_eval_ok!(
             "echo World | (echo Hello; cat) | cat | x; $x",
             Value::from("Hello\nWorld")
+        );
+    }
+
+    #[test]
+    fn test_power() {
+        assert_eval_ok!("2 ^ 14", Value::Int(16384));
+        assert_eval_ok!("2 ^ (-2)", Value::Real(0.25));
+        assert_eval_err!("x ^ 10", "Invalid base type");
+        assert_eval_err!("10 ^ x", "Exponent cannot be a string");
+        assert_eval_err!("(echo) ^ x", "Invalid base type");
+        assert_eval_err!("2 ^ (echo) ^ x", "Exponent cannot be a command status");
+    }
+
+    #[test]
+    fn test_sub() {
+        assert_eval_ok!("10000 - 2 ^ 14", Value::Int(-6384));
+        assert_eval_ok!("1 - 2 * 2 - 1", Value::Int(-4));
+        assert_eval_err!("x - y", "Cannot subtract strings");
+        assert_eval_err!("0 - y", "Cannot subtract string from number");
+        assert_eval_err!("x - 2", "Cannot subtract number from string");
+        assert_eval_err!("1 - (echo)", "Cannot subtract command status from number");
+        assert_eval_err!("(echo) -1", "Cannot subtract from command status");
+        assert_eval_err!("100 - (echo)", "Cannot subtract command status from number");
+        assert_eval_err!(
+            "hello - (echo)",
+            "Cannot subtract command status from string"
         );
     }
 
