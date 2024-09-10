@@ -55,7 +55,7 @@ impl Exec for Diff {
 
         let color = flags.is_present("color") && scope.use_colors(&std::io::stdout());
 
-        // unified view with no context lines.
+        // Unified view, no context lines.
         print(&grid, &files[0], &files[1], &fnames[0], &fnames[1], color)?;
 
         Ok(Value::success())
