@@ -131,12 +131,13 @@ impl Grid {
 fn diff(src: &[String], dest: &[String], grid: &mut Grid) {
     let mut queue = VecDeque::new();
 
+    // Push initial node. Distance is equal to traveling along one edge of the grid, then the other.
     queue.push_back(Node::new(0, 0, src.len() + dest.len(), Edit::None));
 
     while let Some(n) = queue.pop_front() {
         if let Some(m) = grid.at(n.i, n.j) {
             if m.d <= n.d {
-                continue;
+                continue; // A short path exists.
             }
         }
 
@@ -149,9 +150,11 @@ fn diff(src: &[String], dest: &[String], grid: &mut Grid) {
                     queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
                 }
             } else {
+                // "Source" exhausted, needs line insert(s) to catch up to the "destination" file.
                 queue.push_back(Node::new(n.i + 1, n.j, n.d - 1, Edit::Insert));
             }
         } else if n.j < src.len() {
+            // Destination exhausted, add source deletion node(s).
             queue.push_back(Node::new(n.i, n.j + 1, n.d - 1, Edit::Delete));
         }
         grid.insert(n);
