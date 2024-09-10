@@ -1,7 +1,7 @@
 use crate::eval::Value;
 use crate::utils::executable;
 use colored::*;
-use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
@@ -149,6 +149,10 @@ impl VarTable {
     fn inner(&self) -> Ref<HashMap<Ident, Variable>> {
         Ref::map(self.vars.borrow(), |vars| vars)
     }
+
+    fn inner_mut(&self) -> RefMut<HashMap<Ident, Variable>> {
+        RefMut::map(self.vars.borrow_mut(), |vars| vars)
+    }
 }
 
 impl Namespace for VarTable {
@@ -292,6 +296,10 @@ impl Scope {
 
     pub fn vars(&self) -> Ref<HashMap<Ident, Variable>> {
         self.vars.inner()
+    }
+
+    pub fn vars_mut(&self) -> RefMut<HashMap<Ident, Variable>> {
+        self.vars.inner_mut()
     }
 
     /// Getter and setter for the index of argument with error.

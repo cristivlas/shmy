@@ -157,11 +157,7 @@ impl PromptBuilder {
     }
 
     fn username(&self) -> Arc<String> {
-        if let Some(var) = self
-            .scope
-            .lookup("USER")
-            .or_else(|| self.scope.lookup("USERNAME"))
-        {
+        if let Some(var) = self.scope.lookup("USER").or(self.scope.lookup("USERNAME")) {
             var.value().to_rc_string()
         } else {
             Arc::default()
