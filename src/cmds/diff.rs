@@ -137,7 +137,7 @@ fn diff(src: &[String], dest: &[String], grid: &mut Grid) {
     while let Some(n) = queue.pop_front() {
         if let Some(m) = grid.at(n.i, n.j) {
             if m.d <= n.d {
-                continue; // A short path exists.
+                continue; // A shorter path exists.
             }
         }
 
