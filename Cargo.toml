@@ -2,6 +2,13 @@
 name = "mysh"
 version = "0.15.2"
 edition = "2021"
+authors = ["Cristian Vlasceanu"]
+description = "Command line interpreter with builtin, Unix-like utility commands, and WSL symbolic link support"
+readme = "README.md"
+repository = "https://github.com/cristivlas/mysh"
+license = "MIT"
+license-file = "LICENSE"
+keywords = ["shell", "wsl"]
 
 [dependencies]
 chrono = "0.4"
