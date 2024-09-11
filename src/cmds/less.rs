@@ -370,13 +370,14 @@ impl LessViewer {
         let help_text = if self.use_color {
             "\x1b[7mb\x1b[0m Prev Page | \
             \x1b[7mf\x1b[0m Next Page | \
+             \x1b[7mG\x1b[0m Scroll to End | \
             \x1b[7m/\x1b[0m Search | \
             \x1b[7m?\x1b[0m Search Backward | \
             \x1b[7m:n\x1b[0m Next File | \
             \x1b[7m:p\x1b[0m Prev File | \
             \x1b[7m:q\x1b[0m Quit"
         } else {
-            "b Prev Page | f Next Page | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit"
+            "b Prev Page | f Next Page | G Scroll to End | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit"
         };
 
         io::stdout()
