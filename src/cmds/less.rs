@@ -99,7 +99,7 @@ impl LessViewer {
         if let Some(ref message) = self.status {
             write!(stdout, "{}", message)?;
         } else {
-            write!(stdout, ":")?
+            write!(stdout, ":")?;
         }
         stdout.flush()?;
 
@@ -341,7 +341,6 @@ impl LessViewer {
                 {
                     self.display_page(&mut stdout, &mut buffer)?;
                 }
-                execute!(stdout, cursor::MoveTo(0, self.screen_height as u16))?;
             }
         }
 
@@ -438,8 +437,13 @@ impl Exec for Less {
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let reader = BufReader::new(file);
 
-                match run_viewer(scope, &flags, reader, Some(filename.clone()))
-                    .map_err(|e| e.to_string())?
+                match run_viewer(
+                    scope,
+                    &flags,
+                    reader,
+                    Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
+                )
+                .map_err(|e| e.to_string())?
                 {
                     FileAction::PrevFile => i = i.saturating_sub(1),
                     FileAction::NextFile => i = std::cmp::min(i + 1, filenames.len() - 1),
