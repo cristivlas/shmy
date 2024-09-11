@@ -22,14 +22,14 @@ impl Help {
 
     fn print_interpreter_help() {
         println!("NAME");
-        println!("    mysh - Lightweight command line interpreter");
+        println!("    shmy - Lightweight command line interpreter");
         println!();
         println!("SYNOPSIS");
-        println!("    mysh [-c COMMAND [ARGS]]");
-        println!("    mysh SCRIPT_FILE");
+        println!("    shmy [-c COMMAND [ARGS]]");
+        println!("    shmy SCRIPT_FILE");
         println!();
         println!("DESCRIPTION");
-        println!("    mysh is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
+        println!("    shmy is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
         println!("    It supports variable assignment and evaluation, conditional statements, loops, arithmetic and");
         println!(
             "    logical operations, command execution evaluation, output redirection, and pipes."
@@ -77,7 +77,7 @@ impl Help {
         Self::print_available_commands(4, 4);
         println!("SEE ALSO");
         println!("    help [COMMAND]");
-        println!("    https://github.com/cristivlas/mysh");
+        println!("    https://github.com/cristivlas/shmy");
         println!();
         println!("AUTHOR");
         println!("    Written by Cristian Vlasceanu");

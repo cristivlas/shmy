@@ -217,7 +217,7 @@ impl Scope {
     }
 
     pub fn with_env_vars() -> Arc<Scope> {
-        env::set_var("SHELL", executable().unwrap_or("mysh".to_string()));
+        env::set_var("SHELL", executable().unwrap_or("shmy".to_string()));
 
         let vars: HashMap<Ident, Variable> = env::vars()
             .map(|(key, value)| (Ident::from(key), Variable::from(value.as_str())))

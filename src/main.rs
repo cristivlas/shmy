@@ -379,10 +379,10 @@ impl Shell {
         assert!(self.home_dir.is_none());
         self.set_home_dir(&path);
 
-        path.push(".mysh");
+        path.push(".shmy");
 
         fs::create_dir_all(&path)
-            .map_err(|e| format!("Failed to create .mysh directory: {}", e))?;
+            .map_err(|e| format!("Failed to create .shmy directory: {}", e))?;
 
         self.profile = Some(path.join("profile"));
         path.push("history.txt");
@@ -439,7 +439,7 @@ impl Shell {
             rl.set_helper(Some(h));
             rl.load_history(&self.init_interactive_mode()?).unwrap();
 
-            self.source_profile()?; // source ~/.mysh/profile if found
+            self.source_profile()?; // source ~/.shmy/profile if found
 
             if !Term::stdout().features().colors_supported() {
                 self.interp
@@ -549,7 +549,7 @@ impl Shell {
     }
 
     fn source_profile(&self) -> Result<(), String> {
-        // Source ~/.mysh/profile if it exists
+        // Source ~/.shmy/profile if it exists
         if let Some(profile) = &self.profile {
             if profile.exists() {
                 let scope = self.new_top_scope();

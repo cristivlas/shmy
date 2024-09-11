@@ -49,12 +49,12 @@ pub fn executable() -> Result<String, String> {
                 #[cfg(windows)]
                 {
                     let re = Regex::new(r"\\deps\\.*?(\..*)?$").map_err(|e| e.to_string())?;
-                    Ok(re.replace(&path_str, "\\mysh$1").to_string())
+                    Ok(re.replace(&path_str, "\\shmy$1").to_string())
                 }
                 #[cfg(not(windows))]
                 {
                     let re = Regex::new(r"/deps/.+?(\..*)?$").map_err(|e| e.to_string())?;
-                    Ok(re.replace(&path_str, "/mysh$1").to_string())
+                    Ok(re.replace(&path_str, "/shmy$1").to_string())
                 }
             }
             #[cfg(not(test))]
