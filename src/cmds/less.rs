@@ -68,7 +68,6 @@ impl LessViewer {
 
     fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
-        buffer.push_str("\r");
 
         let end = (self.current_line + self.screen_height).min(self.lines.len());
 
@@ -82,16 +81,26 @@ impl LessViewer {
 
         // Fill any remaining lines with empty space
         for _ in end..self.current_line + self.screen_height {
+            buffer.push('~');
+            buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
             buffer.push_str("\r\n");
         }
 
-        if let Some(ref message) = self.status {
-            buffer.push_str(message);
-        } else {
-            buffer.push(':');
-        }
-
+        execute!(stdout, cursor::MoveTo(0, 0))?;
         write!(stdout, "{}", buffer)?;
+
+        execute!(
+            stdout,
+            cursor::MoveTo(0, self.screen_height as u16),
+            Clear(ClearType::CurrentLine),
+        )?;
+
+        // Update the "status" lines
+        if let Some(ref message) = self.status {
+            write!(stdout, "{}", message)?;
+        } else {
+            write!(stdout, ":")?
+        }
         stdout.flush()?;
 
         Ok(())
@@ -145,6 +154,8 @@ impl LessViewer {
             buffer.push_str(&line[start_index..end_index]);
         }
 
+        // Clear to the end of the line
+        buffer.push_str(&" ".repeat(effective_width.saturating_sub(end_index - start_index)));
         buffer.push_str("\r\n");
 
         Ok(())
@@ -234,10 +245,6 @@ impl LessViewer {
                 self.current_line
             };
         }
-
-        if self.current_line + self.screen_height > self.lines.len() {
-            self.current_line = self.lines.len().saturating_sub(self.screen_height);
-        }
     }
 
     fn repeat_search(&mut self) {
@@ -305,10 +312,8 @@ impl LessViewer {
                     KeyCode::Char('/') | KeyCode::Char('?') => {
                         execute!(
                             stdout,
-                            cursor::SavePosition,
                             cursor::MoveTo(0, self.screen_height as u16),
                             Clear(ClearType::CurrentLine),
-                            cursor::RestorePosition
                         )?;
 
                         let (prompt, forward) = if key_event.code == KeyCode::Char('/') {
@@ -343,6 +348,7 @@ impl LessViewer {
                 {
                     self.display_page(&mut stdout, &mut buffer)?;
                 }
+                execute!(stdout, cursor::MoveTo(0, self.screen_height as u16))?;
             }
         }
 
@@ -355,14 +361,13 @@ impl LessViewer {
     fn prompt_for_command(&mut self, prompt: &str) -> io::Result<String> {
         let mut stdout = io::stdout();
         stdout
-            .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
             .queue(Clear(ClearType::CurrentLine))?
             .flush()?;
 
         let cmd = crate::prompt::read_input(prompt)?;
+        enable_raw_mode()?;
 
-        stdout.queue(cursor::RestorePosition)?.flush()?;
         Ok(cmd.trim().to_string())
     }
 
@@ -381,7 +386,6 @@ impl LessViewer {
         };
 
         io::stdout()
-            .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
             .queue(Print(help_text))?
             .flush()
