@@ -2,7 +2,7 @@ use crate::{eval::Value, scope::Scope};
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
 };
 use regex::{escape, Regex};
 use std::env;
@@ -50,13 +50,37 @@ pub fn confirm(prompt: String, scope: &Arc<Scope>, one_of_many: bool) -> io::Res
     process_answer(&input, one_of_many)
 }
 
+pub struct RawMode {
+    is_raw_mode: bool,
+}
+
+impl RawMode {
+    pub fn new() -> io::Result<Self> {
+        // Save previous state of raw_mode, to restore on drop (if needed)
+        let is_raw_mode = is_raw_mode_enabled()?;
+        if !is_raw_mode {
+            enable_raw_mode()?;
+        }
+
+        Ok(Self { is_raw_mode })
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        if !self.is_raw_mode {
+            _ = disable_raw_mode();
+        }
+    }
+}
+
 pub fn read_input(message: &str) -> io::Result<String> {
     // Open the TTY for writing the prompt
     let mut tty = open_tty_for_writing()?;
     write!(tty, "{}", message)?;
     tty.flush()?;
 
-    enable_raw_mode()?;
+    let _raw_mode = RawMode::new()?;
 
     let mut input = String::new();
     loop {
@@ -88,7 +112,6 @@ pub fn read_input(message: &str) -> io::Result<String> {
             _ => {}
         }
     }
-    disable_raw_mode()?;
 
     write!(tty, "\r")?;
     Ok(input)

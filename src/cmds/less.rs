@@ -1,18 +1,17 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
+use crate::prompt;
+use crate::{
+    cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
+};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     style::Print,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
@@ -79,20 +78,21 @@ impl LessViewer {
             self.display_line(line, buffer)?;
         }
 
-        // Fill any remaining lines with empty space
+        // Fill any remaining lines
         for _ in end..self.current_line + self.screen_height {
             buffer.push('~');
             buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
             buffer.push_str("\r\n");
         }
 
-        execute!(stdout, cursor::MoveTo(0, 0))?;
+        execute!(stdout, cursor::Hide, cursor::MoveTo(0, 0))?;
         write!(stdout, "{}", buffer)?;
 
         execute!(
             stdout,
             cursor::MoveTo(0, self.screen_height as u16),
             Clear(ClearType::CurrentLine),
+            cursor::Show,
         )?;
 
         // Update the "status" lines
@@ -133,15 +133,7 @@ impl LessViewer {
                 buffer.push_str(&line[start..search_start]);
 
                 // Highlight the search term if colors are enabled
-                if self.use_color {
-                    buffer.push_str("\x1b[43m\x1b[30m");
-                }
-                buffer.push_str(&line[search_start..search_end]);
-
-                // Reset color after the match
-                if self.use_color {
-                    buffer.push_str("\x1b[0m");
-                }
+                buffer.push_str(&self.strong(&line[search_start..search_end]));
 
                 // Move start after the matched search term
                 start = search_end;
@@ -238,7 +230,7 @@ impl LessViewer {
         }
 
         if !found {
-            self.status = Some(format!("Pattern not found: {}", query));
+            self.status = Some(self.strong(&format!("Pattern not found: {}", query)).into());
             self.search_start_index = if forward {
                 self.current_line + 1
             } else {
@@ -255,15 +247,16 @@ impl LessViewer {
     }
 
     fn run(&mut self) -> io::Result<FileAction> {
-        enable_raw_mode()?;
+        let _raw_mode = prompt::RawMode::new()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0))?;
 
         let mut action = FileAction::NextFile;
         let mut buffer = String::with_capacity(self.screen_width * self.screen_height);
 
         self.display_page(&mut stdout, &mut buffer)?;
 
+        // Process key events
         loop {
             let (mut current_line, horizontal_scroll, search_dir, search_term, show_lines) = (
                 self.current_line,
@@ -353,7 +346,6 @@ impl LessViewer {
         }
 
         execute!(stdout, LeaveAlternateScreen)?;
-        disable_raw_mode()?;
 
         Ok(action)
     }
@@ -366,29 +358,41 @@ impl LessViewer {
             .flush()?;
 
         let cmd = crate::prompt::read_input(prompt)?;
-        enable_raw_mode()?;
 
         Ok(cmd.trim().to_string())
     }
 
+    /// Show temporary hints on the last ("status") line.
     fn show_help(&self) -> io::Result<()> {
-        let help_text = if self.use_color {
-            "\x1b[7mb\x1b[0m Prev Page | \
-            \x1b[7mf\x1b[0m Next Page | \
-             \x1b[7mG\x1b[0m Scroll to End | \
-            \x1b[7m/\x1b[0m Search | \
-            \x1b[7m?\x1b[0m Search Backward | \
-            \x1b[7m:n\x1b[0m Next File | \
-            \x1b[7m:p\x1b[0m Prev File | \
-            \x1b[7m:q\x1b[0m Quit"
-        } else {
-            "b Prev Page | f Next Page | G Scroll to End | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit"
-        };
+        let help_items = vec![
+            ("b", "Prev Page"),
+            ("f", "Next Page"),
+            ("G", "Scroll to End"),
+            ("/", "Search"),
+            ("?", "Search Backward"),
+            (":n", "Next File"),
+            (":p", "Prev File"),
+            (":q", "Quit"),
+        ];
+
+        let help_text = help_items
+            .iter()
+            .map(|(key, description)| format!("{} {}", self.strong(key), description))
+            .collect::<Vec<String>>()
+            .join(" | ");
 
         io::stdout()
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
             .queue(Print(help_text))?
             .flush()
+    }
+
+    fn strong<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        if self.use_color {
+            Cow::Owned(format!("\x1b[7m{}\x1b[0m", s))
+        } else {
+            Cow::Borrowed(s)
+        }
     }
 }
 
@@ -421,7 +425,7 @@ impl Exec for Less {
         if filenames.is_empty() {
             let stdin = io::stdin();
             let reader = stdin.lock();
-            run_less_viewer(scope, &flags, reader, None).map_err(|e| e.to_string())?;
+            run_viewer(scope, &flags, reader, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -434,7 +438,7 @@ impl Exec for Less {
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let reader = BufReader::new(file);
 
-                match run_less_viewer(scope, &flags, reader, Some(filename.clone()))
+                match run_viewer(scope, &flags, reader, Some(filename.clone()))
                     .map_err(|e| e.to_string())?
                 {
                     FileAction::PrevFile => i = i.saturating_sub(1),
@@ -448,7 +452,7 @@ impl Exec for Less {
     }
 }
 
-fn run_less_viewer<R: BufRead>(
+fn run_viewer<R: BufRead>(
     scope: &Arc<Scope>,
     flags: &CommandFlags,
     reader: R,
@@ -458,12 +462,8 @@ fn run_less_viewer<R: BufRead>(
 
     viewer.show_line_numbers = flags.is_present("number");
     viewer.use_color = scope.use_colors(&std::io::stdout());
-    if viewer.use_color {
-        if let Some(filename) = filename {
-            viewer.status = Some(format!("\x1b[7m{}\x1b[0m", &filename));
-        }
-    } else {
-        viewer.status = filename;
+    if let Some(filename) = &filename {
+        viewer.status = Some(viewer.strong(&filename).into());
     }
 
     viewer.run()
