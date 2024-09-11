@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4"
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 clearscreen = "3.0.0"
 crossterm = "0.28"
 colored = "2"
@@ -48,3 +48,7 @@ windows = { version = "0.58", features = [
 
 windows-sys = { version = "0.59", features = [
 ] }
+
+[[bin]]
+name = "mysh"
+path = "src/main.rs"
