@@ -430,7 +430,7 @@ impl Shell {
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         if self.interactive {
-            println!("Welcome to mysh {}", env!("CARGO_PKG_VERSION"));
+            println!("Welcome to shmy {}", env!("CARGO_PKG_VERSION"));
 
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
