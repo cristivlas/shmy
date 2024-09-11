@@ -1,11 +1,11 @@
 [package]
-name = "mysh"
+name = "shmy"
 version = "0.15.2"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like utility commands, and WSL symbolic link support"
 readme = "README.md"
-repository = "https://github.com/cristivlas/mysh"
+repository = "https://github.com/cristivlas/shmy"
 license-file = "LICENSE"
 keywords = ["shell", "wsl"]
 
@@ -56,5 +56,5 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [[bin]]
-name = "mysh"
+name = "shmy"
 path = "src/main.rs"

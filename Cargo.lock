@@ -528,38 +528,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mysh"
-version = "0.15.2"
-dependencies = [
- "chrono",
- "chrono-tz",
- "clearscreen",
- "colored",
- "console",
- "crossterm",
- "ctor",
- "ctrlc",
- "directories",
- "filetime",
- "gag",
- "glob",
- "indicatif",
- "nix 0.29.0",
- "open",
- "os_pipe",
- "regex",
- "rustyline",
- "strsim",
- "tempfile",
- "terminal_size",
- "url",
- "uzers",
- "which",
- "windows",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "nibble_vec"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -888,6 +856,38 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shmy"
+version = "0.15.2"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "clearscreen",
+ "colored",
+ "console",
+ "crossterm",
+ "ctor",
+ "ctrlc",
+ "directories",
+ "filetime",
+ "gag",
+ "glob",
+ "indicatif",
+ "nix 0.29.0",
+ "open",
+ "os_pipe",
+ "regex",
+ "rustyline",
+ "strsim",
+ "tempfile",
+ "terminal_size",
+ "url",
+ "uzers",
+ "which",
+ "windows",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "signal-hook"
