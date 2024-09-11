@@ -6,7 +6,6 @@ authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like utility commands, and WSL symbolic link support"
 readme = "README.md"
 repository = "https://github.com/cristivlas/mysh"
-license = "MIT"
 license-file = "LICENSE"
 keywords = ["shell", "wsl"]
 
