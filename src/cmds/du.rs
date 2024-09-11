@@ -37,6 +37,7 @@ impl Exec for DiskUtilization {
             max_depth: flags
                 .option("max-depth")
                 .map(|s| s.parse().unwrap_or(usize::MAX)),
+            unique_ids: flags.is_present("unique"),
         };
 
         for p in &paths {
@@ -83,6 +84,8 @@ impl DiskUtilization {
             "Print apparent sizes, rather than disk usage",
         );
 
+        flags.add_flag('u', "unique", "Avoid double-counting hard links");
+
         Self { flags }
     }
 }
@@ -94,6 +97,7 @@ struct Options {
     summarize: bool,
     block_size: u64,
     max_depth: Option<usize>,
+    unique_ids: bool, // use unique ids to avoid double-counting
 }
 
 fn du_size(
@@ -163,12 +167,13 @@ fn unix_disk_size(
 
     let metadata = fs::metadata(path)?;
 
-    // Avoid double-counting hard links
-    let inode = (metadata.dev(), metadata.ino());
-    if file_ids.get(&inode).is_some() {
-        return Ok(0);
+    if opts.unique_ids {
+        // Avoid double-counting hard links
+        let inode = (metadata.dev(), metadata.ino());
+        if !file_ids.insert(inode) {
+            return Ok(0);
+        }
     }
-    file_ids.insert(inode);
 
     if opts.apparent {
         Ok(metadata.len())
@@ -187,20 +192,18 @@ mod win {
     use crate::utils::win::root_path;
     use std::collections::{HashMap, HashSet};
     use std::ffi::OsStr;
-    use std::fs;
-    use std::fs::OpenOptions;
+    use std::fs::{self, OpenOptions};
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::fs::MetadataExt;
-    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     use std::os::windows::io::AsRawHandle;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceW;
-    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        GetDiskFreeSpaceW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        FILE_FLAG_BACKUP_SEMANTICS,
     };
 
+    #[inline]
     pub fn disk_size(
         blk_sz: &mut HashMap<PathBuf, u64>,
         opts: &Options,
@@ -208,13 +211,15 @@ mod win {
         path: &Path,
     ) -> Result<u64, Error> {
         let metadata = fs::metadata(path)?;
-        let id = unique_file_id(path)?;
 
-        // Check if we've seen this file before, avoid double-counting hard links
-        if file_ids.contains(&id) {
-            return Ok(0);
+        if opts.unique_ids {
+            let id: (u64, u64) = unique_file_id(path)?;
+
+            // Check if we've seen this file before, avoid double-counting hard links
+            if !file_ids.insert(id) {
+                return Ok(0);
+            }
         }
-        file_ids.insert(id);
 
         if opts.apparent {
             Ok(metadata.len())

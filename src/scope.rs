@@ -165,7 +165,13 @@ impl Namespace for VarTable {
         self.vars
             .borrow()
             .iter()
-            .filter_map(|(k, _)| if pred(k) { Some(k.view()) } else { None })
+            .filter_map(|(k, _)| {
+                if pred(k) {
+                    Some(k.view().to_string())
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
