@@ -7,7 +7,6 @@ use crossterm::{
 use regex::{escape, Regex};
 use std::env;
 use std::io::{self, Write};
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(PartialEq)]
@@ -145,27 +144,23 @@ impl PromptBuilder {
         self.build(spec.as_str())
     }
 
-    fn prompt_spec(scope: &Arc<Scope>) -> Rc<String> {
+    fn prompt_spec(scope: &Arc<Scope>) -> Arc<String> {
         if let Some(var) = scope.lookup("__prompt") {
             var.value().to_rc_string()
         } else {
             // Create default prompt specification and insert into the scope.
-            let spec = Rc::new("\\u@\\h|\\w\\$ ".to_string());
-            scope.insert("__prompt".to_string(), Value::Str(Rc::clone(&spec)));
+            let spec = Arc::new("\\u@\\h|\\w\\$ ".to_string());
+            scope.insert("__prompt".to_string(), Value::Str(spec.clone()));
 
             spec
         }
     }
 
-    fn username(&self) -> Rc<String> {
-        if let Some(var) = self
-            .scope
-            .lookup("USER")
-            .or_else(|| self.scope.lookup("USERNAME"))
-        {
+    fn username(&self) -> Arc<String> {
+        if let Some(var) = self.scope.lookup("USER").or(self.scope.lookup("USERNAME")) {
             var.value().to_rc_string()
         } else {
-            Rc::default()
+            Arc::default()
         }
     }
 

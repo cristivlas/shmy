@@ -29,6 +29,24 @@ Use an IF expression to check for success or failure.
 To capture the output, use the pipe syntax with a variable:
 ";
 
+const ERR_ADD_NUM_STATUS: &str = "Cannot add number and command status";
+const ERR_ADD_STATUS: &str = "Cannot add to command status";
+const ERR_CMP_NUM_STR: &str = "Cannot compare number to string";
+const ERR_CMP_STR_NUM: &str = "Cannot compare string to number";
+const ERR_MUL_NUM_STR: &str = "Cannot multiply number by string";
+const ERR_MUL_STR_NUM: &str = "Cannot multiply string by number";
+const ERR_MUL_STR_STR: &str = "Cannot multiply strings";
+const ERR_MUL_STATUS: &str = "Cannot multiply command statuses";
+const ERR_SUB_NUM_STR: &str = "Cannot subtract string from number";
+const ERR_SUB_NUM_STATUS: &str = "Cannot subtract command status from number";
+const ERR_SUB_STR_NUM: &str = "Cannot subtract number from string";
+const ERR_SUB_STR_STR: &str = "Cannot subtract strings";
+const ERR_SUB_STR_STATUS: &str = "Cannot subtract command status from string";
+const ERR_SUB_STATUS: &str = "Cannot subtract from command status";
+const ERR_POW_STR_EXP: &str = "Exponent cannot be a string";
+const ERR_POW_STATUS_EXP: &str = "Exponent cannot be a command status";
+const ERR_POW_INVALID_BASE: &str = "Invalid base type";
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
@@ -114,21 +132,29 @@ impl Op {
 
 #[derive(Clone, Debug, PartialEq)]
 struct Text {
-    value: String,
+    value: Arc<String>,
     quoted: bool,
     raw: bool,
 }
 
 impl Text {
     fn new(value: String, quoted: bool, raw: bool) -> Self {
-        Self { value, quoted, raw }
+        Self {
+            value: Arc::new(value),
+            quoted,
+            raw,
+        }
+    }
+
+    fn value(&self) -> String {
+        (*self.value).clone()
     }
 }
 
 impl From<String> for Token {
     fn from(value: String) -> Self {
         Token::Literal(Text {
-            value,
+            value: Arc::new(value),
             quoted: false,
             raw: false,
         })
@@ -236,8 +262,8 @@ pub struct Status {
 derive_has_location!(Status);
 
 impl Status {
-    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self {
+    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Arc<RefCell<Self>> {
+        Arc::new(RefCell::new(Self {
             checked: false,
             cmd,
             negated: false,
@@ -306,13 +332,13 @@ impl fmt::Display for Status {
 pub enum Value {
     Int(i64),
     Real(f64),
-    Str(Rc<String>),
-    Stat(Rc<RefCell<Status>>),
+    Str(Arc<String>),
+    Stat(Arc<RefCell<Status>>),
 }
 
 impl Default for Value {
     fn default() -> Self {
-        Value::Str(Rc::default())
+        Value::Str(Arc::default())
     }
 }
 
@@ -392,17 +418,17 @@ impl Value {
     }
 
     pub fn new_str(value: String) -> Self {
-        Value::Str(Rc::new(value))
+        Value::Str(Arc::new(value))
     }
 
     pub fn success() -> Self {
         Value::Int(0)
     }
 
-    pub fn to_rc_string(&self) -> Rc<String> {
+    pub fn to_rc_string(&self) -> Arc<String> {
         match self {
-            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Rc::new(self.to_string()),
-            Value::Str(s) => Rc::clone(&s),
+            Value::Int(_) | Value::Real(_) | Value::Stat(_) => Arc::new(self.to_string()),
+            Value::Str(s) => Arc::clone(&s),
         }
     }
 }
@@ -894,8 +920,8 @@ where
                 self.current_expr = Rc::clone(expr);
                 Ok(())
             }
-            Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::For(e) => e.borrow_mut().add_child(expr),
+            Expression::Group(e) => e.borrow_mut().add_child(expr),
             Expression::Leaf(_) => error(self, "Unexpected expression after literal"),
             Expression::Loop(e) => e.borrow_mut().add_child(expr),
         }
@@ -1434,7 +1460,7 @@ impl Expression {
                     let quoted = if let Expression::Leaf(lit) = &**expr {
                         if lit.text.raw {
                             assert!(lit.text.quoted);
-                            tokens.push(lit.text.value.clone());
+                            tokens.push(lit.text.value());
                             continue;
                         }
                         lit.text.quoted
@@ -1639,7 +1665,7 @@ impl BinExpr {
                 }
             } else {
                 // Create new variable in the current scope
-                self.scope.insert(var_name.to_owned(), rhs.clone());
+                self.scope.insert_value(var_name, rhs.clone());
                 return Ok(rhs);
             }
         }
@@ -1656,32 +1682,24 @@ impl BinExpr {
     }
 
     fn eval_cmp(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real((i - j) as _)),
-                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
-                Value::Str(_) => error(self, "Cannot compare number to string"),
-                Value::Stat(_) => self.eval_cmp_status(),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i - j as f64)),
-                Value::Real(j) => Ok(Value::Real(i - j)),
-                Value::Str(_) => error(self, "Cannot compare number to string"),
-                Value::Stat(_) => self.eval_cmp_status(),
-            },
-            Value::Str(s1) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot compare string to number"),
-                Value::Str(s2) => {
-                    let ord = match s1.cmp(&s2) {
-                        Ordering::Equal => 0,
-                        Ordering::Less => -1,
-                        Ordering::Greater => 1,
-                    };
-                    Ok(Value::Real(ord as _))
-                }
-                Value::Stat(_) => self.eval_cmp_status(),
-            },
-            Value::Stat(_) => self.eval_cmp_status(),
+        use Value::*;
+
+        match (lhs, rhs) {
+            (Int(i), Int(j)) => Ok(Real((i - j) as f64)),
+            (Int(i), Real(j)) => Ok(Real((i as f64) - j)),
+            (Real(i), Int(j)) => Ok(Real(i - (j as f64))),
+            (Real(i), Real(j)) => Ok(Real(i - j)),
+            (Str(s1), Str(s2)) => {
+                let ord = match s1.cmp(&s2) {
+                    Ordering::Equal => 0.0,
+                    Ordering::Less => -1.0,
+                    Ordering::Greater => 1.0,
+                };
+                Ok(Real(ord))
+            }
+            (Int(_) | Real(_), Str(_)) => error(self, ERR_CMP_NUM_STR),
+            (Str(_), Int(_) | Real(_)) => error(self, ERR_CMP_STR_NUM),
+            (Stat(_), _) | (_, Stat(_)) => self.eval_cmp_status(),
         }
     }
 
@@ -1716,28 +1734,21 @@ impl BinExpr {
     }
 
     fn eval_minus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int(i - j)),
-                Value::Real(j) => Ok(Value::Real(i as f64 - j)),
-                Value::Str(_) => error(self, "Cannot subtract string from number"),
-                Value::Stat(_) => error(self, "Cannot subtract command status from number"),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i - j as f64)),
-                Value::Real(j) => Ok(Value::Real(i - j)),
-                Value::Str(_) => error(self, "Cannot subtract string from number"),
-                Value::Stat(_) => error(self, "Cannot subtract command status from number"),
-            },
-            Value::Str(_) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot subtract number from string"),
-                Value::Str(_) => error(self, "Cannot subtract strings"),
-                Value::Stat(_) => error(self, "Cannot subtract command status from string"),
-            },
-            Value::Stat(_) => error(self, "Cannot subtract command statuses"),
+        use Value::*;
+
+        match (lhs, rhs) {
+            (Int(i), Int(j)) => Ok(Int(i - j)),
+            (Int(i), Real(j)) => Ok(Real((i as f64) - j)),
+            (Real(i), Int(j)) => Ok(Real(i - (j as f64))),
+            (Real(i), Real(j)) => Ok(Real(i - j)),
+            (Int(_) | Real(_), Str(_)) => error(self, ERR_SUB_NUM_STR),
+            (Int(_) | Real(_), Stat(_)) => error(self, ERR_SUB_NUM_STATUS),
+            (Str(_), Int(_) | Real(_)) => error(self, ERR_SUB_STR_NUM),
+            (Str(_), Str(_)) => error(self, ERR_SUB_STR_STR),
+            (Str(_), Stat(_)) => error(self, ERR_SUB_STR_STATUS),
+            (Stat(_), _) => error(self, ERR_SUB_STATUS),
         }
     }
-
     fn eval_mod(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         if let (Value::Int(i), Value::Int(j)) = (lhs, rhs) {
             Ok(Value::Int(i % j))
@@ -1747,49 +1758,32 @@ impl BinExpr {
     }
 
     fn eval_mul(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => Ok(Value::Int(i * j)),
-                Value::Real(j) => Ok(Value::Real(i as f64 * j)),
-                Value::Str(_) => error(self, "Cannot multiply number by string"),
-                Value::Stat(_) => error(self, "Cannot multiply number by command status"),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i * j as f64)),
-                Value::Real(j) => Ok(Value::Real(i * j)),
-                Value::Str(_) => error(self, "Cannot multiply number by string"),
-                Value::Stat(_) => error(self, "Cannot multiply number by command status"),
-            },
-            Value::Str(_) => match rhs {
-                Value::Int(_) | Value::Real(_) => error(self, "Cannot multiply string by number"),
-                Value::Str(_) => error(self, "Cannot multiply strings"),
-                Value::Stat(_) => error(self, "Cannot multiply string by command status"),
-            },
-            Value::Stat(_) => error(self, "Cannot multiply command statuses"),
+        use Value::*;
+
+        match (lhs, rhs) {
+            (Int(i), Int(j)) => Ok(Int(i * j)),
+            (Int(i), Real(j)) => Ok(Real((i as f64) * j)),
+            (Real(i), Int(j)) => Ok(Real(i * (j as f64))),
+            (Real(i), Real(j)) => Ok(Real(i * j)),
+            (Int(_) | Real(_), Str(_)) => error(self, ERR_MUL_NUM_STR),
+            (Str(_), Int(_) | Real(_)) => error(self, ERR_MUL_STR_NUM),
+            (Str(_), Str(_)) => error(self, ERR_MUL_STR_STR),
+            (Stat(_), _) | (_, Stat(_)) => error(self, ERR_MUL_STATUS),
         }
     }
 
     fn eval_power(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
-        match lhs {
-            Value::Int(i) => match rhs {
-                Value::Int(j) => {
-                    if j < 0 {
-                        Ok(Value::Real(1.0 / (i as f64).powi(-j as _)))
-                    } else {
-                        Ok(Value::Int(i.saturating_pow(j as _)))
-                    }
-                }
-                Value::Real(j) => Ok(Value::Real((i as f64).powf(j))),
-                Value::Str(_) => error(self, "Exponent cannot be a string"),
-                Value::Stat(_) => error(self, "Exponent cannot be a command status"),
-            },
-            Value::Real(i) => match rhs {
-                Value::Int(j) => Ok(Value::Real(i.powf(j as _))),
-                Value::Real(j) => Ok(Value::Real(i.powf(j))),
-                Value::Str(_) => error(self, "Exponent cannot be a string"),
-                Value::Stat(_) => error(self, "Exponent cannot be a command status"),
-            },
-            _ => error(self, "Invalid base type"),
+        use Value::*;
+
+        match (lhs, rhs) {
+            (Int(i), Int(j)) if j >= 0 => Ok(Int(i.saturating_pow(j as u32))),
+            (Int(i), Int(j)) => Ok(Real(1.0 / (i as f64).powi(-j as i32))),
+            (Int(i), Real(j)) => Ok(Real((i as f64).powf(j))),
+            (Real(i), Int(j)) => Ok(Real(i.powf(j as f64))),
+            (Real(i), Real(j)) => Ok(Real(i.powf(j))),
+            (Int(_) | Real(_), Str(_)) => error(self, ERR_POW_STR_EXP),
+            (Int(_) | Real(_), Stat(_)) => error(self, ERR_POW_STATUS_EXP),
+            (Str(_), _) | (Stat(_), _) => error(self, ERR_POW_INVALID_BASE),
         }
     }
 
@@ -1881,7 +1875,7 @@ impl BinExpr {
                 self.eval_redirect(lhs)?
             };
             let value = Value::from_str(output.trim())?;
-            self.scope.insert(lit.text.value.clone(), value.clone());
+            self.scope.insert_value(&lit.text.value, value.clone());
 
             return Ok(Some(value));
         }
@@ -1962,16 +1956,16 @@ impl BinExpr {
                 Value::Int(j) => Ok(Value::Int(i + j)),
                 Value::Real(j) => Ok(Value::Real(i as f64 + j)),
                 Value::Str(ref s) => Ok(Value::new_str(format!("{}{}", i, s.as_str()))),
-                Value::Stat(_) => error(self, "Cannot add number and command status"),
+                Value::Stat(_) => error(self, ERR_ADD_NUM_STATUS),
             },
             Value::Real(i) => match rhs {
                 Value::Int(j) => Ok(Value::Real(i + j as f64)),
                 Value::Real(j) => Ok(Value::Real(i + j)),
                 Value::Str(ref s) => Ok(Value::new_str(format!("{}{}", i, s.as_str()))),
-                Value::Stat(_) => error(self, "Cannot add number and command status"),
+                Value::Stat(_) => error(self, ERR_ADD_NUM_STATUS),
             },
             Value::Str(s) => Ok(Value::new_str(format!("{}{}", s.as_str(), rhs.as_str()))),
-            Value::Stat(_) => error(self, "Cannot add command statuses"),
+            Value::Stat(_) => error(self, ERR_ADD_STATUS),
         }
     }
 
@@ -2648,7 +2642,7 @@ impl ExprNode for ForExpr {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
         if self.var.is_empty() {
             if let Expression::Leaf(lit) = &**child {
-                self.var = lit.text.value.clone();
+                self.var = lit.text.value();
                 return Ok(());
             }
             return error(self, "Expecting identifier in FOR expression");

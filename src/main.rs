@@ -410,7 +410,7 @@ impl Shell {
         // All args (not including $0)
         scope.insert(
             "@".to_string(),
-            Value::Str(Rc::new(
+            Value::Str(Arc::new(
                 env::args().skip(1).collect::<Vec<String>>().join(" "),
             )),
         );
@@ -418,7 +418,7 @@ impl Shell {
         scope.insert("$".to_string(), Value::Int(std::process::id() as _));
         // $0, $1, ...
         for (i, arg) in env::args().enumerate() {
-            scope.insert(format!("{}", i), Value::Str(Rc::new(arg)));
+            scope.insert(format!("{}", i), Value::Str(Arc::new(arg)));
         }
 
         Scope::new(Some(Arc::clone(&scope)))

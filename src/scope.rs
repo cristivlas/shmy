@@ -1,7 +1,7 @@
 use crate::eval::Value;
 use crate::utils::executable;
 use colored::*;
-use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::env;
@@ -47,9 +47,12 @@ impl fmt::Display for Variable {
     }
 }
 
+/// An abstraction for representing an identifier (name).
 #[derive(Debug, Clone)]
-pub struct Ident(String);
+pub struct Ident(Arc<String>);
 
+/// Environmental variables are case-insensitive (but case-preserving) in Windows,
+/// therefore all shell variable lookups should have consistent behavior.
 #[cfg(windows)]
 impl Ident {
     pub fn view(&self) -> String {
@@ -66,7 +69,13 @@ impl Ident {
 
 impl From<&str> for Ident {
     fn from(value: &str) -> Self {
-        Self(value.to_string())
+        Self(Arc::new(value.to_string()))
+    }
+}
+
+impl From<String> for Ident {
+    fn from(value: String) -> Self {
+        Ident::from(value.as_str())
     }
 }
 
@@ -112,9 +121,78 @@ impl Ident {
     }
 }
 
+pub trait Namespace {
+    fn clear(&self);
+    fn keys<F: Fn(&Ident) -> bool>(&self, pred: F) -> Vec<String>;
+    fn insert(&self, ident: &Ident, val: Value) -> Option<Variable>;
+    fn lookup(&self, ident: &Ident) -> Option<Ref<Variable>>;
+    fn remove(&self, ident: &Ident) -> Option<Variable>;
+}
+
+struct VarTable {
+    vars: RefCell<HashMap<Ident, Variable>>,
+}
+
+impl VarTable {
+    fn new() -> Self {
+        Self {
+            vars: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn with_vars(vars: HashMap<Ident, Variable>) -> Self {
+        Self {
+            vars: RefCell::new(vars),
+        }
+    }
+
+    fn inner(&self) -> Ref<HashMap<Ident, Variable>> {
+        Ref::map(self.vars.borrow(), |vars| vars)
+    }
+
+    fn inner_mut(&self) -> RefMut<HashMap<Ident, Variable>> {
+        RefMut::map(self.vars.borrow_mut(), |vars| vars)
+    }
+}
+
+impl Namespace for VarTable {
+    fn clear(&self) {
+        self.vars.borrow_mut().clear();
+    }
+
+    /// Filter keys (identifiers) by predicate
+    fn keys<F: Fn(&Ident) -> bool>(&self, pred: F) -> Vec<String> {
+        self.vars
+            .borrow()
+            .iter()
+            .filter_map(|(k, _)| {
+                if pred(k) {
+                    Some(k.view().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn insert(&self, ident: &Ident, val: Value) -> Option<Variable> {
+        self.vars
+            .borrow_mut()
+            .insert(ident.clone(), Variable::new(val))
+    }
+
+    fn lookup(&self, ident: &Ident) -> Option<Ref<Variable>> {
+        Ref::filter_map(self.vars.borrow(), |vars| vars.get(ident)).ok()
+    }
+
+    fn remove(&self, ident: &Ident) -> Option<Variable> {
+        self.vars.borrow_mut().remove(ident)
+    }
+}
+
 pub struct Scope {
     pub parent: Option<Arc<Scope>>,
-    vars: RefCell<HashMap<Ident, Variable>>,
+    vars: VarTable,
     err_arg: RefCell<usize>, // Index of argument with error.
 }
 
@@ -133,7 +211,7 @@ impl Scope {
     pub fn new(parent: Option<Arc<Scope>>) -> Arc<Scope> {
         Arc::new(Self {
             parent,
-            vars: RefCell::new(HashMap::new()),
+            vars: VarTable::new(),
             err_arg: RefCell::default(),
         })
     }
@@ -142,12 +220,12 @@ impl Scope {
         env::set_var("SHELL", executable().unwrap_or("mysh".to_string()));
 
         let vars: HashMap<Ident, Variable> = env::vars()
-            .map(|(key, value)| (Ident(key), Variable::from(value.as_str())))
+            .map(|(key, value)| (Ident::from(key), Variable::from(value.as_str())))
             .collect::<HashMap<_, _>>();
 
         Arc::new(Scope {
             parent: None,
-            vars: RefCell::new(vars),
+            vars: VarTable::with_vars(vars),
             err_arg: RefCell::default(),
         })
     }
@@ -157,14 +235,16 @@ impl Scope {
     }
 
     pub fn clear(&self) {
-        self.vars.borrow_mut().clear();
+        self.vars.clear();
         *self.err_arg.borrow_mut() = 0;
     }
 
     pub fn insert(&self, name: String, val: Value) {
-        self.vars
-            .borrow_mut()
-            .insert(Ident(name), Variable::new(val));
+        self.vars.insert(&Ident::from(name), val);
+    }
+
+    pub fn insert_value(&self, name: &Arc<String>, val: Value) {
+        self.vars.insert(&Ident(Arc::clone(name)), val);
     }
 
     pub fn lookup(&self, name: &str) -> Option<Ref<Variable>> {
@@ -172,29 +252,20 @@ impl Scope {
     }
 
     fn lookup_by_ident(&self, ident: &Ident) -> Option<Ref<Variable>> {
-        Ref::filter_map(self.vars.borrow(), |vars| vars.get(ident))
-            .ok()
-            .or_else(|| {
-                self.parent
-                    .as_ref()
-                    .and_then(|scope| scope.lookup_by_ident(ident))
-            })
+        self.vars.lookup(ident).or_else(|| {
+            self.parent
+                .as_ref()
+                .and_then(|scope| scope.lookup_by_ident(ident))
+        })
     }
 
     pub fn lookup_local(&self, name: &str) -> Option<Ref<Variable>> {
-        Ref::filter_map(self.vars.borrow(), |vars| vars.get(&Ident::from(name))).ok()
+        self.vars.lookup(&Ident::from(name))
     }
 
     pub fn lookup_starting_with(&self, name: &str) -> Vec<String> {
-        let var_name = Ident::from(name);
-        let mut keys = Vec::new();
-
-        for key in self.vars.borrow().keys() {
-            if key.view().starts_with(&var_name.view()) {
-                keys.push(key.0.clone())
-            }
-        }
-        keys
+        let ident = Ident::from(name);
+        self.vars.keys(|k| k.view().starts_with(&ident.view()))
     }
 
     pub fn lookup_value(&self, name: &str) -> Option<Value> {
@@ -202,20 +273,14 @@ impl Scope {
     }
 
     /// Lookup and erase a variable
-    fn erase_by_ident(&self, name: &Ident) -> Option<Variable> {
-        match self.vars.borrow_mut().remove(name) {
-            Some(var) => {
-                if self.parent.is_none() {
-                    // The top-most scope (global scope) shadows the environment.
-                    env::remove_var(name.as_str());
-                }
-                Some(var)
-            }
-            None => match &self.parent {
-                Some(scope) => scope.erase_by_ident(name),
-                _ => None,
-            },
+    fn erase_by_ident(&self, ident: &Ident) -> Option<Variable> {
+        if self.parent.is_none() {
+            // The top-most scope (global scope) shadows the environment
+            env::remove_var(ident.view());
         }
+        self.vars
+            .remove(ident)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.erase_by_ident(ident)))
     }
 
     pub fn erase(&self, name: &str) -> Option<Variable> {
@@ -236,7 +301,11 @@ impl Scope {
     }
 
     pub fn vars(&self) -> Ref<HashMap<Ident, Variable>> {
-        self.vars.borrow()
+        self.vars.inner()
+    }
+
+    pub fn vars_mut(&self) -> RefMut<HashMap<Ident, Variable>> {
+        self.vars.inner_mut()
     }
 
     /// Getter and setter for the index of argument with error.

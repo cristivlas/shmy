@@ -99,7 +99,8 @@ struct Options {
     help: bool,
     paths: Vec<String>,
     colors: ColorScheme,
-    use_utc: bool,
+    utc: bool,       // show file times in UTC
+    base_name: bool, // Use base name only with -l/--long listing
 }
 
 impl Dir {
@@ -133,7 +134,8 @@ impl Dir {
                 parsed_args
             },
             colors: ColorScheme::with_scope(&scope),
-            use_utc: flags.is_present("utc"),
+            utc: flags.is_present("utc"),
+            base_name: false,
         };
 
         Ok(cmd_args)
@@ -149,13 +151,13 @@ impl Dir {
 
 impl Exec for Dir {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
-        let opts = self.parse_args(scope, args)?;
+        let mut opts = self.parse_args(scope, args)?;
         if opts.help {
             self.print_help();
             return Ok(Value::success());
         }
 
-        list_entries(scope, &opts, &args)
+        list_entries(scope, &mut opts, &args)
     }
 }
 
@@ -370,7 +372,11 @@ fn get_owner_and_group(_: &Path, _: &fs::Metadata) -> (String, String) {
 #[cfg(windows)]
 use win::{get_owner_and_group, get_permissions};
 
-fn list_entries(scope: &Arc<Scope>, opts: &Options, args: &Vec<String>) -> Result<Value, String> {
+fn list_entries(
+    scope: &Arc<Scope>,
+    opts: &mut Options,
+    args: &Vec<String>,
+) -> Result<Value, String> {
     for entry_path in &opts.paths {
         let path = Path::new(entry_path)
             .resolve()
@@ -379,8 +385,10 @@ fn list_entries(scope: &Arc<Scope>, opts: &Options, args: &Vec<String>) -> Resul
         match fs::metadata(&path) {
             Ok(metadata) => {
                 if metadata.is_dir() {
+                    opts.base_name = true;
                     print_dir(scope, &path, &opts)?;
                 } else {
+                    opts.base_name = false;
                     print_file(&path, &metadata, &opts)?;
                 }
             }
@@ -516,12 +524,15 @@ fn print_detailed_entries(
 }
 
 /// Print details for one file entry
-fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(), String> {
-    let base_name = path
-        .file_name()
-        .or(Some(path.as_os_str()))
-        .unwrap()
-        .to_string_lossy();
+fn print_details(path: &Path, metadata: &Metadata, opts: &Options) -> Result<(), String> {
+    let file_name = if opts.base_name {
+        path.file_name()
+            .or(Some(path.as_os_str()))
+            .unwrap()
+            .to_string_lossy()
+    } else {
+        path.to_string_lossy()
+    };
 
     let (is_wsl, real_path) = if path.is_wsl_link().unwrap_or(false) {
         (true, read_symlink(path).unwrap_or_default())
@@ -536,26 +547,26 @@ fn print_details(path: &Path, metadata: &Metadata, args: &Options) -> Result<(),
         )
     };
 
-    if args.all_files || !base_name.starts_with(".") {
+    if opts.all_files || !file_name.starts_with(".") {
         let file_name = if metadata.is_symlink() {
             let link_path = &real_path;
-            format!("{} -> {}", base_name, link_path.display())
+            format!("{} -> {}", file_name, link_path.display())
         } else {
-            base_name.to_string()
+            file_name.to_string()
         };
 
-        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH), args.use_utc);
+        let modified_time = format_time(metadata.modified().unwrap_or(UNIX_EPOCH), opts.utc);
         let (owner, group) = get_owner_and_group(&real_path, &metadata);
 
         my_println!(
             "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
-            args.colors.render_file_type(format_file_type(&metadata)),
-            args.colors.render_permissions(get_permissions(&metadata)),
+            opts.colors.render_file_type(format_file_type(&metadata)),
+            opts.colors.render_permissions(get_permissions(&metadata)),
             owner,
             group,
-            args.colors.render_size(is_wsl, file_size(&metadata, args)),
-            args.colors.render_mod_time(modified_time),
-            args.colors.render_file_name(&file_name, metadata)
+            opts.colors.render_size(is_wsl, file_size(&metadata, opts)),
+            opts.colors.render_mod_time(modified_time),
+            opts.colors.render_file_name(&file_name, metadata)
         )?;
     }
     Ok(())
