@@ -95,13 +95,13 @@ fn escape_backslashes(input: &str) -> String {
     result
 }
 
-fn split_delim(line: &str) -> (String, String) {
+fn split_delim(line: &str) -> (&str, &str) {
     if let Some(pos) = line.rfind(&['\t', ' '][..]) {
-        let head = line[..pos + 1].to_string();
-        let tail = line[pos..].trim().to_lowercase();
+        let head = &line[..pos + 1];
+        let tail = line[pos..].trim();
         (head, tail)
     } else {
-        (String::new(), line.to_lowercase())
+        ("", line)
     }
 }
 
