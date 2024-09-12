@@ -298,7 +298,6 @@ impl Viewer {
 
         self.display_page(&mut stdout, &mut buffer)?;
 
-        // Process events
         while matches!(action, FileAction::None) {
             let mut state = self.state.clone();
 
@@ -308,72 +307,9 @@ impl Viewer {
                 self.screen_width = w.into();
                 self.screen_height = h.saturating_sub(1).into();
                 state.redraw = true;
-            }
-
-            if let Event::Key(key_event) = event {
-                if key_event.kind != KeyEventKind::Press {
-                    continue;
-                }
-
-                match key_event.code {
-                    KeyCode::F(1) => self.show_help()?,
-                    KeyCode::Char('h') => self.show_help()?,
-                    KeyCode::Char(':') => {
-                        let cmd = self.prompt_for_command(":")?;
-                        if cmd == "n" {
-                            action = FileAction::NextFile;
-                        } else if cmd == "p" {
-                            action = FileAction::PrevFile;
-                        } else if cmd == "q" {
-                            action = FileAction::Quit;
-                        } else {
-                            self.goto_line(&cmd);
-                        }
-                    }
-                    KeyCode::Char('q') => {
-                        action = FileAction::Quit;
-                    }
-                    KeyCode::Char('b') => self.prev_page(),
-                    KeyCode::Char('f') => self.next_page(),
-                    KeyCode::Char(' ') => self.next_page(),
-                    KeyCode::Char('G') => self.last_page(),
-                    KeyCode::Esc => self.clear_search(),
-                    KeyCode::Enter => self.next_line(),
-                    KeyCode::Up => self.prev_line(),
-                    KeyCode::Down => self.next_line(),
-                    KeyCode::Left => self.scroll_left(),
-                    KeyCode::Right => self.scroll_right(),
-                    KeyCode::PageUp => self.prev_page(),
-                    KeyCode::PageDown => self.next_page(),
-                    KeyCode::Char('/') | KeyCode::Char('?') => {
-                        execute!(
-                            stdout,
-                            cursor::MoveTo(0, self.screen_height as u16),
-                            Clear(ClearType::CurrentLine),
-                        )?;
-
-                        let (prompt, forward) = if key_event.code == KeyCode::Char('/') {
-                            ("Search forward: ", true)
-                        } else {
-                            self.state.search_start_index = self.lines.len().saturating_sub(1);
-                            ("Search backward: ", false)
-                        };
-
-                        let query = self.prompt_for_command(&prompt)?;
-                        if query.is_empty() {
-                            self.state.status_line = None;
-                            state.redraw = true;
-                        } else {
-                            self.search(&query, forward);
-                        }
-                    }
-                    KeyCode::Char('n') => {
-                        self.repeat_search();
-                    }
-                    KeyCode::Char('l') => {
-                        self.state.show_line_numbers = !self.state.show_line_numbers;
-                    }
-                    _ => {}
+            } else if let Event::Key(key_event) = event {
+                if key_event.kind == KeyEventKind::Press {
+                    action = self.process_key_code(key_event.code, &mut state, &mut stdout)?;
                 }
             }
             if self.state != state {
@@ -381,6 +317,78 @@ impl Viewer {
             }
         }
         execute!(stdout, LeaveAlternateScreen)?;
+        Ok(action)
+    }
+
+    fn process_key_code(
+        &mut self,
+        key_code: KeyCode,
+        state: &mut ViewerState,
+        stdout: &mut io::Stdout,
+    ) -> io::Result<FileAction> {
+        let mut action = FileAction::None;
+
+        match key_code {
+            KeyCode::F(1) => self.show_help()?,
+            KeyCode::Char('h') => self.show_help()?,
+            KeyCode::Char(':') => {
+                let cmd = self.prompt_for_command(":")?;
+                if cmd == "n" {
+                    action = FileAction::NextFile;
+                } else if cmd == "p" {
+                    action = FileAction::PrevFile;
+                } else if cmd == "q" {
+                    action = FileAction::Quit;
+                } else {
+                    self.goto_line(&cmd);
+                }
+            }
+            KeyCode::Char('q') => {
+                action = FileAction::Quit;
+            }
+            KeyCode::Char('b') => self.prev_page(),
+            KeyCode::Char('f') => self.next_page(),
+            KeyCode::Char(' ') => self.next_page(),
+            KeyCode::Char('G') => self.last_page(),
+            KeyCode::Esc => self.clear_search(),
+            KeyCode::Enter => self.next_line(),
+            KeyCode::Up => self.prev_line(),
+            KeyCode::Down => self.next_line(),
+            KeyCode::Left => self.scroll_left(),
+            KeyCode::Right => self.scroll_right(),
+            KeyCode::PageUp => self.prev_page(),
+            KeyCode::PageDown => self.next_page(),
+            KeyCode::Char('/') | KeyCode::Char('?') => {
+                execute!(
+                    stdout,
+                    cursor::MoveTo(0, self.screen_height as u16),
+                    Clear(ClearType::CurrentLine),
+                )?;
+
+                let (prompt, forward) = if key_code == KeyCode::Char('/') {
+                    ("Search forward: ", true)
+                } else {
+                    self.state.search_start_index = self.lines.len().saturating_sub(1);
+                    ("Search backward: ", false)
+                };
+
+                let query = self.prompt_for_command(&prompt)?;
+                if query.is_empty() {
+                    self.state.status_line = None;
+                    state.redraw = true;
+                } else {
+                    self.search(&query, forward);
+                }
+            }
+            KeyCode::Char('n') => {
+                self.repeat_search();
+            }
+            KeyCode::Char('l') => {
+                self.state.show_line_numbers = !self.state.show_line_numbers;
+            }
+            _ => {}
+        }
+
         Ok(action)
     }
 
