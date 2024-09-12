@@ -177,7 +177,7 @@ impl Viewer {
         if let Ok(number) = num_str.parse::<usize>() {
             if number < 1 || number > self.lines.len() {
                 self.show_status(&self.strong(&format!(
-                    "{} is out of range: [1-{}]",
+                    "{} is out of range: [1..{}]",
                     number,
                     self.lines.len()
                 )))?;
