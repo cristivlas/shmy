@@ -12,7 +12,7 @@ use crossterm::{
     QueueableCommand,
 };
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, IsTerminal, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -53,6 +53,7 @@ impl ViewerState {
 }
 
 struct Viewer {
+    file_name: Option<String>,
     lines: Vec<String>,
     line_num_width: usize,
     screen_width: usize,
@@ -61,12 +62,13 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn new<R: BufRead>(reader: R) -> io::Result<Self> {
+    fn new<R: BufRead>(file_name: Option<String>, reader: R) -> io::Result<Self> {
         let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
 
         let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
 
         Ok(Self {
+            file_name,
             line_num_width: lines.len().to_string().len() + 1,
             lines,
             screen_width: w as usize,
@@ -79,7 +81,7 @@ impl Viewer {
         self.state.last_search = None;
     }
 
-    fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
+    fn display_page<W: Write>(&mut self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
 
         let end = (self.state.current_line + self.screen_height).min(self.lines.len());
@@ -115,6 +117,10 @@ impl Viewer {
             write!(stdout, ":")?;
         }
         stdout.flush()?;
+
+        if let Some(file_name) = &self.file_name {
+            self.state.status_line = Some(self.strong(&file_name));
+        }
 
         Ok(())
     }
@@ -224,20 +230,28 @@ impl Viewer {
         self.state.horizontal_scroll = self.state.horizontal_scroll.saturating_sub(1);
     }
 
-    fn search(&mut self, query: &str, forward: bool) -> io::Result<()> {
-        self.state.last_search = Some(query.to_string());
-        self.state.last_search_direction = forward;
+    fn search(&mut self, query: &str, forward: bool) -> io::Result<bool> {
+        // Ensure the searched pattern is visible if found.
+        let mut adjust_horizontal_scroll = |pos: usize| {
+            if pos + query.len() >= self.screen_width {
+                self.state.horizontal_scroll =
+                    pos.saturating_sub(self.screen_width) + query.len() + self.line_num_width + 2;
+            } else {
+                self.state.horizontal_scroll = 0;
+            }
+        };
 
         let mut found = false;
-        let search_start_index = self.state.search_start_index;
+
         if forward {
             for (index, line) in self.lines[self.state.search_start_index..]
                 .iter()
                 .enumerate()
             {
-                if line.contains(query) {
+                if let Some(pos) = line.find(query) {
                     self.state.current_line = self.state.search_start_index + index;
                     self.state.search_start_index = self.state.current_line + 1;
+                    adjust_horizontal_scroll(pos);
                     found = true;
                     break;
                 }
@@ -248,9 +262,10 @@ impl Viewer {
                 .rev()
                 .enumerate()
             {
-                if line.contains(query) {
+                if let Some(pos) = line.find(query) {
                     self.state.current_line = self.state.search_start_index - index - 1;
                     self.state.search_start_index = self.state.current_line;
+                    adjust_horizontal_scroll(pos);
                     found = true;
                     break;
                 }
@@ -258,31 +273,23 @@ impl Viewer {
         }
 
         if !found {
-            self.show_status(&self.strong(&format!("Pattern not found: {}", query)))?;
-            self.state.search_start_index = search_start_index;
+            self.state.status_line = Some(self.strong(&format!("Pattern not found: {}", query)));
         }
 
-        Ok(())
+        Ok(found)
     }
 
-    fn repeat_search(&mut self) -> io::Result<()> {
+    fn repeat_search(&mut self) -> io::Result<bool> {
         if let Some(query) = self.state.last_search.clone() {
             let direction = self.state.last_search_direction;
             self.search(&query, direction)
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 
     fn run(&mut self) -> io::Result<FileAction> {
         let mut stdout = io::stdout();
-        if !stdout.is_terminal() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Output is not a terminal",
-            ));
-        }
-
         let _raw_mode = prompt::RawMode::new()?;
         execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0),)?;
 
@@ -305,7 +312,7 @@ impl Viewer {
                     action = self.process_key_code(key_event.code, &mut state, &mut stdout)?;
                 }
             }
-            if self.state != state {
+            if state.redraw || self.state != state {
                 self.display_page(&mut stdout, &mut buffer)?;
             }
         }
@@ -370,12 +377,17 @@ impl Viewer {
                 let query = self.prompt_for_command(&prompt)?;
                 if query.is_empty() {
                     state.redraw = true;
+                } else if self.search(&query, forward)? {
+                    self.state.last_search = Some(query);
+                    self.state.last_search_direction = forward;
                 } else {
-                    self.search(&query, forward)?;
+                    state.redraw = true;
                 }
             }
             KeyCode::Char('n') => {
-                self.repeat_search()?;
+                if !self.repeat_search()? {
+                    state.redraw = true;
+                }
             }
             KeyCode::Char('l') => {
                 self.state.show_line_numbers = !self.state.show_line_numbers;
@@ -532,15 +544,11 @@ impl Exec for Less {
 fn run_viewer<R: BufRead>(
     flags: &CommandFlags,
     reader: R,
-    filename: Option<String>,
+    file_name: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = Viewer::new(reader)?;
+    let mut viewer = Viewer::new(file_name, reader)?;
 
     viewer.state.show_line_numbers = flags.is_present("number");
-    if let Some(filename) = &filename {
-        viewer.state.status_line = Some(viewer.strong(&filename));
-    }
-
     viewer.run()
 }
 
