@@ -1,7 +1,7 @@
 use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
-use crate::utils::{copy_vars_to_command_env, executable};
+use crate::utils::{self, copy_vars_to_command_env, executable};
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -18,7 +18,6 @@ use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
-use terminal_size::{terminal_size, Width};
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
@@ -464,12 +463,7 @@ impl EvalError {
 
         // Retrieve and trim the line with the error
         if let Some(mut error_line) = input.lines().nth(line - 1).map(|l| l.to_string()) {
-            let terminal_width = terminal_size()
-                .map(|(Width(w), _)| w as usize)
-                .unwrap_or(80)
-                .saturating_sub(5);
-
-            let max_width = col.max(terminal_width);
+            let max_width = col.max(utils::terminal_width().saturating_sub(5));
             if error_line.len() > max_width {
                 error_line.truncate(max_width);
                 error_line.push_str("...");
@@ -2359,7 +2353,7 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.err_loc(), e));
 
-        if self.scope.is_interrupted() {
+        if Scope::is_interrupted() {
             eprintln!("^C");
         }
         let cmd = self.to_string();
@@ -2537,7 +2531,7 @@ derive_has_location!(LoopExpr);
 
 macro_rules! eval_iteration {
     ($self:expr, $result:ident) => {
-        if $self.scope.is_interrupted() {
+        if Scope::is_interrupted() {
             eprintln!("^C");
             break; // Bail on Ctrl+C
         }

@@ -1,11 +1,10 @@
 use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, Exec, ShellCommand,
 };
-use crate::utils::executable;
+use crate::utils::{self, executable};
 use crate::{eval::Value, scope::Scope};
 use std::process::Command;
 use std::sync::Arc;
-use terminal_size::terminal_size;
 
 struct Help {
     flags: CommandFlags,
@@ -152,9 +151,7 @@ impl Help {
         if !commands.is_empty() {
             println!("BUILT-IN COMMANDS");
         }
-        let max_width = terminal_size()
-            .map_or(80, |s| s.0 .0 as usize)
-            .saturating_sub(indent);
+        let max_width = utils::terminal_width().saturating_sub(indent);
         let max_command_length = commands.iter().map(|cmd| cmd.len()).max().unwrap_or(0);
         let column_width = max_command_length + spacing;
         let num_columns = max_width / column_width;

@@ -60,7 +60,7 @@ impl Grep {
         let mut files = Vec::new();
         for p in paths {
             // Handle Ctrl+C
-            if scope.is_interrupted() {
+            if Scope::is_interrupted() {
                 return files;
             }
 
@@ -249,7 +249,7 @@ impl Exec for Grep {
             };
 
             for path in &files_to_process {
-                if scope.is_interrupted() {
+                if Scope::is_interrupted() {
                     break;
                 }
 

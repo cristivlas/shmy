@@ -11,17 +11,138 @@ use crossterm::{
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
+use memmap2::Mmap;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::Arc;
-use terminal_size::{terminal_size, Height, Width};
 
 enum FileAction {
     None,
     NextFile,
     PrevFile,
     Quit,
+}
+
+// Constant threshold for switching between strategies.
+// TODO: dynamically adapt based on available memory.
+const MEMORY_MAPPED_THRESHOLD: u64 = 10 * 1024 * 1024;
+
+// Abstraction for file content
+trait FileContent {
+    fn len(&self) -> usize;
+    fn get(&self, index: usize) -> Option<Cow<'_, str>>;
+}
+
+// In-memory strategy
+struct InMemoryContent {
+    lines: Vec<String>,
+}
+
+impl InMemoryContent {
+    fn new<R: BufRead>(reader: R) -> io::Result<Self> {
+        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+        Ok(Self { lines })
+    }
+}
+
+impl FileContent for InMemoryContent {
+    fn len(&self) -> usize {
+        self.lines.len()
+    }
+
+    fn get(&self, index: usize) -> Option<Cow<'_, str>> {
+        self.lines
+            .get(index)
+            .and_then(|s| Some(Cow::Borrowed(s.as_str())))
+    }
+}
+
+// Memory-mapped strategy
+struct MemoryMappedContent {
+    mmap: Mmap,
+    line_offsets: Vec<usize>,
+}
+
+impl MemoryMappedContent {
+    fn new(file: &File) -> io::Result<Self> {
+        let mmap = unsafe { Mmap::map(file)? };
+        let line_offsets = Self::calculate_line_offsets(&mmap);
+        Ok(Self { mmap, line_offsets })
+    }
+
+    fn calculate_line_offsets(mmap: &Mmap) -> Vec<usize> {
+        let mut offsets = vec![0];
+        let mut iter = mmap.iter().enumerate();
+
+        while let Some((i, &byte)) = iter.next() {
+            if byte == b'\n' {
+                offsets.push(i + 1);
+            } else if byte >= 0x80 {
+                // Start of a multi-byte UTF-8 character
+                let mut char_bytes = vec![byte];
+
+                // Collect all bytes of the multi-byte character
+                while let Some((_, &b)) = iter.next() {
+                    char_bytes.push(b);
+                    if b < 0x80 || b >= 0xC0 {
+                        break;
+                    }
+                }
+
+                // Check if it's a valid UTF-8 character
+                if std::str::from_utf8(&char_bytes).is_err() {
+                    // Invalid UTF-8 sequence, treat each byte as a separate character
+                    for _ in 1..char_bytes.len() {
+                        if let Some((j, _)) = iter.next() {
+                            if mmap[j] == b'\n' {
+                                offsets.push(j + 1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        offsets
+    }
+}
+
+impl FileContent for MemoryMappedContent {
+    fn len(&self) -> usize {
+        self.line_offsets.len()
+    }
+
+    fn get(&self, index: usize) -> Option<Cow<'_, str>> {
+        if index >= self.line_offsets.len() {
+            return None;
+        }
+        let start = self.line_offsets[index];
+        let end = self
+            .line_offsets
+            .get(index + 1)
+            .copied()
+            .unwrap_or(self.mmap.len());
+
+        Some(String::from_utf8_lossy(&self.mmap[start..end]))
+    }
+}
+
+// Factory function to create the appropriate FileContent instance
+fn create_file_content(path: Option<&Path>) -> io::Result<Box<dyn FileContent>> {
+    if let Some(path) = path {
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+
+        if metadata.len() > MEMORY_MAPPED_THRESHOLD {
+            Ok(Box::new(MemoryMappedContent::new(&file)?))
+        } else {
+            let reader = BufReader::new(file);
+            Ok(Box::new(InMemoryContent::new(reader)?))
+        }
+    } else {
+        Ok(Box::new(InMemoryContent::new(io::stdin().lock())?))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,8 +173,8 @@ impl ViewerState {
 }
 
 struct Viewer {
-    file_name: Option<String>,
-    lines: Vec<String>,
+    file_info: Option<String>,
+    lines: Box<dyn FileContent>,
     line_num_width: usize,
     screen_width: usize,
     screen_height: usize,
@@ -61,15 +182,16 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn new<R: BufRead>(file_name: Option<String>, reader: R) -> io::Result<Self> {
-        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+    fn new(file_info: Option<String>, path: Option<&Path>) -> io::Result<Self> {
+        let content = create_file_content(path)?;
+        let line_num_width = content.len().to_string().len() + 1;
 
-        let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
+        let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
 
         Ok(Self {
-            file_name,
-            line_num_width: lines.len().to_string().len() + 1,
-            lines,
+            file_info,
+            lines: content,
+            line_num_width,
             screen_width: w as usize,
             screen_height: h.saturating_sub(1) as usize,
             state: ViewerState::new(),
@@ -85,16 +207,20 @@ impl Viewer {
 
         let end = (self.state.current_line + self.screen_height).min(self.lines.len());
 
-        for (index, line) in self.lines[self.state.current_line..end].iter().enumerate() {
+        for index in self.state.current_line..end {
             buffer.push_str("\x1b[2K"); // Clear line
+
             if self.state.show_line_numbers {
-                let line_number = self.state.current_line + index + 1;
+                let line_number = index + 1;
                 buffer.push_str(&format!("{:>w$}  ", line_number, w = self.line_num_width));
             }
-            self.display_line(line, buffer)?;
+
+            if let Some(line) = self.lines.get(index) {
+                self.display_line(&line.trim_end(), buffer)?;
+            }
         }
 
-        // Fill any remaining lines
+        // Fill any remaining empty lines
         for _ in end..self.state.current_line + self.screen_height {
             buffer.push_str("\x1b[2K~\r\n");
         }
@@ -117,7 +243,7 @@ impl Viewer {
         }
         stdout.flush()?;
 
-        if let Some(file_name) = &self.file_name {
+        if let Some(file_name) = &self.file_info {
             self.state.status_line = Some(self.strong(&file_name));
         }
 
@@ -183,7 +309,7 @@ impl Viewer {
     }
 
     fn last_page(&mut self) {
-        if self.lines.is_empty() {
+        if self.lines.len() == 0 {
             self.state.current_line = 0;
         } else {
             self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
@@ -235,32 +361,32 @@ impl Viewer {
 
         let mut found = false;
 
-        if forward {
-            for (index, line) in self.lines[self.state.search_start_index..]
-                .iter()
-                .enumerate()
-            {
-                if let Some(pos) = line.find(query) {
-                    self.state.current_line = self.state.search_start_index + index;
-                    self.state.search_start_index = self.state.current_line + 1;
-                    adjust_horizontal_scroll(pos);
-                    found = true;
-                    break;
-                }
+        let (iter, next): (Box<dyn Iterator<Item = usize>>, Box<dyn Fn(usize) -> usize>) =
+            if forward {
+                (
+                    Box::new(self.state.search_start_index..self.lines.len()),
+                    Box::new(|i: usize| i + 1),
+                )
+            } else {
+                (
+                    Box::new((0..self.state.search_start_index).rev()),
+                    Box::new(|i: usize| i.saturating_sub(1)),
+                )
+            };
+
+        for i in iter {
+            if Scope::is_interrupted() {
+                self.state.status_line = Some(self.strong("Search interrupted"));
+                break;
             }
-        } else {
-            for (index, line) in self.lines[..self.state.search_start_index]
-                .iter()
-                .rev()
-                .enumerate()
-            {
-                if let Some(pos) = line.find(query) {
-                    self.state.current_line = self.state.search_start_index - index - 1;
-                    self.state.search_start_index = self.state.current_line;
-                    adjust_horizontal_scroll(pos);
-                    found = true;
-                    break;
-                }
+
+            if let Some(pos) = self.lines.get(i).and_then(|s| s.find(query)) {
+                found = true;
+                self.state.current_line = i;
+                // Save index for repeating last search
+                self.state.search_start_index = next(i);
+                adjust_horizontal_scroll(pos);
+                break;
             }
         }
 
@@ -362,18 +488,26 @@ impl Viewer {
                 let (prompt, forward) = if key_code == KeyCode::Char('/') {
                     ("Search forward: ", true)
                 } else {
-                    self.state.search_start_index = self.lines.len().saturating_sub(1);
                     ("Search backward: ", false)
                 };
 
                 let query = self.prompt_for_command(&prompt)?;
                 if query.is_empty() {
                     state.redraw = true;
-                } else if self.search(&query, forward)? {
-                    self.state.last_search = Some(query);
-                    self.state.last_search_direction = forward;
                 } else {
-                    state.redraw = true;
+                    // Search from the current line
+                    self.state.search_start_index = if forward {
+                        self.state.current_line
+                    } else {
+                        self.state.current_line + self.screen_height
+                    };
+
+                    if self.search(&query, forward)? {
+                        self.state.last_search = Some(query);
+                        self.state.last_search_direction = forward;
+                    } else {
+                        state.redraw = true;
+                    }
                 }
             }
             KeyCode::Char('n') => {
@@ -496,9 +630,7 @@ impl Exec for Less {
         }
 
         if filenames.is_empty() {
-            let stdin = io::stdin();
-            let reader = stdin.lock();
-            run_viewer(&flags, reader, None).map_err(|e| e.to_string())?;
+            run_viewer(&flags, None, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -507,13 +639,9 @@ impl Exec for Less {
                     .resolve()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
-                let file =
-                    File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
-                let reader = BufReader::new(file);
-
                 match run_viewer(
                     &flags,
-                    reader,
+                    Some(&path),
                     Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
                 )
                 .map_err(|e| e.to_string())?
@@ -530,12 +658,12 @@ impl Exec for Less {
     }
 }
 
-fn run_viewer<R: BufRead>(
+fn run_viewer(
     flags: &CommandFlags,
-    reader: R,
-    file_name: Option<String>,
+    path: Option<&Path>,
+    file_info: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = Viewer::new(file_name, reader)?;
+    let mut viewer = Viewer::new(file_info, path)?;
 
     viewer.state.show_line_numbers = flags.is_present("number");
     viewer.run()

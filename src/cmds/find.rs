@@ -28,7 +28,7 @@ impl Find {
         regex: &Regex,
         follow: bool,
     ) -> Result<(), String> {
-        if scope.is_interrupted() {
+        if Scope::is_interrupted() {
             return Ok(());
         }
 

@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::{format_size, read_symlink};
+use crate::utils::{self, format_size, read_symlink};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
@@ -8,7 +8,6 @@ use std::fs::{self, DirEntry, Metadata};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use terminal_size::{terminal_size, Width};
 
 struct ColorScheme {
     use_colors: bool,
@@ -449,7 +448,7 @@ fn print_simple_entries(
         .unwrap_or(0);
 
     let column_width = max_width + spacing;
-    let terminal_width = terminal_size().map(|(Width(w), _)| w).unwrap_or(80) as usize;
+    let terminal_width = utils::terminal_width();
     let columns = std::cmp::max(1, terminal_width / column_width);
     let mut current_column = 0;
 

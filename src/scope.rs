@@ -230,7 +230,7 @@ impl Scope {
         })
     }
 
-    pub fn is_interrupted(&self) -> bool {
+    pub fn is_interrupted() -> bool {
         crate::INTERRUPT.load(SeqCst)
     }
 

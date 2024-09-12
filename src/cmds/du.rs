@@ -120,7 +120,7 @@ fn du_size(
             }
             Ok(dir) => {
                 for entry in dir {
-                    if scope.is_interrupted() {
+                    if Scope::is_interrupted() {
                         return Ok(size);
                     }
 

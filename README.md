@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Shmy is a lightweight command line interpreter implemented in Rust, featuring Unix-like built-in commands.
+A lightweight command line interpreter implemented in Rust, featuring Unix-like built-in commands.
 
 Project purpose and goals:
 

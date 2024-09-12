@@ -222,7 +222,7 @@ impl<'a> FileCopier<'a> {
     /// Update progress indicator in verbose mode.
     fn collect_path_info(&mut self, top: &'a str, parent: &Path, path: &Path) -> io::Result<bool> {
         // Check for Ctrl+C
-        if self.scope.is_interrupted() {
+        if Scope::is_interrupted() {
             return Ok(false);
         }
         if self.ignore_links && path.is_symlink() {
@@ -482,7 +482,7 @@ impl<'a> FileCopier<'a> {
 
         let mut buffer = [0; 8192]; // TODO: allow user to specify buffer size?
         loop {
-            if self.scope.is_interrupted() {
+            if Scope::is_interrupted() {
                 return Ok(false);
             }
             let n = src_file.read(&mut buffer).wrap_err(&self, top, src)?;
