@@ -2,7 +2,6 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Mkdir {
@@ -60,15 +59,15 @@ impl Exec for Mkdir {
 
 #[ctor::ctor]
 fn register() {
-    let mkdir = Rc::new(Mkdir::new());
+    let mkdir = Arc::new(Mkdir::new());
 
     register_command(ShellCommand {
         name: "md".to_string(),
-        inner: Rc::clone(&mkdir) as Rc<dyn Exec>,
+        inner: Arc::clone(&mkdir) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "mkdir".to_string(),
-        inner: Rc::clone(&mkdir) as Rc<dyn Exec>,
+        inner: Arc::clone(&mkdir) as Arc<dyn Exec>,
     });
 }

@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Clear {
@@ -40,11 +39,11 @@ impl Exec for Clear {
 fn register() {
     register_command(ShellCommand {
         name: "clear".to_string(),
-        inner: Rc::new(Clear::new()),
+        inner: Arc::new(Clear::new()),
     });
 
     register_command(ShellCommand {
         name: "cls".to_string(),
-        inner: Rc::new(Clear::new()),
+        inner: Arc::new(Clear::new()),
     });
 }

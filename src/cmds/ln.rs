@@ -3,7 +3,6 @@ use crate::eval::Value;
 use crate::scope::Scope;
 use std::fs;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Link {
@@ -124,10 +123,10 @@ fn create_link(
 
 #[ctor::ctor]
 fn register() {
-    let exec = Rc::new(Link::new());
+    let exec = Arc::new(Link::new());
 
     register_command(ShellCommand {
         name: "ln".to_string(),
-        inner: Rc::clone(&exec) as Rc<dyn Exec>,
+        inner: Arc::clone(&exec) as Arc<dyn Exec>,
     });
 }

@@ -3,7 +3,6 @@ use crate::{eval::Value, scope::Scope, utils::format_error};
 use chrono::prelude::*;
 use chrono::{DateTime, Local, Utc};
 use chrono_tz::Tz;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Date {
@@ -86,6 +85,6 @@ impl Exec for Date {
 fn register() {
     register_command(ShellCommand {
         name: "date".to_string(),
-        inner: Rc::new(Date::new()),
+        inner: Arc::new(Date::new()),
     });
 }

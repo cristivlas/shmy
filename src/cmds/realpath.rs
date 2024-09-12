@@ -1,7 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Realpath {
@@ -52,6 +51,6 @@ impl Exec for Realpath {
 fn register() {
     register_command(ShellCommand {
         name: "realpath".to_string(),
-        inner: Rc::new(Realpath::new()),
+        inner: Arc::new(Realpath::new()),
     });
 }

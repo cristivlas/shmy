@@ -4,7 +4,6 @@ use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Mv {
@@ -138,6 +137,6 @@ impl Exec for Mv {
 fn register() {
     register_command(ShellCommand {
         name: "mv".to_string(),
-        inner: Rc::new(Mv::new()),
+        inner: Arc::new(Mv::new()),
     });
 }

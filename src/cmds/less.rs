@@ -14,7 +14,6 @@ use crossterm::{
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 use terminal_size::{terminal_size, Height, Width};
 
@@ -546,6 +545,6 @@ fn run_viewer<R: BufRead>(
 fn register() {
     register_command(ShellCommand {
         name: "less".to_string(),
-        inner: Rc::new(Less::new()),
+        inner: Arc::new(Less::new()),
     });
 }

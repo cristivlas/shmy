@@ -114,6 +114,6 @@ impl Exec for Evaluate {
 fn register() {
     register_command(ShellCommand {
         name: "eval".to_string(),
-        inner: Rc::new(Evaluate::new()),
+        inner: Arc::new(Evaluate::new()),
     });
 }

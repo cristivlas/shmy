@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, ErrorKind::Other, Read, Write};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -637,6 +636,6 @@ impl Exec for Cp {
 fn register() {
     register_command(ShellCommand {
         name: "cp".to_string(),
-        inner: Rc::new(Cp::new()),
+        inner: Arc::new(Cp::new()),
     });
 }

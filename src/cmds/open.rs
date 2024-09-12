@@ -3,7 +3,6 @@ use crate::utils::format_error;
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use open;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Open {
@@ -65,6 +64,6 @@ impl Exec for Open {
 fn register() {
     register_command(ShellCommand {
         name: "open".to_string(),
-        inner: Rc::new(Open::new()),
+        inner: Arc::new(Open::new()),
     });
 }

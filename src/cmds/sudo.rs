@@ -4,7 +4,6 @@ use crate::{eval::Value, scope::Scope};
 use std::ffi::OsStr;
 use std::io::Error;
 use std::os::windows::ffi::OsStrExt;
-use std::rc::Rc;
 use std::sync::Arc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
@@ -135,6 +134,6 @@ impl Exec for Sudo {
 fn register() {
     register_command(ShellCommand {
         name: "sudo".to_string(),
-        inner: Rc::new(Sudo::new()),
+        inner: Arc::new(Sudo::new()),
     });
 }

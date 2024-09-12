@@ -7,7 +7,6 @@ use std::fmt::Debug;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::rc::Rc;
 use std::sync::{Arc, LazyLock, Mutex};
 use which::which;
 mod flags;
@@ -69,7 +68,7 @@ pub trait Exec {
 #[derive(Clone)]
 pub struct ShellCommand {
     name: String,
-    inner: Rc<dyn Exec>,
+    inner: Arc<dyn Exec>,
 }
 
 impl ShellCommand {
@@ -121,7 +120,7 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
             // Do not cache the path, as $PATH may change later.
             register_command(ShellCommand {
                 name: name.to_string(),
-                inner: Rc::new(External {
+                inner: Arc::new(External {
                     path: PathBuf::from(name),
                 }),
             });
@@ -330,6 +329,6 @@ impl Exec for Which {
 fn register() {
     register_command(ShellCommand {
         name: "which".to_string(),
-        inner: Rc::new(Which::new()),
+        inner: Arc::new(Which::new()),
     });
 }

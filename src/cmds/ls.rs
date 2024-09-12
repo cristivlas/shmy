@@ -6,7 +6,6 @@ use colored::*;
 use core::fmt;
 use std::fs::{self, DirEntry, Metadata};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
@@ -608,15 +607,15 @@ fn format_time(time: SystemTime, use_utc: bool) -> String {
 
 #[ctor::ctor]
 fn register() {
-    let exec = Rc::new(Dir::new());
+    let exec = Arc::new(Dir::new());
 
     register_command(ShellCommand {
         name: "ls".to_string(),
-        inner: Rc::clone(&exec) as Rc<dyn Exec>,
+        inner: Arc::clone(&exec) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "dir".to_string(),
-        inner: Rc::clone(&exec) as Rc<dyn Exec>,
+        inner: Arc::clone(&exec) as Arc<dyn Exec>,
     });
 }

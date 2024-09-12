@@ -5,7 +5,6 @@ use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Find {
@@ -113,6 +112,6 @@ impl Exec for Find {
 fn register() {
     register_command(ShellCommand {
         name: "find".to_string(),
-        inner: Rc::new(Find::new()),
+        inner: Arc::new(Find::new()),
     });
 }

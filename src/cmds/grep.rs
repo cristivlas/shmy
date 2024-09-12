@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use url::Url;
 
@@ -283,6 +282,6 @@ impl Exec for Grep {
 fn register() {
     register_command(ShellCommand {
         name: "grep".to_string(),
-        inner: Rc::new(Grep::new()),
+        inner: Arc::new(Grep::new()),
     });
 }

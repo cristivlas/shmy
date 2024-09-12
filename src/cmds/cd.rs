@@ -4,7 +4,6 @@ use crate::{current_dir, eval::Value, scope::Scope};
 use std::cell::RefCell;
 use std::env;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct ChangeDir {
@@ -129,25 +128,25 @@ impl Exec for PrintWorkingDir {
 
 #[ctor::ctor]
 fn register() {
-    let chdir = Rc::new(ChangeDir::new());
+    let chdir = Arc::new(ChangeDir::new());
 
     register_command(ShellCommand {
         name: "cd".to_string(),
-        inner: Rc::clone(&chdir) as Rc<dyn Exec>,
+        inner: Arc::clone(&chdir) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "pushd".to_string(),
-        inner: Rc::clone(&chdir) as Rc<dyn Exec>,
+        inner: Arc::clone(&chdir) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "popd".to_string(),
-        inner: Rc::clone(&chdir) as Rc<dyn Exec>,
+        inner: Arc::clone(&chdir) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "pwd".to_string(),
-        inner: Rc::new(PrintWorkingDir::new()),
+        inner: Arc::new(PrintWorkingDir::new()),
     });
 }

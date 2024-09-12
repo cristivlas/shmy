@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Diff {
@@ -307,6 +306,6 @@ fn print(
 fn register() {
     register_command(ShellCommand {
         name: "diff".to_string(),
-        inner: Rc::new(Diff::new()),
+        inner: Arc::new(Diff::new()),
     });
 }

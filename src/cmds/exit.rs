@@ -1,7 +1,6 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::process;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Exit;
@@ -24,6 +23,6 @@ impl Exec for Exit {
 fn register() {
     register_command(ShellCommand {
         name: "exit".to_string(),
-        inner: Rc::new(Exit),
+        inner: Arc::new(Exit),
     });
 }
