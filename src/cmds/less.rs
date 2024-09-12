@@ -454,12 +454,48 @@ impl Exec for Less {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(scope, args)?;
-
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... [FILE]...", name);
-            println!("View FILE(s) or standard input in a pager.");
-            println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("View FILE(s) or the standard input (stdin) in a pager.");
+            println!("\nUser Interaction:");
+            println!("  Navigation:");
+            println!("    {:<20} {}", "Up Arrow", "Move one line up.");
+            println!("    {:<20} {}", "Down Arrow", "Move one line down.");
+            println!("    {:<20} {}", "Left Arrow", "Scroll horizontally left.");
+            println!("    {:<20} {}", "Right Arrow", "Scroll horizontally right.");
+            println!("    {:<20} {}", "PageUp", "Go to the previous page.");
+            println!("    {:<20} {}", "b", "Go to the previous page.");
+            println!("    {:<20} {}", "PageDown", "Go to the next page.");
+            println!("    {:<20} {}", "f", "Go to the next page.");
+            println!("    {:<20} {}", "Space", "Go to the next page.");
+            println!("    {:<20} {}", "G", "Go to the last page.");
+            println!("    {:<20} {}", ":N", "Go to line number N (1-based).");
+            println!("    {:<20} {}", ":n", "Load the next file.");
+            println!("    {:<20} {}", ":p", "Load the previous file.");
+            println!("    {:<20} {}", ":q", "Quit the viewer.");
+            println!("    {:<20} {}", "q", "Quit the viewer.");
+            println!("\n  Search:");
+            println!("    {:<20} {}", "/", "Search forward.");
+            println!("    {:<20} {}", "?", "Search backward.");
+            println!(
+                "    {:<20} {}",
+                "n", "Repeat the last search (preserving the direction)."
+            );
+            println!("    {:<20} {}", "Esc", "Clear the search.");
+            println!("\n  Miscellaneous:");
+            println!(
+                "    {:<20} {}",
+                "l", "Toggle line numbering for the current file."
+            );
+            println!(
+                "    {:<20} {}",
+                "h", "Show hints at the bottom of the screen."
+            );
+            println!(
+                "    {:<20} {}",
+                "F1", "Show hints at the bottom of the screen."
+            );
+
             return Ok(Value::success());
         }
 
