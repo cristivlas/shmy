@@ -13,9 +13,10 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc,
+};
 use std::{env, usize};
 
 #[macro_use]
@@ -632,7 +633,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
             let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
             shell.source = Some(Box::new(BufReader::new(file)));
             shell.interactive = false;
-            shell.interp.set_file(Some(Rc::new(arg.to_owned())));
+            shell.interp.set_file(Some(Arc::new(arg.to_owned())));
         }
     }
 

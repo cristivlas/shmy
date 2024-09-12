@@ -176,7 +176,7 @@ enum Token {
 pub struct Location {
     pub line: u32,
     pub col: u32,
-    pub file: Option<Rc<String>>,
+    pub file: Option<Arc<String>>,
 }
 
 impl fmt::Display for Location {
@@ -202,7 +202,7 @@ impl Location {
         }
     }
 
-    fn with_file(file: Option<Rc<String>>) -> Self {
+    fn with_file(file: Option<Arc<String>>) -> Self {
         Self {
             line: 1,
             col: 1,
@@ -572,7 +572,7 @@ impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
 {
-    fn new(input: T, scope: &Arc<Scope>, file: Option<Rc<String>>) -> Self {
+    fn new(input: T, scope: &Arc<Scope>, file: Option<Arc<String>>) -> Self {
         let empty = Rc::new(Expression::Empty);
         let loc = Location::with_file(file);
 
@@ -2710,7 +2710,7 @@ impl Eval for Expression {
 
 pub struct Interp {
     scope: Arc<Scope>,
-    file: Option<Rc<String>>,
+    file: Option<Arc<String>>,
     pub quit: bool,
 }
 
@@ -2774,7 +2774,7 @@ impl Interp {
         Arc::clone(&self.scope)
     }
 
-    pub fn set_file(&mut self, file: Option<Rc<String>>) {
+    pub fn set_file(&mut self, file: Option<Arc<String>>) {
         self.file = file;
     }
 }

@@ -5,7 +5,6 @@ use colored::*;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Evaluate {
@@ -57,7 +56,7 @@ impl Exec for Evaluate {
                 file.read_to_string(&mut source)
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
-                interp.set_file(Some(Rc::new(path.display().to_string())));
+                interp.set_file(Some(Arc::new(path.display().to_string())));
 
                 source
             } else {
