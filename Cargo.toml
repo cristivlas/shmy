@@ -1,12 +1,12 @@
 [package]
 name = "shmy"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like utility commands, and WSL symbolic link support"
 readme = "README.md"
 repository = "https://github.com/cristivlas/shmy"
-license-file = "LICENSE"
+license = "MIT"
 keywords = ["shell", "wsl"]
 
 [dependencies]
