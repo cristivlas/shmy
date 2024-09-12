@@ -20,83 +20,101 @@ use std::sync::Arc;
 use terminal_size::{terminal_size, Height, Width};
 
 enum FileAction {
+    None,
     NextFile,
     PrevFile,
     Quit,
 }
 
-struct LessViewer {
-    lines: Vec<String>,
+#[derive(Clone, Debug, PartialEq)]
+struct ViewerState {
     current_line: usize,
     horizontal_scroll: usize,
-    screen_width: usize,
-    screen_height: usize,
     last_search: Option<String>,
     last_search_direction: bool,
-    line_num_width: usize,
+    redraw: bool, // Force redraw
     search_start_index: usize,
     show_line_numbers: bool,
-    status: Option<String>,
-    use_color: bool,
+    status_line: Option<String>,
 }
 
-impl LessViewer {
-    fn new<R: BufRead>(reader: R) -> io::Result<Self> {
-        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
-        let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
-
-        Ok(LessViewer {
-            line_num_width: lines.len().to_string().len() + 1,
-            lines,
+impl ViewerState {
+    fn new() -> Self {
+        Self {
             current_line: 0,
             horizontal_scroll: 0,
-            screen_width: w as usize,
-            screen_height: h.saturating_sub(1) as usize,
+            redraw: false,
             last_search: None,
             last_search_direction: true,
             search_start_index: 0,
             show_line_numbers: false,
-            status: None,
+            status_line: None,
+        }
+    }
+}
+
+struct Viewer {
+    lines: Vec<String>,
+    line_num_width: usize,
+    screen_width: usize,
+    screen_height: usize,
+    state: ViewerState,
+    use_color: bool,
+}
+
+impl Viewer {
+    fn new<R: BufRead>(reader: R) -> io::Result<Self> {
+        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+
+        let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
+
+        Ok(Self {
+            line_num_width: lines.len().to_string().len() + 1,
+            lines,
+
+            screen_width: w as usize,
+            screen_height: h.saturating_sub(1) as usize,
+            state: ViewerState::new(),
             use_color: true,
         })
     }
 
     fn clear_search(&mut self) {
-        self.last_search = None;
+        self.state.last_search = None;
     }
 
     fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
 
-        let end = (self.current_line + self.screen_height).min(self.lines.len());
+        let end = (self.state.current_line + self.screen_height).min(self.lines.len());
 
-        for (index, line) in self.lines[self.current_line..end].iter().enumerate() {
-            if self.show_line_numbers {
-                let line_number = self.current_line + index + 1;
+        for (index, line) in self.lines[self.state.current_line..end].iter().enumerate() {
+            if self.state.show_line_numbers {
+                let line_number = self.state.current_line + index + 1;
                 buffer.push_str(&format!("{:>w$}", line_number, w = self.line_num_width));
             }
             self.display_line(line, buffer)?;
         }
 
         // Fill any remaining lines
-        for _ in end..self.current_line + self.screen_height {
+        for _ in end..self.state.current_line + self.screen_height {
             buffer.push('~');
             buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
             buffer.push_str("\r\n");
         }
 
-        execute!(stdout, cursor::Hide, cursor::MoveTo(0, 0))?;
-        write!(stdout, "{}", buffer)?;
-
         execute!(
             stdout,
+            cursor::Hide,
+            cursor::MoveTo(0, 0),
+            Print(buffer),
             cursor::MoveTo(0, self.screen_height as u16),
             Clear(ClearType::CurrentLine),
             cursor::Show,
         )?;
 
-        // Update the "status" lines
-        if let Some(ref message) = self.status {
+        // Update the "status / hints" line
+        if let Some(ref message) = self.state.status_line {
             write!(stdout, "{}", message)?;
         } else {
             write!(stdout, ":")?;
@@ -108,22 +126,22 @@ impl LessViewer {
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
         // Determine the effective width of the line to be displayed
-        let effective_width = if self.show_line_numbers {
+        let effective_width = if self.state.show_line_numbers {
             self.screen_width.saturating_sub(self.line_num_width + 2)
         } else {
             self.screen_width
         };
 
         // Compute the starting point based on horizontal scroll
-        let start_index = self.horizontal_scroll.min(line.len());
+        let start_index = self.state.horizontal_scroll.min(line.len());
         let end_index = (start_index + effective_width).min(line.len());
 
-        if self.show_line_numbers {
+        if self.state.show_line_numbers {
             buffer.push_str("  ");
         }
 
         // Handle search highlighting if present
-        if let Some(ref search) = self.last_search {
+        if let Some(ref search) = self.state.last_search {
             let mut start = start_index;
             while let Some(index) = line[start..end_index].find(search) {
                 let search_start = start + index;
@@ -153,95 +171,119 @@ impl LessViewer {
         Ok(())
     }
 
+    fn goto_line(&mut self, cmd: &str) {
+        self.state.status_line = None;
+        let num_str = cmd.trim();
+
+        if let Ok(number) = num_str.parse::<usize>() {
+            if number < 1 || number > self.lines.len() {
+                self.state.status_line = Some(
+                    self.strong(&format!(
+                        "{} is out of range: [1-{}]",
+                        number,
+                        self.lines.len()
+                    ))
+                    .into(),
+                );
+            } else {
+                self.state.current_line = number.saturating_sub(1);
+            }
+        } else {
+            self.state.status_line = Some(self.strong("Invalid line number").to_string());
+        }
+    }
+
     fn last_page(&mut self) {
         if self.lines.is_empty() {
-            self.current_line = 0;
+            self.state.current_line = 0;
         } else {
-            self.current_line = self.lines.len().saturating_sub(self.screen_height);
+            self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
         }
     }
 
     fn next_line(&mut self) {
-        if self.current_line < self.lines.len().saturating_sub(1) {
-            self.current_line += 1;
-            if self.current_line + self.screen_height > self.lines.len() {
-                self.current_line = self.lines.len().saturating_sub(self.screen_height);
+        if self.state.current_line < self.lines.len().saturating_sub(1) {
+            self.state.current_line += 1;
+            if self.state.current_line + self.screen_height > self.lines.len() {
+                self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
             }
         }
     }
 
     fn next_page(&mut self) {
         let new_line =
-            (self.current_line + self.screen_height).min(self.lines.len().saturating_sub(1));
-        if new_line > self.current_line {
-            self.current_line = new_line;
-            if self.current_line + self.screen_height > self.lines.len() {
-                self.current_line = self.lines.len().saturating_sub(self.screen_height);
+            (self.state.current_line + self.screen_height).min(self.lines.len().saturating_sub(1));
+        if new_line > self.state.current_line {
+            self.state.current_line = new_line;
+            if self.state.current_line + self.screen_height > self.lines.len() {
+                self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
             }
         }
     }
 
     fn prev_page(&mut self) {
-        self.current_line = self.current_line.saturating_sub(self.screen_height);
+        self.state.current_line = self.state.current_line.saturating_sub(self.screen_height);
     }
 
     fn prev_line(&mut self) {
-        if self.current_line > 0 {
-            self.current_line -= 1;
+        if self.state.current_line > 0 {
+            self.state.current_line -= 1;
         }
     }
 
     fn scroll_right(&mut self) {
-        self.horizontal_scroll += 1;
+        self.state.horizontal_scroll += 1;
     }
 
     fn scroll_left(&mut self) {
-        self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
+        self.state.horizontal_scroll = self.state.horizontal_scroll.saturating_sub(1);
     }
 
     fn search(&mut self, query: &str, forward: bool) {
-        self.last_search = Some(query.to_string());
-        self.last_search_direction = forward;
+        self.state.last_search = Some(query.to_string());
+        self.state.last_search_direction = forward;
 
         let mut found = false;
-
+        let search_start_index = self.state.search_start_index;
         if forward {
-            for (index, line) in self.lines[self.search_start_index..].iter().enumerate() {
+            for (index, line) in self.lines[self.state.search_start_index..]
+                .iter()
+                .enumerate()
+            {
                 if line.contains(query) {
-                    self.current_line = self.search_start_index + index;
-                    self.search_start_index = self.current_line + 1;
+                    self.state.current_line = self.state.search_start_index + index;
+                    self.state.search_start_index = self.state.current_line + 1;
                     found = true;
                     break;
                 }
             }
         } else {
-            for (index, line) in self.lines[..self.search_start_index]
+            for (index, line) in self.lines[..self.state.search_start_index]
                 .iter()
                 .rev()
                 .enumerate()
             {
                 if line.contains(query) {
-                    self.current_line = self.search_start_index - index - 1;
-                    self.search_start_index = self.current_line;
+                    self.state.current_line = self.state.search_start_index - index - 1;
+                    self.state.search_start_index = self.state.current_line;
                     found = true;
                     break;
                 }
             }
         }
 
-        if !found {
-            self.status = Some(self.strong(&format!("Pattern not found: {}", query)).into());
-            self.search_start_index = if forward {
-                self.current_line + 1
-            } else {
-                self.current_line
-            };
+        if found {
+            self.state.status_line = None;
+        } else {
+            self.state.status_line =
+                Some(self.strong(&format!("Pattern not found: {}", query)).into());
+            self.state.search_start_index = search_start_index;
         }
     }
 
     fn repeat_search(&mut self) {
-        if let Some(query) = self.last_search.clone() {
-            let direction = self.last_search_direction;
+        if let Some(query) = self.state.last_search.clone() {
+            let direction = self.state.last_search_direction;
             self.search(&query, direction);
         }
     }
@@ -249,25 +291,26 @@ impl LessViewer {
     fn run(&mut self) -> io::Result<FileAction> {
         let _raw_mode = prompt::RawMode::new()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0))?;
+        execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0),)?;
 
-        let mut action = FileAction::NextFile;
+        let mut action = FileAction::None;
         let mut buffer = String::with_capacity(self.screen_width * self.screen_height);
 
         self.display_page(&mut stdout, &mut buffer)?;
 
-        // Process key events
-        loop {
-            let (mut current_line, horizontal_scroll, search_dir, search_term, show_lines) = (
-                self.current_line,
-                self.horizontal_scroll,
-                self.last_search_direction,
-                self.last_search.clone(),
-                self.show_line_numbers,
-            );
-            self.status = None;
+        // Process events
+        while matches!(action, FileAction::None) {
+            let mut state = self.state.clone();
 
-            if let Event::Key(key_event) = event::read()? {
+            let event = event::read()?;
+
+            if let Event::Resize(w, h) = event {
+                self.screen_width = w.into();
+                self.screen_height = h.saturating_sub(1).into();
+                state.redraw = true;
+            }
+
+            if let Event::Key(key_event) = event {
                 if key_event.kind != KeyEventKind::Press {
                     continue;
                 }
@@ -283,12 +326,12 @@ impl LessViewer {
                             action = FileAction::PrevFile;
                         } else if cmd == "q" {
                             action = FileAction::Quit;
+                        } else {
+                            self.goto_line(&cmd);
                         }
-                        break;
                     }
                     KeyCode::Char('q') => {
                         action = FileAction::Quit;
-                        break;
                     }
                     KeyCode::Char('b') => self.prev_page(),
                     KeyCode::Char('f') => self.next_page(),
@@ -312,14 +355,14 @@ impl LessViewer {
                         let (prompt, forward) = if key_event.code == KeyCode::Char('/') {
                             ("Search forward: ", true)
                         } else {
-                            self.search_start_index = self.lines.len().saturating_sub(1);
+                            self.state.search_start_index = self.lines.len().saturating_sub(1);
                             ("Search backward: ", false)
                         };
 
                         let query = self.prompt_for_command(&prompt)?;
                         if query.is_empty() {
-                            self.status = None;
-                            current_line = usize::MAX;
+                            self.state.status_line = None;
+                            state.redraw = true;
                         } else {
                             self.search(&query, forward);
                         }
@@ -328,24 +371,16 @@ impl LessViewer {
                         self.repeat_search();
                     }
                     KeyCode::Char('l') => {
-                        self.show_line_numbers = !self.show_line_numbers;
+                        self.state.show_line_numbers = !self.state.show_line_numbers;
                     }
                     _ => {}
                 }
-
-                if current_line != self.current_line
-                    || horizontal_scroll != self.horizontal_scroll
-                    || search_dir != self.last_search_direction
-                    || search_term != self.last_search
-                    || show_lines != self.show_line_numbers
-                {
-                    self.display_page(&mut stdout, &mut buffer)?;
-                }
+            }
+            if self.state != state {
+                self.display_page(&mut stdout, &mut buffer)?;
             }
         }
-
         execute!(stdout, LeaveAlternateScreen)?;
-
         Ok(action)
     }
 
@@ -366,7 +401,6 @@ impl LessViewer {
         let help_items = vec![
             ("b", "Prev Page"),
             ("f", "Next Page"),
-            ("G", "Scroll to End"),
             ("/", "Search"),
             ("?", "Search Backward"),
             (":n", "Next File"),
@@ -382,7 +416,7 @@ impl LessViewer {
 
         io::stdout()
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(help_text))?
+            .queue(Print(&help_text))?
             .flush()
     }
 
@@ -448,6 +482,7 @@ impl Exec for Less {
                     FileAction::PrevFile => i = i.saturating_sub(1),
                     FileAction::NextFile => i = std::cmp::min(i + 1, filenames.len() - 1),
                     FileAction::Quit => break,
+                    FileAction::None => {}
                 }
             }
         };
@@ -462,12 +497,12 @@ fn run_viewer<R: BufRead>(
     reader: R,
     filename: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = LessViewer::new(reader)?;
+    let mut viewer = Viewer::new(reader)?;
 
-    viewer.show_line_numbers = flags.is_present("number");
+    viewer.state.show_line_numbers = flags.is_present("number");
     viewer.use_color = scope.use_colors(&std::io::stdout());
     if let Some(filename) = &filename {
-        viewer.status = Some(viewer.strong(&filename).into());
+        viewer.state.status_line = Some(viewer.strong(&filename).into());
     }
 
     viewer.run()
