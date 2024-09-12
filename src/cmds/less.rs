@@ -11,7 +11,6 @@ use crossterm::{
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
 use std::path::Path;
@@ -333,6 +332,8 @@ impl Viewer {
                     action = FileAction::PrevFile;
                 } else if cmd == "q" {
                     action = FileAction::Quit;
+                } else if cmd.is_empty() {
+                    state.redraw = true;
                 } else {
                     self.goto_line(&cmd)?;
                 }
@@ -426,8 +427,8 @@ impl Viewer {
         self.show_status(&help_text)
     }
 
-    fn strong<'a>(&self, s: &'a str) -> Cow<'a, str> {
-        Cow::Owned(format!("\x1b[7m{}\x1b[0m", s))
+    fn strong<'a>(&self, s: &'a str) -> String {
+        format!("\x1b[7m{}\x1b[0m", s)
     }
 }
 
@@ -537,7 +538,7 @@ fn run_viewer<R: BufRead>(
 
     viewer.state.show_line_numbers = flags.is_present("number");
     if let Some(filename) = &filename {
-        viewer.state.status_line = Some(viewer.strong(&filename).into());
+        viewer.state.status_line = Some(viewer.strong(&filename));
     }
 
     viewer.run()
