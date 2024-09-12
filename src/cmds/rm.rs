@@ -5,7 +5,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Context {
@@ -172,6 +171,6 @@ impl Exec for Remove {
 fn register() {
     register_command(ShellCommand {
         name: "rm".to_string(),
-        inner: Rc::new(Remove::new()),
+        inner: Arc::new(Remove::new()),
     });
 }

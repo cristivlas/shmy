@@ -6,7 +6,6 @@ use std::io::{self, BufRead, BufReader};
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct WordCount {
@@ -181,6 +180,6 @@ impl Exec for WordCount {
 fn register() {
     register_command(ShellCommand {
         name: "wc".to_string(),
-        inner: Rc::new(WordCount::new()),
+        inner: Arc::new(WordCount::new()),
     });
 }

@@ -2,7 +2,6 @@ use super::{flags::CommandFlags, get_command, register_command, Exec, ShellComma
 use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Run {
@@ -89,6 +88,6 @@ impl Exec for Run {
 fn register() {
     register_command(ShellCommand {
         name: "run".to_string(),
-        inner: Rc::new(Run::new()),
+        inner: Arc::new(Run::new()),
     });
 }

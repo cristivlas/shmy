@@ -2,7 +2,6 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Chmod {
@@ -229,6 +228,6 @@ impl Exec for Chmod {
 fn register() {
     register_command(ShellCommand {
         name: "chmod".to_string(),
-        inner: Rc::new(Chmod::new()),
+        inner: Arc::new(Chmod::new()),
     });
 }

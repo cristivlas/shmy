@@ -1,6 +1,5 @@
 use super::{register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Echo;
@@ -16,6 +15,6 @@ impl Exec for Echo {
 fn register() {
     register_command(ShellCommand {
         name: "echo".to_string(),
-        inner: Rc::new(Echo),
+        inner: Arc::new(Echo),
     });
 }

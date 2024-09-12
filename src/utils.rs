@@ -85,6 +85,9 @@ pub fn format_size(size: u64, block_size: u64, human_readable: bool) -> String {
     format!("{:.1} {}", formatted_size, units[index])
 }
 
+///
+/// Windows-specific helpers (read WSL symbolic link reparse points, detect elevated mode, etc.)
+///
 #[cfg(windows)]
 pub mod win {
     use crate::symlnk::SymLink;

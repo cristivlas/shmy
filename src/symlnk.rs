@@ -3,8 +3,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
 use std::io;
-use std::path::Component;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub trait SymLink {
     fn is_wsl_link(&self) -> io::Result<bool>;

@@ -6,7 +6,6 @@ use std::ffi::{OsStr, OsString};
 use std::io::Error;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{ERROR_NO_MORE_FILES, MAX_PATH};
@@ -237,6 +236,6 @@ impl Exec for DiskFree {
 fn register() {
     register_command(ShellCommand {
         name: "df".to_string(),
-        inner: Rc::new(DiskFree::new()),
+        inner: Arc::new(DiskFree::new()),
     });
 }

@@ -1,120 +1,143 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
+use crate::{
+    cmds::flags::CommandFlags, eval::Value, prompt, scope::Scope, symlnk::SymLink,
+    utils::format_error,
+};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     style::Print,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 use terminal_size::{terminal_size, Height, Width};
 
 enum FileAction {
+    None,
     NextFile,
     PrevFile,
     Quit,
 }
 
-struct LessViewer {
-    lines: Vec<String>,
+#[derive(Clone, Debug, PartialEq)]
+struct ViewerState {
     current_line: usize,
     horizontal_scroll: usize,
-    screen_width: usize,
-    screen_height: usize,
     last_search: Option<String>,
     last_search_direction: bool,
-    line_num_width: usize,
+    redraw: bool, // Force redraw
     search_start_index: usize,
     show_line_numbers: bool,
-    status: Option<String>,
-    use_color: bool,
+    status_line: Option<String>,
 }
 
-impl LessViewer {
-    fn new<R: BufRead>(reader: R) -> io::Result<Self> {
-        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
-        let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
-
-        Ok(LessViewer {
-            line_num_width: lines.len().to_string().len() + 1,
-            lines,
+impl ViewerState {
+    fn new() -> Self {
+        Self {
             current_line: 0,
             horizontal_scroll: 0,
-            screen_width: w as usize,
-            screen_height: h.saturating_sub(1) as usize,
+            redraw: false,
             last_search: None,
             last_search_direction: true,
             search_start_index: 0,
             show_line_numbers: false,
-            status: None,
-            use_color: true,
+            status_line: None,
+        }
+    }
+}
+
+struct Viewer {
+    file_name: Option<String>,
+    lines: Vec<String>,
+    line_num_width: usize,
+    screen_width: usize,
+    screen_height: usize,
+    state: ViewerState,
+}
+
+impl Viewer {
+    fn new<R: BufRead>(file_name: Option<String>, reader: R) -> io::Result<Self> {
+        let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+
+        let (Width(w), Height(h)) = terminal_size().unwrap_or((Width(80), Height(24)));
+
+        Ok(Self {
+            file_name,
+            line_num_width: lines.len().to_string().len() + 1,
+            lines,
+            screen_width: w as usize,
+            screen_height: h.saturating_sub(1) as usize,
+            state: ViewerState::new(),
         })
     }
 
     fn clear_search(&mut self) {
-        self.last_search = None;
+        self.state.last_search = None;
     }
 
-    fn display_page<W: Write>(&self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
+    fn display_page<W: Write>(&mut self, stdout: &mut W, buffer: &mut String) -> io::Result<()> {
         buffer.clear();
-        buffer.push_str("\r");
 
-        let end = (self.current_line + self.screen_height).min(self.lines.len());
+        let end = (self.state.current_line + self.screen_height).min(self.lines.len());
 
-        for (index, line) in self.lines[self.current_line..end].iter().enumerate() {
-            if self.show_line_numbers {
-                let line_number = self.current_line + index + 1;
-                buffer.push_str(&format!("{:>w$}", line_number, w = self.line_num_width));
+        for (index, line) in self.lines[self.state.current_line..end].iter().enumerate() {
+            buffer.push_str("\x1b[2K"); // Clear line
+            if self.state.show_line_numbers {
+                let line_number = self.state.current_line + index + 1;
+                buffer.push_str(&format!("{:>w$}  ", line_number, w = self.line_num_width));
             }
             self.display_line(line, buffer)?;
         }
 
-        // Fill any remaining lines with empty space
-        for _ in end..self.current_line + self.screen_height {
-            buffer.push_str("\r\n");
+        // Fill any remaining lines
+        for _ in end..self.state.current_line + self.screen_height {
+            buffer.push_str("\x1b[2K~\r\n");
         }
 
-        if let Some(ref message) = self.status {
-            buffer.push_str(message);
+        execute!(
+            stdout,
+            cursor::Hide,
+            cursor::MoveTo(0, 0),
+            Print(buffer),
+            cursor::MoveTo(0, self.screen_height as u16),
+            Clear(ClearType::CurrentLine),
+            cursor::Show,
+        )?;
+
+        // Update the "status / hints" line
+        if let Some(ref message) = self.state.status_line {
+            write!(stdout, "{}", message)?;
         } else {
-            buffer.push(':');
+            write!(stdout, ":")?;
         }
-
-        write!(stdout, "{}", buffer)?;
         stdout.flush()?;
+
+        if let Some(file_name) = &self.file_name {
+            self.state.status_line = Some(self.strong(&file_name));
+        }
 
         Ok(())
     }
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
         // Determine the effective width of the line to be displayed
-        let effective_width = if self.show_line_numbers {
+        let effective_width = if self.state.show_line_numbers {
             self.screen_width.saturating_sub(self.line_num_width + 2)
         } else {
             self.screen_width
         };
 
         // Compute the starting point based on horizontal scroll
-        let start_index = self.horizontal_scroll.min(line.len());
+        let start_index = self.state.horizontal_scroll.min(line.len());
         let end_index = (start_index + effective_width).min(line.len());
 
-        if self.show_line_numbers {
-            buffer.push_str("  ");
-        }
-
         // Handle search highlighting if present
-        if let Some(ref search) = self.last_search {
+        if let Some(ref search) = self.state.last_search {
             let mut start = start_index;
             while let Some(index) = line[start..end_index].find(search) {
                 let search_start = start + index;
@@ -124,15 +147,7 @@ impl LessViewer {
                 buffer.push_str(&line[start..search_start]);
 
                 // Highlight the search term if colors are enabled
-                if self.use_color {
-                    buffer.push_str("\x1b[43m\x1b[30m");
-                }
-                buffer.push_str(&line[search_start..search_end]);
-
-                // Reset color after the match
-                if self.use_color {
-                    buffer.push_str("\x1b[0m");
-                }
+                buffer.push_str(&self.strong(&line[search_start..search_end]));
 
                 // Move start after the matched search term
                 start = search_end;
@@ -144,82 +159,105 @@ impl LessViewer {
             // If no search, append the entire visible portion of the line
             buffer.push_str(&line[start_index..end_index]);
         }
-
         buffer.push_str("\r\n");
 
         Ok(())
     }
 
+    fn goto_line(&mut self, cmd: &str) {
+        let num_str = cmd.trim();
+
+        if let Ok(number) = num_str.parse::<usize>() {
+            if number < 1 || number > self.lines.len() {
+                self.show_status(&self.strong(&format!(
+                    "{} is out of range: [1..{}]",
+                    number,
+                    self.lines.len()
+                )));
+            } else {
+                self.state.current_line = number.saturating_sub(1);
+            }
+        } else {
+            self.show_status(&self.strong("Invalid line number"));
+        }
+    }
+
     fn last_page(&mut self) {
         if self.lines.is_empty() {
-            self.current_line = 0;
+            self.state.current_line = 0;
         } else {
-            self.current_line = self.lines.len().saturating_sub(self.screen_height);
+            self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
         }
     }
 
     fn next_line(&mut self) {
-        if self.current_line < self.lines.len().saturating_sub(1) {
-            self.current_line += 1;
-            if self.current_line + self.screen_height > self.lines.len() {
-                self.current_line = self.lines.len().saturating_sub(self.screen_height);
-            }
+        if self.state.current_line < self.lines.len().saturating_sub(1) {
+            self.state.current_line += 1;
         }
     }
 
     fn next_page(&mut self) {
         let new_line =
-            (self.current_line + self.screen_height).min(self.lines.len().saturating_sub(1));
-        if new_line > self.current_line {
-            self.current_line = new_line;
-            if self.current_line + self.screen_height > self.lines.len() {
-                self.current_line = self.lines.len().saturating_sub(self.screen_height);
-            }
+            (self.state.current_line + self.screen_height).min(self.lines.len().saturating_sub(1));
+        if new_line > self.state.current_line {
+            self.state.current_line = new_line;
         }
     }
 
     fn prev_page(&mut self) {
-        self.current_line = self.current_line.saturating_sub(self.screen_height);
+        self.state.current_line = self.state.current_line.saturating_sub(self.screen_height);
     }
 
     fn prev_line(&mut self) {
-        if self.current_line > 0 {
-            self.current_line -= 1;
+        if self.state.current_line > 0 {
+            self.state.current_line -= 1;
         }
     }
 
     fn scroll_right(&mut self) {
-        self.horizontal_scroll += 1;
+        self.state.horizontal_scroll += 1;
     }
 
     fn scroll_left(&mut self) {
-        self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
+        self.state.horizontal_scroll = self.state.horizontal_scroll.saturating_sub(1);
     }
 
-    fn search(&mut self, query: &str, forward: bool) {
-        self.last_search = Some(query.to_string());
-        self.last_search_direction = forward;
+    fn search(&mut self, query: &str, forward: bool) -> io::Result<bool> {
+        // Ensure the searched pattern is visible if found.
+        let mut adjust_horizontal_scroll = |pos: usize| {
+            if pos + query.len() >= self.screen_width {
+                self.state.horizontal_scroll =
+                    pos.saturating_sub(self.screen_width) + query.len() + self.line_num_width + 2;
+            } else {
+                self.state.horizontal_scroll = 0;
+            }
+        };
 
         let mut found = false;
 
         if forward {
-            for (index, line) in self.lines[self.search_start_index..].iter().enumerate() {
-                if line.contains(query) {
-                    self.current_line = self.search_start_index + index;
-                    self.search_start_index = self.current_line + 1;
+            for (index, line) in self.lines[self.state.search_start_index..]
+                .iter()
+                .enumerate()
+            {
+                if let Some(pos) = line.find(query) {
+                    self.state.current_line = self.state.search_start_index + index;
+                    self.state.search_start_index = self.state.current_line + 1;
+                    adjust_horizontal_scroll(pos);
                     found = true;
                     break;
                 }
             }
         } else {
-            for (index, line) in self.lines[..self.search_start_index]
+            for (index, line) in self.lines[..self.state.search_start_index]
                 .iter()
                 .rev()
                 .enumerate()
             {
-                if line.contains(query) {
-                    self.current_line = self.search_start_index - index - 1;
-                    self.search_start_index = self.current_line;
+                if let Some(pos) = line.find(query) {
+                    self.state.current_line = self.state.search_start_index - index - 1;
+                    self.state.search_start_index = self.state.current_line;
+                    adjust_horizontal_scroll(pos);
                     found = true;
                     break;
                 }
@@ -227,127 +265,127 @@ impl LessViewer {
         }
 
         if !found {
-            self.status = Some(format!("Pattern not found: {}", query));
-            self.search_start_index = if forward {
-                self.current_line + 1
-            } else {
-                self.current_line
-            };
+            self.state.status_line = Some(self.strong(&format!("Pattern not found: {}", query)));
         }
 
-        if self.current_line + self.screen_height > self.lines.len() {
-            self.current_line = self.lines.len().saturating_sub(self.screen_height);
-        }
+        Ok(found)
     }
 
-    fn repeat_search(&mut self) {
-        if let Some(query) = self.last_search.clone() {
-            let direction = self.last_search_direction;
-            self.search(&query, direction);
+    fn repeat_search(&mut self) -> io::Result<bool> {
+        if let Some(query) = self.state.last_search.clone() {
+            let direction = self.state.last_search_direction;
+            self.search(&query, direction)
+        } else {
+            Ok(false)
         }
     }
 
     fn run(&mut self) -> io::Result<FileAction> {
-        enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        let _raw_mode = prompt::RawMode::new()?;
+        execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0),)?;
 
-        let mut action = FileAction::NextFile;
+        let mut action = FileAction::None;
         let mut buffer = String::with_capacity(self.screen_width * self.screen_height);
 
         self.display_page(&mut stdout, &mut buffer)?;
 
-        loop {
-            let (mut current_line, horizontal_scroll, search_dir, search_term, show_lines) = (
-                self.current_line,
-                self.horizontal_scroll,
-                self.last_search_direction,
-                self.last_search.clone(),
-                self.show_line_numbers,
-            );
-            self.status = None;
+        while matches!(action, FileAction::None) {
+            let mut state = self.state.clone();
 
-            if let Event::Key(key_event) = event::read()? {
-                if key_event.kind != KeyEventKind::Press {
-                    continue;
-                }
+            let event = event::read()?;
 
-                match key_event.code {
-                    KeyCode::F(1) => self.show_help()?,
-                    KeyCode::Char('h') => self.show_help()?,
-                    KeyCode::Char(':') => {
-                        let cmd = self.prompt_for_command(":")?;
-                        if cmd == "n" {
-                            action = FileAction::NextFile;
-                        } else if cmd == "p" {
-                            action = FileAction::PrevFile;
-                        } else if cmd == "q" {
-                            action = FileAction::Quit;
-                        }
-                        break;
-                    }
-                    KeyCode::Char('q') => {
-                        action = FileAction::Quit;
-                        break;
-                    }
-                    KeyCode::Char('b') => self.prev_page(),
-                    KeyCode::Char('f') => self.next_page(),
-                    KeyCode::Char(' ') => self.next_page(),
-                    KeyCode::Char('G') => self.last_page(),
-                    KeyCode::Esc => self.clear_search(),
-                    KeyCode::Enter => self.next_line(),
-                    KeyCode::Up => self.prev_line(),
-                    KeyCode::Down => self.next_line(),
-                    KeyCode::Left => self.scroll_left(),
-                    KeyCode::Right => self.scroll_right(),
-                    KeyCode::PageUp => self.prev_page(),
-                    KeyCode::PageDown => self.next_page(),
-                    KeyCode::Char('/') | KeyCode::Char('?') => {
-                        execute!(
-                            stdout,
-                            cursor::SavePosition,
-                            cursor::MoveTo(0, self.screen_height as u16),
-                            Clear(ClearType::CurrentLine),
-                            cursor::RestorePosition
-                        )?;
-
-                        let (prompt, forward) = if key_event.code == KeyCode::Char('/') {
-                            ("Search forward: ", true)
-                        } else {
-                            self.search_start_index = self.lines.len().saturating_sub(1);
-                            ("Search backward: ", false)
-                        };
-
-                        let query = self.prompt_for_command(&prompt)?;
-                        if query.is_empty() {
-                            self.status = None;
-                            current_line = usize::MAX;
-                        } else {
-                            self.search(&query, forward);
-                        }
-                    }
-                    KeyCode::Char('n') => {
-                        self.repeat_search();
-                    }
-                    KeyCode::Char('l') => {
-                        self.show_line_numbers = !self.show_line_numbers;
-                    }
-                    _ => {}
-                }
-
-                if current_line != self.current_line
-                    || horizontal_scroll != self.horizontal_scroll
-                    || search_dir != self.last_search_direction
-                    || search_term != self.last_search
-                    || show_lines != self.show_line_numbers
-                {
-                    self.display_page(&mut stdout, &mut buffer)?;
+            if let Event::Resize(w, h) = event {
+                self.screen_width = w.into();
+                self.screen_height = h.saturating_sub(1).into();
+                state.redraw = true;
+            } else if let Event::Key(key_event) = event {
+                if key_event.kind == KeyEventKind::Press {
+                    action = self.process_key_code(key_event.code, &mut state, &mut stdout)?;
                 }
             }
+            if state.redraw || self.state != state {
+                self.display_page(&mut stdout, &mut buffer)?;
+            }
         }
-
         execute!(stdout, LeaveAlternateScreen)?;
-        disable_raw_mode()?;
+        Ok(action)
+    }
+
+    fn process_key_code(
+        &mut self,
+        key_code: KeyCode,
+        state: &mut ViewerState,
+        stdout: &mut io::Stdout,
+    ) -> io::Result<FileAction> {
+        let mut action = FileAction::None;
+
+        match key_code {
+            KeyCode::F(1) => self.show_help(),
+            KeyCode::Char('h') => self.show_help(),
+            KeyCode::Char(':') => {
+                let cmd = self.prompt_for_command(":")?;
+                if cmd == "n" {
+                    action = FileAction::NextFile;
+                } else if cmd == "p" {
+                    action = FileAction::PrevFile;
+                } else if cmd == "q" {
+                    action = FileAction::Quit;
+                } else if cmd.is_empty() {
+                    state.redraw = true;
+                } else {
+                    self.goto_line(&cmd);
+                }
+            }
+            KeyCode::Char('q') => {
+                action = FileAction::Quit;
+            }
+            KeyCode::Char('b') => self.prev_page(),
+            KeyCode::Char('f') => self.next_page(),
+            KeyCode::Char(' ') => self.next_page(),
+            KeyCode::Char('G') => self.last_page(),
+            KeyCode::Esc => self.clear_search(),
+            KeyCode::Enter => self.next_line(),
+            KeyCode::Up => self.prev_line(),
+            KeyCode::Down => self.next_line(),
+            KeyCode::Left => self.scroll_left(),
+            KeyCode::Right => self.scroll_right(),
+            KeyCode::PageUp => self.prev_page(),
+            KeyCode::PageDown => self.next_page(),
+            KeyCode::Char('/') | KeyCode::Char('?') => {
+                execute!(
+                    stdout,
+                    cursor::MoveTo(0, self.screen_height as u16),
+                    Clear(ClearType::CurrentLine),
+                )?;
+
+                let (prompt, forward) = if key_code == KeyCode::Char('/') {
+                    ("Search forward: ", true)
+                } else {
+                    self.state.search_start_index = self.lines.len().saturating_sub(1);
+                    ("Search backward: ", false)
+                };
+
+                let query = self.prompt_for_command(&prompt)?;
+                if query.is_empty() {
+                    state.redraw = true;
+                } else if self.search(&query, forward)? {
+                    self.state.last_search = Some(query);
+                    self.state.last_search_direction = forward;
+                } else {
+                    state.redraw = true;
+                }
+            }
+            KeyCode::Char('n') => {
+                if !self.repeat_search()? {
+                    state.redraw = true;
+                }
+            }
+            KeyCode::Char('l') => {
+                self.state.show_line_numbers = !self.state.show_line_numbers;
+            }
+            _ => {}
+        }
 
         Ok(action)
     }
@@ -355,36 +393,43 @@ impl LessViewer {
     fn prompt_for_command(&mut self, prompt: &str) -> io::Result<String> {
         let mut stdout = io::stdout();
         stdout
-            .queue(cursor::SavePosition)?
             .queue(cursor::MoveTo(0, self.screen_height as u16))?
             .queue(Clear(ClearType::CurrentLine))?
             .flush()?;
 
         let cmd = crate::prompt::read_input(prompt)?;
 
-        stdout.queue(cursor::RestorePosition)?.flush()?;
         Ok(cmd.trim().to_string())
     }
 
-    fn show_help(&self) -> io::Result<()> {
-        let help_text = if self.use_color {
-            "\x1b[7mb\x1b[0m Prev Page | \
-            \x1b[7mf\x1b[0m Next Page | \
-             \x1b[7mG\x1b[0m Scroll to End | \
-            \x1b[7m/\x1b[0m Search | \
-            \x1b[7m?\x1b[0m Search Backward | \
-            \x1b[7m:n\x1b[0m Next File | \
-            \x1b[7m:p\x1b[0m Prev File | \
-            \x1b[7m:q\x1b[0m Quit"
-        } else {
-            "b Prev Page | f Next Page | G Scroll to End | / Search | ? Search Backward | :n Next File | :p Prev File | :q Quit"
-        };
+    /// Print a message at the bottom of the screen on the "status" line
+    fn show_status(&mut self, message: &str) {
+        self.state.status_line = Some(self.strong(message))
+    }
 
-        io::stdout()
-            .queue(cursor::SavePosition)?
-            .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(help_text))?
-            .flush()
+    /// Show temporary hints on the last ("status") line.
+    fn show_help(&mut self) {
+        let help_items = vec![
+            ("b", "Prev Page"),
+            ("f", "Next Page"),
+            ("/", "Search"),
+            ("?", "Search Backward"),
+            (":n", "Next File"),
+            (":p", "Prev File"),
+            (":q", "Quit"),
+        ];
+
+        let help_text = help_items
+            .iter()
+            .map(|(key, description)| format!("{} {}", self.strong(key), description))
+            .collect::<Vec<String>>()
+            .join(" | ");
+
+        self.show_status(&help_text)
+    }
+
+    fn strong<'a>(&self, s: &'a str) -> String {
+        format!("\x1b[7m{}\x1b[0m", s)
     }
 }
 
@@ -405,19 +450,55 @@ impl Exec for Less {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(scope, args)?;
-
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... [FILE]...", name);
-            println!("View FILE(s) or standard input in a pager.");
-            println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("View FILE(s) or the standard input (stdin) in a pager.");
+            println!("\nUser Interaction:");
+            println!("  Navigation:");
+            println!("    {:<20} {}", "Up Arrow", "Move one line up.");
+            println!("    {:<20} {}", "Down Arrow", "Move one line down.");
+            println!("    {:<20} {}", "Left Arrow", "Scroll horizontally left.");
+            println!("    {:<20} {}", "Right Arrow", "Scroll horizontally right.");
+            println!("    {:<20} {}", "PageUp", "Go to the previous page.");
+            println!("    {:<20} {}", "b", "Go to the previous page.");
+            println!("    {:<20} {}", "PageDown", "Go to the next page.");
+            println!("    {:<20} {}", "f", "Go to the next page.");
+            println!("    {:<20} {}", "Space", "Go to the next page.");
+            println!("    {:<20} {}", "G", "Go to the last page.");
+            println!("    {:<20} {}", ":N", "Go to line number N (1-based).");
+            println!("    {:<20} {}", ":n", "Load the next file.");
+            println!("    {:<20} {}", ":p", "Load the previous file.");
+            println!("    {:<20} {}", ":q", "Quit the viewer.");
+            println!("    {:<20} {}", "q", "Quit the viewer.");
+            println!("\n  Search:");
+            println!("    {:<20} {}", "/", "Search forward.");
+            println!("    {:<20} {}", "?", "Search backward.");
+            println!(
+                "    {:<20} {}",
+                "n", "Repeat the last search (preserving the direction)."
+            );
+            println!("    {:<20} {}", "Esc", "Clear the search.");
+            println!("\n  Miscellaneous:");
+            println!(
+                "    {:<20} {}",
+                "l", "Toggle line numbering for the current file."
+            );
+            println!(
+                "    {:<20} {}",
+                "h", "Show hints at the bottom of the screen."
+            );
+            println!(
+                "    {:<20} {}",
+                "F1", "Show hints at the bottom of the screen."
+            );
+
             return Ok(Value::success());
         }
 
         if filenames.is_empty() {
             let stdin = io::stdin();
             let reader = stdin.lock();
-            run_less_viewer(scope, &flags, reader, None).map_err(|e| e.to_string())?;
+            run_viewer(&flags, reader, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -430,12 +511,17 @@ impl Exec for Less {
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let reader = BufReader::new(file);
 
-                match run_less_viewer(scope, &flags, reader, Some(filename.clone()))
-                    .map_err(|e| e.to_string())?
+                match run_viewer(
+                    &flags,
+                    reader,
+                    Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
+                )
+                .map_err(|e| e.to_string())?
                 {
                     FileAction::PrevFile => i = i.saturating_sub(1),
                     FileAction::NextFile => i = std::cmp::min(i + 1, filenames.len() - 1),
                     FileAction::Quit => break,
+                    FileAction::None => {}
                 }
             }
         };
@@ -444,24 +530,14 @@ impl Exec for Less {
     }
 }
 
-fn run_less_viewer<R: BufRead>(
-    scope: &Arc<Scope>,
+fn run_viewer<R: BufRead>(
     flags: &CommandFlags,
     reader: R,
-    filename: Option<String>,
+    file_name: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = LessViewer::new(reader)?;
+    let mut viewer = Viewer::new(file_name, reader)?;
 
-    viewer.show_line_numbers = flags.is_present("number");
-    viewer.use_color = scope.use_colors(&std::io::stdout());
-    if viewer.use_color {
-        if let Some(filename) = filename {
-            viewer.status = Some(format!("\x1b[7m{}\x1b[0m", &filename));
-        }
-    } else {
-        viewer.status = filename;
-    }
-
+    viewer.state.show_line_numbers = flags.is_present("number");
     viewer.run()
 }
 
@@ -469,6 +545,6 @@ fn run_less_viewer<R: BufRead>(
 fn register() {
     register_command(ShellCommand {
         name: "less".to_string(),
-        inner: Rc::new(Less::new()),
+        inner: Arc::new(Less::new()),
     });
 }

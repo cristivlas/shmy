@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Error;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct DiskUtilization {
@@ -296,6 +295,6 @@ fn print_size(path: &Path, size: u64, opts: &Options) -> Result<(), String> {
 fn register() {
     register_command(ShellCommand {
         name: "du".to_string(),
-        inner: Rc::new(DiskUtilization::new()),
+        inner: Arc::new(DiskUtilization::new()),
     });
 }

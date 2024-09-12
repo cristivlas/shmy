@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Sort {
@@ -128,6 +127,6 @@ impl Exec for Sort {
 fn register() {
     register_command(ShellCommand {
         name: "sort".to_string(),
-        inner: Rc::new(Sort::new()),
+        inner: Arc::new(Sort::new()),
     });
 }

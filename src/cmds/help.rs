@@ -4,7 +4,6 @@ use super::{
 use crate::utils::executable;
 use crate::{eval::Value, scope::Scope};
 use std::process::Command;
-use std::rc::Rc;
 use std::sync::Arc;
 use terminal_size::terminal_size;
 
@@ -207,15 +206,15 @@ impl Exec for Help {
 
 #[ctor::ctor]
 fn register() {
-    let help = Rc::new(Help::new());
+    let help = Arc::new(Help::new());
 
     register_command(ShellCommand {
         name: "help".to_string(),
-        inner: Rc::clone(&help) as Rc<dyn Exec>,
+        inner: Arc::clone(&help) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "man".to_string(),
-        inner: Rc::clone(&help) as Rc<dyn Exec>,
+        inner: Arc::clone(&help) as Arc<dyn Exec>,
     });
 }

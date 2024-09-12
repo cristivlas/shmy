@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Defined {
@@ -42,6 +41,6 @@ impl Exec for Defined {
 fn register() {
     register_command(ShellCommand {
         name: "defined".to_string(),
-        inner: Rc::new(Defined::new()),
+        inner: Arc::new(Defined::new()),
     });
 }

@@ -6,7 +6,6 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 enum Mode {
@@ -146,14 +145,14 @@ fn print_tail<R: BufRead>(reader: &mut R, line_numbers: bool, lines: usize) -> R
 fn register() {
     register_command(ShellCommand {
         name: "cat".to_string(),
-        inner: Rc::new(CatHeadTail::new(Mode::Cat)),
+        inner: Arc::new(CatHeadTail::new(Mode::Cat)),
     });
     register_command(ShellCommand {
         name: "head".to_string(),
-        inner: Rc::new(CatHeadTail::new(Mode::Head)),
+        inner: Arc::new(CatHeadTail::new(Mode::Head)),
     });
     register_command(ShellCommand {
         name: "tail".to_string(),
-        inner: Rc::new(CatHeadTail::new(Mode::Tail)),
+        inner: Arc::new(CatHeadTail::new(Mode::Tail)),
     });
 }

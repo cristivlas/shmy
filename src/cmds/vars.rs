@@ -2,7 +2,6 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Ident, scope::Scope, scope::Variable};
 use std::collections::BTreeMap;
 use std::env;
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Vars {
@@ -71,15 +70,15 @@ impl Exec for Vars {
 
 #[ctor::ctor]
 fn register() {
-    let vars = Rc::new(Vars::new());
+    let vars = Arc::new(Vars::new());
 
     register_command(ShellCommand {
         name: "env".to_string(),
-        inner: Rc::clone(&vars) as Rc<dyn Exec>,
+        inner: Arc::clone(&vars) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "vars".to_string(),
-        inner: Rc::clone(&vars) as Rc<dyn Exec>,
+        inner: Arc::clone(&vars) as Arc<dyn Exec>,
     });
 }

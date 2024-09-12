@@ -1,11 +1,8 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use filetime::FileTime;
 use std::fs::OpenOptions;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -105,6 +102,6 @@ impl Exec for Touch {
 fn register() {
     register_command(ShellCommand {
         name: "touch".to_string(),
-        inner: Rc::new(Touch::new()),
+        inner: Arc::new(Touch::new()),
     });
 }
