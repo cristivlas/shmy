@@ -171,26 +171,23 @@ impl Viewer {
         Ok(())
     }
 
-    fn goto_line(&mut self, cmd: &str) {
-        self.state.status_line = None;
+    fn goto_line(&mut self, cmd: &str) -> io::Result<()> {
         let num_str = cmd.trim();
 
         if let Ok(number) = num_str.parse::<usize>() {
             if number < 1 || number > self.lines.len() {
-                self.state.status_line = Some(
-                    self.strong(&format!(
-                        "{} is out of range: [1-{}]",
-                        number,
-                        self.lines.len()
-                    ))
-                    .into(),
-                );
+                self.show_status(&self.strong(&format!(
+                    "{} is out of range: [1-{}]",
+                    number,
+                    self.lines.len()
+                )))?;
             } else {
                 self.state.current_line = number.saturating_sub(1);
             }
         } else {
-            self.state.status_line = Some(self.strong("Invalid line number").to_string());
+            self.show_status(&self.strong("Invalid line number"))?;
         }
+        Ok(())
     }
 
     fn last_page(&mut self) {
@@ -239,7 +236,7 @@ impl Viewer {
         self.state.horizontal_scroll = self.state.horizontal_scroll.saturating_sub(1);
     }
 
-    fn search(&mut self, query: &str, forward: bool) {
+    fn search(&mut self, query: &str, forward: bool) -> io::Result<()> {
         self.state.last_search = Some(query.to_string());
         self.state.last_search_direction = forward;
 
@@ -272,19 +269,20 @@ impl Viewer {
             }
         }
 
-        if found {
-            self.state.status_line = None;
-        } else {
-            self.state.status_line =
-                Some(self.strong(&format!("Pattern not found: {}", query)).into());
+        if !found {
+            self.show_status(&self.strong(&format!("Pattern not found: {}", query)))?;
             self.state.search_start_index = search_start_index;
         }
+
+        Ok(())
     }
 
-    fn repeat_search(&mut self) {
+    fn repeat_search(&mut self) -> io::Result<()> {
         if let Some(query) = self.state.last_search.clone() {
             let direction = self.state.last_search_direction;
-            self.search(&query, direction);
+            self.search(&query, direction)
+        } else {
+            Ok(())
         }
     }
 
@@ -340,7 +338,7 @@ impl Viewer {
                 } else if cmd == "q" {
                     action = FileAction::Quit;
                 } else {
-                    self.goto_line(&cmd);
+                    self.goto_line(&cmd)?;
                 }
             }
             KeyCode::Char('q') => {
@@ -374,14 +372,13 @@ impl Viewer {
 
                 let query = self.prompt_for_command(&prompt)?;
                 if query.is_empty() {
-                    self.state.status_line = None;
                     state.redraw = true;
                 } else {
-                    self.search(&query, forward);
+                    self.search(&query, forward)?;
                 }
             }
             KeyCode::Char('n') => {
-                self.repeat_search();
+                self.repeat_search()?;
             }
             KeyCode::Char('l') => {
                 self.state.show_line_numbers = !self.state.show_line_numbers;
@@ -404,6 +401,14 @@ impl Viewer {
         Ok(cmd.trim().to_string())
     }
 
+    /// Print a message at the bottom of the screen on the "status" line
+    fn show_status(&self, message: &str) -> io::Result<()> {
+        io::stdout()
+            .queue(cursor::MoveTo(0, self.screen_height as u16))?
+            .queue(Print(message))?
+            .flush()
+    }
+
     /// Show temporary hints on the last ("status") line.
     fn show_help(&self) -> io::Result<()> {
         let help_items = vec![
@@ -422,10 +427,7 @@ impl Viewer {
             .collect::<Vec<String>>()
             .join(" | ");
 
-        io::stdout()
-            .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(&help_text))?
-            .flush()
+        self.show_status(&help_text)
     }
 
     fn strong<'a>(&self, s: &'a str) -> Cow<'a, str> {
