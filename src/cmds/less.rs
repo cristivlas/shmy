@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::prompt;
 use crate::{
-    cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
+    cmds::flags::CommandFlags, eval::Value, prompt, scope::Scope, symlnk::SymLink,
+    utils::format_error,
 };
 use crossterm::{
     cursor,
@@ -13,7 +13,7 @@ use crossterm::{
 };
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, IsTerminal, Write};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -59,7 +59,6 @@ struct Viewer {
     screen_width: usize,
     screen_height: usize,
     state: ViewerState,
-    use_color: bool,
 }
 
 impl Viewer {
@@ -71,11 +70,9 @@ impl Viewer {
         Ok(Self {
             line_num_width: lines.len().to_string().len() + 1,
             lines,
-
             screen_width: w as usize,
             screen_height: h.saturating_sub(1) as usize,
             state: ViewerState::new(),
-            use_color: true,
         })
     }
 
@@ -89,18 +86,17 @@ impl Viewer {
         let end = (self.state.current_line + self.screen_height).min(self.lines.len());
 
         for (index, line) in self.lines[self.state.current_line..end].iter().enumerate() {
+            buffer.push_str("\x1b[2K"); // Clear line
             if self.state.show_line_numbers {
                 let line_number = self.state.current_line + index + 1;
-                buffer.push_str(&format!("{:>w$}", line_number, w = self.line_num_width));
+                buffer.push_str(&format!("{:>w$}  ", line_number, w = self.line_num_width));
             }
             self.display_line(line, buffer)?;
         }
 
         // Fill any remaining lines
         for _ in end..self.state.current_line + self.screen_height {
-            buffer.push('~');
-            buffer.push_str(&" ".repeat(self.screen_width.saturating_sub(1)));
-            buffer.push_str("\r\n");
+            buffer.push_str("\x1b[2K~\r\n");
         }
 
         execute!(
@@ -136,10 +132,6 @@ impl Viewer {
         let start_index = self.state.horizontal_scroll.min(line.len());
         let end_index = (start_index + effective_width).min(line.len());
 
-        if self.state.show_line_numbers {
-            buffer.push_str("  ");
-        }
-
         // Handle search highlighting if present
         if let Some(ref search) = self.state.last_search {
             let mut start = start_index;
@@ -163,9 +155,6 @@ impl Viewer {
             // If no search, append the entire visible portion of the line
             buffer.push_str(&line[start_index..end_index]);
         }
-
-        // Clear to the end of the line
-        buffer.push_str(&" ".repeat(effective_width.saturating_sub(end_index - start_index)));
         buffer.push_str("\r\n");
 
         Ok(())
@@ -287,8 +276,15 @@ impl Viewer {
     }
 
     fn run(&mut self) -> io::Result<FileAction> {
-        let _raw_mode = prompt::RawMode::new()?;
         let mut stdout = io::stdout();
+        if !stdout.is_terminal() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Output is not a terminal",
+            ));
+        }
+
+        let _raw_mode = prompt::RawMode::new()?;
         execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0),)?;
 
         let mut action = FileAction::None;
@@ -431,11 +427,7 @@ impl Viewer {
     }
 
     fn strong<'a>(&self, s: &'a str) -> Cow<'a, str> {
-        if self.use_color {
-            Cow::Owned(format!("\x1b[7m{}\x1b[0m", s))
-        } else {
-            Cow::Borrowed(s)
-        }
+        Cow::Owned(format!("\x1b[7m{}\x1b[0m", s))
     }
 }
 
@@ -504,7 +496,7 @@ impl Exec for Less {
         if filenames.is_empty() {
             let stdin = io::stdin();
             let reader = stdin.lock();
-            run_viewer(scope, &flags, reader, None).map_err(|e| e.to_string())?;
+            run_viewer(&flags, reader, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -518,7 +510,6 @@ impl Exec for Less {
                 let reader = BufReader::new(file);
 
                 match run_viewer(
-                    scope,
                     &flags,
                     reader,
                     Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
@@ -538,7 +529,6 @@ impl Exec for Less {
 }
 
 fn run_viewer<R: BufRead>(
-    scope: &Arc<Scope>,
     flags: &CommandFlags,
     reader: R,
     filename: Option<String>,
@@ -546,7 +536,6 @@ fn run_viewer<R: BufRead>(
     let mut viewer = Viewer::new(reader)?;
 
     viewer.state.show_line_numbers = flags.is_present("number");
-    viewer.use_color = scope.use_colors(&std::io::stdout());
     if let Some(filename) = &filename {
         viewer.state.status_line = Some(viewer.strong(&filename).into());
     }

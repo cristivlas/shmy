@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
-use clearscreen;
 use std::rc::Rc;
 use std::sync::Arc;
 
