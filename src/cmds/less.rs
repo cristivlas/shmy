@@ -165,7 +165,7 @@ impl Viewer {
         Ok(())
     }
 
-    fn goto_line(&mut self, cmd: &str) -> io::Result<()> {
+    fn goto_line(&mut self, cmd: &str) {
         let num_str = cmd.trim();
 
         if let Ok(number) = num_str.parse::<usize>() {
@@ -174,14 +174,13 @@ impl Viewer {
                     "{} is out of range: [1..{}]",
                     number,
                     self.lines.len()
-                )))?;
+                )));
             } else {
                 self.state.current_line = number.saturating_sub(1);
             }
         } else {
-            self.show_status(&self.strong("Invalid line number"))?;
+            self.show_status(&self.strong("Invalid line number"));
         }
-        Ok(())
     }
 
     fn last_page(&mut self) {
@@ -195,9 +194,6 @@ impl Viewer {
     fn next_line(&mut self) {
         if self.state.current_line < self.lines.len().saturating_sub(1) {
             self.state.current_line += 1;
-            if self.state.current_line + self.screen_height > self.lines.len() {
-                self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
-            }
         }
     }
 
@@ -206,9 +202,6 @@ impl Viewer {
             (self.state.current_line + self.screen_height).min(self.lines.len().saturating_sub(1));
         if new_line > self.state.current_line {
             self.state.current_line = new_line;
-            if self.state.current_line + self.screen_height > self.lines.len() {
-                self.state.current_line = self.lines.len().saturating_sub(self.screen_height);
-            }
         }
     }
 
@@ -329,8 +322,8 @@ impl Viewer {
         let mut action = FileAction::None;
 
         match key_code {
-            KeyCode::F(1) => self.show_help()?,
-            KeyCode::Char('h') => self.show_help()?,
+            KeyCode::F(1) => self.show_help(),
+            KeyCode::Char('h') => self.show_help(),
             KeyCode::Char(':') => {
                 let cmd = self.prompt_for_command(":")?;
                 if cmd == "n" {
@@ -342,7 +335,7 @@ impl Viewer {
                 } else if cmd.is_empty() {
                     state.redraw = true;
                 } else {
-                    self.goto_line(&cmd)?;
+                    self.goto_line(&cmd);
                 }
             }
             KeyCode::Char('q') => {
@@ -411,15 +404,12 @@ impl Viewer {
     }
 
     /// Print a message at the bottom of the screen on the "status" line
-    fn show_status(&self, message: &str) -> io::Result<()> {
-        io::stdout()
-            .queue(cursor::MoveTo(0, self.screen_height as u16))?
-            .queue(Print(message))?
-            .flush()
+    fn show_status(&mut self, message: &str) {
+        self.state.status_line = Some(self.strong(message))
     }
 
     /// Show temporary hints on the last ("status") line.
-    fn show_help(&self) -> io::Result<()> {
+    fn show_help(&mut self) {
         let help_items = vec![
             ("b", "Prev Page"),
             ("f", "Next Page"),
