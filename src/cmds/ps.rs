@@ -74,35 +74,6 @@ where
     }
 }
 
-struct View {
-    columns: Vec<Box<dyn ViewColumn>>,
-}
-
-impl View {
-    fn new() -> Self {
-        Self { columns: vec![] }
-    }
-
-    fn list_processes(&self, system: &System) {
-        let mut header = String::new();
-
-        for col in &self.columns {
-            if !header.is_empty() {
-                header.push_str("  ");
-            }
-            header.push_str(&col.header().to_string());
-        }
-        println!("{}", header);
-
-        for (_, proc) in system.processes() {
-            for col in &self.columns {
-                print!("{}  ", col.field(proc));
-            }
-            println!()
-        }
-    }
-}
-
 struct Helper<'a, T: fmt::Display> {
     data: T,
     fmt: &'a Fmt,
@@ -134,7 +105,8 @@ impl Field for Pid {
 
 impl Field for String {
     fn to_string(&self, fmt: &Fmt) -> String {
-        Helper::new(self, fmt).to_string()
+        let s = if self.len() > 30 { &self[..30] } else { &self };
+        Helper::new(s, fmt).to_string()
     }
 }
 
@@ -147,39 +119,84 @@ impl Field for Option<Uid> {
     }
 }
 
+struct View {
+    columns: Vec<Box<dyn ViewColumn>>,
+}
+
+impl View {
+    fn new() -> Self {
+        Self { columns: vec![] }
+    }
+
+    fn list_processes(&self, system: &System) {
+        let mut header = String::new();
+
+        for col in &self.columns {
+            if !header.is_empty() {
+                header.push_str("  ");
+            }
+            header.push_str(&col.header().to_string());
+        }
+        println!("{}", header);
+
+        for (_, proc) in system.processes() {
+            for col in &self.columns {
+                print!("{}  ", col.field(proc));
+            }
+            println!()
+        }
+    }
+
+    fn cpu_usage_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "CPU%",
+            Box::new(|f, d| write!(f, "{:>10}", d)),
+            Box::new(Process::cpu_usage),
+        ))
+    }
+
+    fn mem_usage_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "MEM (MB)",
+            Box::new(|f, d| write!(f, "{:>10}", d)),
+            Box::new(|p: &Process| p.memory() as f32 / 1024.0 / 1024.0),
+        ))
+    }
+
+    fn name_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "NAME",
+            Box::new(|f, d| write!(f, "{:<30}", d)),
+            Box::new(|p: &Process| p.name().to_string_lossy().to_string()),
+        ))
+    }
+
+    fn pid_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "PID",
+            Box::new(|f, d| write!(f, "{:>8}", d)),
+            Box::new(Process::pid),
+        ))
+    }
+
+    fn user_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "USER",
+            Box::new(|f, d| write!(f, "{:>10}", d)),
+            Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
+        ))
+    }
+}
+
 impl Default for View {
     fn default() -> Self {
         let mut view = View::new();
 
-        view.columns.push(Box::new(Column::new(
-            "PID",
-            Box::new(|f, d| write!(f, "{:>8}", d)),
-            Box::new(Process::pid),
-        )));
-
-        view.columns.push(Box::new(Column::new(
-            "NAME",
-            Box::new(|f, d| write!(f, "{:<40}", d)),
-            Box::new(|p: &Process| p.name().to_string_lossy().to_string()),
-        )));
-
-        view.columns.push(Box::new(Column::new(
-            "CPU%",
-            Box::new(|f, d| write!(f, "{:>10}", d)),
-            Box::new(Process::cpu_usage),
-        )));
-
-        view.columns.push(Box::new(Column::new(
-            "MEM (MB)",
-            Box::new(|f, d| write!(f, "{:>10}", d)),
-            Box::new(|p: &Process| p.memory() as f32 / 1024.0 / 1024.0),
-        )));
-
-        view.columns.push(Box::new(Column::new(
-            "USER",
-            Box::new(|f, d| write!(f, "{:>10}", d)),
-            Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
-        )));
+        view.columns.push(Self::pid_column());
+        view.columns.push(Self::name_column());
+        view.columns.push(Self::cpu_usage_column());
+        view.columns.push(Self::mem_usage_column());
+        view.columns.push(Self::user_column());
 
         view
     }
