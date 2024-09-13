@@ -360,6 +360,7 @@ impl Viewer {
         };
 
         let mut found = false;
+        let mut interrupted = false;
 
         let (iter, next): (Box<dyn Iterator<Item = usize>>, Box<dyn Fn(usize) -> usize>) =
             if forward {
@@ -376,22 +377,29 @@ impl Viewer {
 
         for i in iter {
             if Scope::is_interrupted() {
-                self.state.status_line = Some(self.strong("Search interrupted"));
+                interrupted = true;
                 break;
             }
 
             if let Some(pos) = self.lines.get(i).and_then(|s| s.find(query)) {
                 found = true;
                 self.state.current_line = i;
+
                 // Save index for repeating last search
                 self.state.search_start_index = next(i);
+
                 adjust_horizontal_scroll(pos);
                 break;
             }
         }
 
         if !found {
-            self.state.status_line = Some(self.strong(&format!("Pattern not found: {}", query)));
+            let message = if interrupted {
+                Cow::Borrowed("Search aborted")
+            } else {
+                Cow::Owned(format!("Pattern not found: {}", query))
+            };
+            self.state.status_line = Some(self.strong(&message));
         }
 
         Ok(found)
