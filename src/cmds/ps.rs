@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::utils::format_error;
 use crate::{eval::Value, scope::Scope};
 use std::any::Any;
 use std::cmp::{Ord, Ordering, PartialOrd};
@@ -350,7 +351,12 @@ impl View {
         Ok(())
     }
 
-    fn parse_sort_spec(&mut self, sort_spec: &str) -> Result<(), String> {
+    fn parse_sort_spec(
+        &mut self,
+        scope: &Arc<Scope>,
+        sort_spec: &str,
+        args: &Vec<String>,
+    ) -> Result<(), String> {
         let mut seen = std::collections::HashSet::new();
 
         for spec in sort_spec.split(',') {
@@ -364,11 +370,21 @@ impl View {
             if let Some(col) = self.columns.iter().find(|col| col.name() == name) {
                 let col_name = col.name(); // 'static reference
                 if !seen.insert(col_name) {
-                    return Err(format!("Duplicate sort key: {}", col_name));
+                    return Err(format_error(
+                        scope,
+                        sort_spec,
+                        args,
+                        format!("Duplicate sort key: {}", col_name),
+                    ));
                 }
                 self.sort_keys.push((col_name, reverse));
             } else {
-                return Err(format!("Invalid sort key: {}", name));
+                return Err(format_error(
+                    scope,
+                    sort_spec,
+                    args,
+                    format!("Invalid sort key: {}", name),
+                ));
             }
         }
 
@@ -498,7 +514,7 @@ impl Exec for ProcStatus {
         }
 
         if let Some(sort_spec) = flags.option("sort") {
-            view.parse_sort_spec(sort_spec)?;
+            view.parse_sort_spec(scope, sort_spec, args)?;
         }
 
         if !flags.is_present("all") {
