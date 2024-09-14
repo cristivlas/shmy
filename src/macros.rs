@@ -13,6 +13,10 @@ macro_rules! my_dbg {
 /// More robust than built-in when redirect stdout to pipe.
 #[macro_export]
 macro_rules! my_println {
+    () => {{
+        $crate::my_println!("")
+    }};
+
     ($($arg:tt)*) => {{
         use std::io::Write;
 

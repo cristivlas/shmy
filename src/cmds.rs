@@ -37,6 +37,7 @@ mod ls;
 mod mkdir;
 mod mv;
 mod open;
+mod ps;
 mod realpath;
 mod rm;
 mod run;
