@@ -27,9 +27,7 @@ macro_rules! my_println {
         stdout
             .write_all(output.as_bytes())
             .and_then(|_| stdout.write_all(b"\n"))
-            .map_err(|e| e.to_string())?;
-
-        Ok(()) as Result<(), String>
+            .map_err(|e| e.to_string())
     }};
 }
 
@@ -45,9 +43,7 @@ macro_rules! my_print {
         // Attempt to write to stdout
         std::io::stdout().lock()
             .write_all(output.as_bytes())
-            .map_err(|e| e.to_string())?;
-
-        Ok(()) as Result<(), String>
+            .map_err(|e| e.to_string())
     }};
 }
 

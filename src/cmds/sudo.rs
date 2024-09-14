@@ -2,7 +2,7 @@ use super::{flags::CommandFlags, get_command, register_command, Exec, ShellComma
 use crate::utils::executable;
 use crate::{eval::Value, scope::Scope};
 use std::ffi::OsStr;
-use std::io::Error;
+use std::io::{Error, IsTerminal};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Arc;
 use windows::core::PCWSTR;
@@ -87,6 +87,14 @@ impl Exec for Sudo {
 
         if command_args.is_empty() {
             return Err("No command specified".to_string());
+        }
+
+        if !(std::io::stdin().is_terminal()) {
+            return Err("Cannot pipe or redirect input to elevated command".to_string());
+        }
+
+        if !std::io::stdout().is_terminal() || !std::io::stderr().is_terminal() {
+            return Err("Cannot pipe or redirect output from elevated command".to_string());
         }
 
         let cmd_name = command_args.remove(0);

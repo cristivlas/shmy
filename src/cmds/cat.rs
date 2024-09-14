@@ -61,6 +61,7 @@ impl Exec for CatHeadTail {
                     .map_err(|e| format_error(&scope, v, args, e))
             })
             .unwrap_or(Ok(10))?;
+
         if filenames.is_empty() {
             let stdin = io::stdin();
             process_input(&mut stdin.lock(), &self.mode, line_num, lines)?;

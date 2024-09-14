@@ -1899,10 +1899,9 @@ impl BinExpr {
 
         // Start a copy of the running program with the arguments "-c" rhs_str
         // to evaluate the right hand-side of the pipe expression
-
-        // println!("Executing pipe RHS: {} -c {}", &program, &rhs_str);
-
         let mut command = StdCommand::new(&program);
+
+        // Send variables over the environment to the child process.
         copy_vars_to_command_env(&mut command, &self.scope);
 
         let child = command
