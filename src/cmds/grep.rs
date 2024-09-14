@@ -44,6 +44,12 @@ impl Grep {
         );
         flags.add_flag('r', "recursive", "Recursively search subdirectories");
         flags.add_flag('L', "follow-links", "Follow symbolic links");
+        flags.add_flag(
+            'v',
+            "invert-match",
+            "Invert the sense of matching, showing non-matching lines",
+        );
+
         Self { flags }
     }
 
@@ -133,6 +139,7 @@ impl Grep {
         show_filename: bool,
         use_color: bool,
         use_hyperlink: bool,
+        invert_match: bool,
     ) {
         let line_to_check = if ignore_case {
             line.to_lowercase()
@@ -140,9 +147,12 @@ impl Grep {
             line.to_string()
         };
 
-        if regex.is_match(&line_to_check) {
+        let matches = regex.is_match(&line_to_check);
+
+        if matches != invert_match {
             let mut output = String::new();
 
+            // Handle hyperlinks and filename output
             if use_hyperlink {
                 if let Some(name) = filename {
                     let path = name.canonicalize().unwrap_or_else(|_| name.to_path_buf());
@@ -199,6 +209,7 @@ impl Exec for Grep {
         }
 
         let pattern = &grep_args[0];
+        let invert_match = flags.is_present("invert-match");
 
         let follow = flags.is_present("follow-links");
         let ignore_case = flags.is_present("ignore-case");
@@ -233,6 +244,7 @@ impl Exec for Grep {
                     false,
                     use_color,
                     use_hyperlink,
+                    invert_match,
                 );
             }
         } else {
@@ -266,6 +278,7 @@ impl Exec for Grep {
                                 show_filename,
                                 use_color,
                                 use_hyperlink,
+                                invert_match,
                             );
                         }
                     }
