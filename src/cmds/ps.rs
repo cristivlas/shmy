@@ -440,7 +440,7 @@ impl View {
 
     fn user_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
-            "uid",
+            "user",
             "USER",
             Box::new(|f, d| write!(f, "{:>MAX_USER_WIDTH$}", d)),
             Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
@@ -480,7 +480,7 @@ impl Exec for ProcStatus {
             println!("List currently running processes and their details.");
             println!("\nOptions:");
             println!("{}", flags.help());
-            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem\".(+/- indicates increasing or decreasing order)\n");
+            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem,user\".(+/- indicates increasing or decreasing order)\n");
             return Ok(Value::success());
         }
 
