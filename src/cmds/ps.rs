@@ -8,6 +8,7 @@ use std::sync::Arc;
 use sysinfo::{Pid, Process, System, Uid, Users};
 
 const MAX_STR_WIDTH: usize = 32;
+const MAX_USER_WIDTH: usize = 16;
 
 trait Filter {
     fn apply<'a>(&self, proc: &'a Process) -> Option<&'a Process>;
@@ -145,6 +146,11 @@ impl<'a, T: fmt::Display> fmt::Display for Helper<'a, T> {
     }
 }
 
+fn truncate_and_pad(s: &str, width: usize) -> String {
+    let truncated = if s.len() > width { &s[..width] } else { s };
+    format!("{:>width$}", truncated, width = width)
+}
+
 #[derive(PartialEq, PartialOrd)]
 struct F32(f32);
 
@@ -195,12 +201,7 @@ impl Field for String {
     }
 
     fn to_string(&self, fmt: &Fmt) -> String {
-        let s = if self.len() > MAX_STR_WIDTH {
-            &self[..MAX_STR_WIDTH]
-        } else {
-            &self
-        };
-        Helper::new(s, fmt).to_string()
+        Helper::new(truncate_and_pad(self, MAX_STR_WIDTH), fmt).to_string()
     }
 }
 
@@ -231,13 +232,15 @@ impl Field for Option<Uid> {
     }
 
     fn to_string(&self, fmt: &Fmt) -> String {
-        match self {
+        let s = match self {
             Some(uid) => match get_users().iter().find(|user| user.id() == uid) {
-                Some(user) => Helper::new(user.name(), fmt).to_string(),
-                None => Helper::new(uid.to_string(), fmt).to_string(),
+                Some(user) => user.name().to_string(),
+                None => uid.to_string(),
             },
-            None => Helper::new("", fmt).to_string(),
-        }
+            None => String::default(),
+        };
+
+        Helper::new(truncate_and_pad(&s, MAX_USER_WIDTH), fmt).to_string()
     }
 }
 
@@ -412,7 +415,7 @@ impl View {
         Box::new(Column::new(
             "name",
             "NAME",
-            Box::new(|f, d| write!(f, "{:<MAX_STR_WIDTH$}", d)),
+            Box::new(|f, d| write!(f, "{:>MAX_STR_WIDTH$}", d)),
             Box::new(|p: &Process| p.name().to_string_lossy().to_string()),
         ))
     }
@@ -439,7 +442,7 @@ impl View {
         Box::new(Column::new(
             "uid",
             "USER",
-            Box::new(|f, d| write!(f, "{:>10}", d)),
+            Box::new(|f, d| write!(f, "{:>MAX_USER_WIDTH$}", d)),
             Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
         ))
     }
