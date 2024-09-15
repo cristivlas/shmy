@@ -644,7 +644,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
     Ok(shell)
 }
 
-static INTERRUPT: AtomicBool = AtomicBool::new(false); // Ctrl+C pressed?
+static INTERRUPT: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), ()> {
     match &mut parse_cmd_line() {

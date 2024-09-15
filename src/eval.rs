@@ -2,6 +2,7 @@ use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
 use crate::utils::{self, copy_vars_to_command_env, executable};
+use crate::INTERRUPT;
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -18,6 +19,7 @@ use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::thread;
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
@@ -1914,6 +1916,13 @@ impl BinExpr {
                 EvalError::new(rhs.loc(), format!("Failed to spawn child process: {}", e))
             })?;
 
+        let wait = thread::spawn(move || {
+            let result = child.wait_with_output();
+            INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
+
+            result
+        });
+
         // Redirect stdout to the pipe
         let redirect = match Redirect::stdout(writer) {
             Ok(r) => r,
@@ -1921,25 +1930,30 @@ impl BinExpr {
         };
 
         // Left-side evaluation's stdout goes into the pipe.
-        let lhs_result = Status::check_result(lhs.eval(), false);
+        let result = Status::check_result(lhs.eval(), false);
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
 
-        // Wait for the child process to complete and get its output
-        let output = child.wait_with_output().map_err(|e| {
-            EvalError::new(
-                rhs.loc(),
-                format!("Failed to get child process output: {}", e),
-            )
-        })?;
+        match wait.join() {
+            Ok(result) => {
+                let output = result.map_err(|e| {
+                    EvalError::new(
+                        rhs.loc(),
+                        format!("Failed to get child process output: {}", e),
+                    )
+                })?;
 
-        lhs_result?; // Check for any left hand-side errors
+                // Print the output of the right-hand side expression.
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+                self.eval_exit_code(rhs_str, &output.status)?;
+            }
+            Err(panic_info) => {
+                eprintln!("Thread panicked: {:?}", panic_info);
+            }
+        }
 
-        // Print the output of the right hand-side expression.
-        print!("{}", String::from_utf8_lossy(&output.stdout));
-
-        self.eval_exit_code(rhs_str, &output.status)
+        result
     }
 
     /// Binary plus
@@ -2352,9 +2366,9 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.err_loc(), e));
 
-        if Scope::is_interrupted() {
-            eprintln!("^C");
-        }
+        // if Scope::is_interrupted() {
+        //     eprintln!("^C");
+        // }
         let cmd = self.to_string();
         Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
     }
@@ -2531,8 +2545,8 @@ derive_has_location!(LoopExpr);
 macro_rules! eval_iteration {
     ($self:expr, $result:ident) => {
         if Scope::is_interrupted() {
-            eprintln!("^C");
-            break; // Bail on Ctrl+C
+            // eprintln!("^C");
+            break;
         }
 
         // Evaluate the loop body, checking for command status

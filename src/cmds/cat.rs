@@ -3,11 +3,14 @@ use crate::symlnk::SymLink;
 use crate::utils::format_error;
 use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::{self, BufRead};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::runtime::Runtime;
+use tokio::time::{sleep, Duration};
 
+#[derive(Clone)]
 enum Mode {
     Cat,
     Head,
@@ -62,83 +65,100 @@ impl Exec for CatHeadTail {
             })
             .unwrap_or(Ok(10))?;
 
-        if filenames.is_empty() {
-            let stdin = io::stdin();
-            process_input(&mut stdin.lock(), &self.mode, line_num, lines)?;
-        } else {
-            for filename in &filenames {
-                let path = Path::new(filename)
-                    .resolve()
-                    .map_err(|e| format_error(&scope, filename, args, e))?;
+        // Create a Tokio runtime
+        let rt = Runtime::new().map_err(|e| format!("Failed to start Tokio runtime: {}", e))?;
 
-                let file =
-                    File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
+        let result = rt.block_on(async {
+            if filenames.is_empty() {
+                let mode = self.mode.clone();
 
-                let mut reader = io::BufReader::new(file);
+                let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
+                process_input(&mut stdin, mode, line_num, lines).await
+            } else {
+                let mut result = Ok(());
+                for filename in &filenames {
+                    let path = Path::new(filename)
+                        .resolve()
+                        .map_err(|e| format_error(&scope, filename, args, e))?;
 
-                process_input(&mut reader, &self.mode, line_num, lines)
-                    .map_err(|e| format_error(&scope, filename, args, e))?;
+                    let mode = self.mode.clone();
+                    let file = File::open(&path)
+                        .await
+                        .map_err(|e| format!("Error opening file: {}", e))?;
+
+                    let mut reader = BufReader::new(file);
+                    result = process_input(&mut reader, mode, line_num, lines).await;
+
+                    if result.is_err() {
+                        break;
+                    }
+                }
+                result
             }
-        }
+        });
+        rt.shutdown_background();
 
+        result?;
         Ok(Value::success())
     }
 }
 
-fn process_input<R: BufRead>(
+async fn check_interrupt() {
+    let poll_interval = Duration::from_millis(50);
+
+    loop {
+        sleep(poll_interval).await;
+        if crate::INTERRUPT.load(Ordering::SeqCst) {
+            return;
+        }
+    }
+}
+
+async fn process_input<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
-    mode: &Mode,
+    mode: Mode,
     line_numbers: bool,
     lines: usize,
 ) -> Result<(), String> {
-    match mode {
-        Mode::Cat => print_all(reader, line_numbers),
-        Mode::Head => print_head(reader, line_numbers, lines),
-        Mode::Tail => print_tail(reader, line_numbers, lines),
-    }
-}
+    let mut lines_stream = reader.lines();
+    let mut i = 0;
+    let mut buffer: VecDeque<_> = VecDeque::with_capacity(lines);
 
-fn print_all<R: BufRead>(reader: &mut R, line_numbers: bool) -> Result<(), String> {
-    for (i, line) in reader.lines().enumerate() {
-        let line = line.map_err(|e| e.to_string())?;
-        if line_numbers {
-            my_println!("{:>6}: {}", i + 1, line)?;
-        } else {
-            my_println!("{}", line)?;
+    loop {
+        tokio::select! {
+            line = lines_stream.next_line() => {
+                match line.map_err(|e| e.to_string())? {
+                    Some(line) => {
+                        i += 1;
+                        let line = if line_numbers {
+                            format!("{:>6}: {}", i, line)
+                        } else {
+                            line
+                        };
+                        match mode {
+                            Mode::Cat => { println!("{line}") },
+                            Mode::Head => { if i > lines { break }; println!("{line}"); },
+                            Mode::Tail => {
+                                if buffer.len() == lines {
+                                    buffer.pop_front();
+                                }
+                                buffer.push_back(line);
+                            }
+                        }
+                    },
+                    None => break,
+                }
+            }
+            _ = check_interrupt() => {
+                return Err("Canceled".into());
+            }
         }
     }
-    Ok(())
-}
 
-fn print_head<R: BufRead>(reader: &mut R, line_numbers: bool, lines: usize) -> Result<(), String> {
-    for (i, line) in reader.lines().enumerate().take(lines) {
-        let line = line.map_err(|e| e.to_string())?;
-        if line_numbers {
-            my_println!("{:>6}: {}", i + 1, line)?;
-        } else {
-            my_println!("{}", line)?;
-        }
+    for line in buffer {
+        println!("{line}");
     }
-    Ok(())
-}
 
-fn print_tail<R: BufRead>(reader: &mut R, line_numbers: bool, lines: usize) -> Result<(), String> {
-    let mut buffer = VecDeque::with_capacity(lines);
-
-    for (i, line) in reader.lines().enumerate() {
-        let line = line.map_err(|e| e.to_string())?;
-        if buffer.len() == lines {
-            buffer.pop_front();
-        }
-        buffer.push_back((i, line));
-    }
-    for (i, line) in buffer {
-        if line_numbers {
-            my_println!("{:>6}: {}", i + 1, line)?;
-        } else {
-            my_println!("{}", line)?;
-        }
-    }
     Ok(())
 }
 
