@@ -84,7 +84,7 @@ impl Exec for CatHeadTail {
                     let mode = self.mode.clone();
                     let file = File::open(&path)
                         .await
-                        .map_err(|e| format!("Error opening file: {}", e))?;
+                        .map_err(|e| format_error(&scope, filename, args, e))?;
 
                     let mut reader = BufReader::new(file);
                     result = process_input(&mut reader, mode, line_num, lines).await;
