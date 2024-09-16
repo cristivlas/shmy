@@ -9,9 +9,8 @@ pub mod tests {
         let _stdout = io::stdout().lock();
 
         let mut interp = Interp::new();
-        let result = interp.eval_status(input, None);
-        my_dbg!(&result);
-        result
+        interp.global_scope().insert("__dump_ast".into(), Value::Int(1));
+        interp.eval_status(input, None)
     }
 
     #[macro_export]
@@ -78,6 +77,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_if() {
+        assert_eval_ok!("if (42) (True) else (False);", Value::from("True"));
         assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True) else (False);", Value::from("True"));
         assert_eval_ok!(
             "TEST_VAR = 0; if ($TEST_VAR == 0) (True) else (False);",
