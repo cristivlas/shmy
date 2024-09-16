@@ -75,31 +75,31 @@ pub mod tests {
         assert_eval_ok!("i = 42; $i >= 42", Value::Int(1));
     }
 
-    // #[test]
-    // #[serial]
-    // fn test_if() {
-    //     assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True);", Value::from("True"));
-    //     assert_eval_ok!(
-    //         "TEST_VAR = 0; if ($TEST_VAR == 0) (True);",
-    //         Value::from("True")
-    //     );
-    //     assert_eval_ok!(
-    //         "TEST_VAR = 1; if ($TEST_VAR > 0) (True);",
-    //         Value::from("True")
-    //     );
-    //     assert_eval_ok!(
-    //         "TEST_VAR = 1; if ($TEST_VAR >= 0) (True);",
-    //         Value::from("True")
-    //     );
-    //     assert_eval_ok!(
-    //         "TEST_VAR = -1; if ($TEST_VAR < 0) (True);",
-    //         Value::from("True")
-    //     );
-    //     assert_eval_ok!(
-    //         "TEST_VAR = -1; if ($TEST_VAR <= 0) (True);",
-    //         Value::from("True")
-    //     );
-    // }
+    #[test]
+    #[serial]
+    fn test_if() {
+        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True);", Value::from("True"));
+        assert_eval_ok!(
+            "TEST_VAR = 0; if ($TEST_VAR == 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = 1; if ($TEST_VAR > 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = 1; if ($TEST_VAR >= 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = -1; if ($TEST_VAR < 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = -1; if ($TEST_VAR <= 0) (True);",
+            Value::from("True")
+        );
+    }
 
     #[test]
     #[serial]
