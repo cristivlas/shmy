@@ -1596,7 +1596,7 @@ macro_rules! eval_cmp_fn {
     ($fn_name:ident, $op:tt) => {
         fn $fn_name(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
             match self.eval_cmp(lhs, rhs)? {
-                Value::Int(i) => Ok(Value::Int((i $op 0) as _)),
+                Value::Int(i) => Ok(Value::Int((i $op 0) as i64)),
                 Value::Real(r) => Ok(Value::Int((r $op 0.0) as i64)),
                 _ => panic!("Unexpected result type in comparison"),
             }

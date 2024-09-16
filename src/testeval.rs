@@ -78,25 +78,25 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_if() {
-        //assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True);", Value::from("True"));
+        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True) else (False);", Value::from("True"));
         assert_eval_ok!(
-            "TEST_VAR = 0; if ($TEST_VAR == 0) (True);",
+            "TEST_VAR = 0; if ($TEST_VAR == 0) (True) else (False);",
             Value::from("True")
         );
         assert_eval_ok!(
-            "TEST_VAR = 1; if ($TEST_VAR > 0) (True);",
+            "TEST_VAR = 1; if ($TEST_VAR > 0) (True) else (False);",
             Value::from("True")
         );
         assert_eval_ok!(
-            "TEST_VAR = 1; if ($TEST_VAR >= 0) (True);",
+            "TEST_VAR = 1; if ($TEST_VAR >= 0) (True) else (False);",
             Value::from("True")
         );
         assert_eval_ok!(
-            "TEST_VAR = -1; if ($TEST_VAR < 0) (True);",
+            "TEST_VAR = -1; if ($TEST_VAR < 0) (True) else (False);",
             Value::from("True")
         );
         assert_eval_ok!(
-            "TEST_VAR = -1; if ($TEST_VAR <= 0) (True);",
+            "TEST_VAR = -1; if ($TEST_VAR <= 0) (True) else (False);",
             Value::from("True")
         );
     }
