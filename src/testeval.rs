@@ -9,7 +9,10 @@ pub mod tests {
         let _stdout = io::stdout().lock();
 
         let mut interp = Interp::new();
-        interp.global_scope().insert("__dump_ast".into(), Value::Int(1));
+
+        // Debugging
+        // interp.global_scope().insert("__dump_ast".into(), Value::Int(1));
+
         interp.eval_status(input, None)
     }
 
@@ -77,27 +80,27 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_if() {
-        assert_eval_ok!("if (42) (True) else (False);", Value::from("True"));
-        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True) else (False);", Value::from("True"));
+        assert_eval_ok!("if (42) (My_True) else (My_False);", Value::from("My_True"));
+        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (My_True) else (My_False);", Value::from("My_True"));
         assert_eval_ok!(
-            "TEST_VAR = 0; if ($TEST_VAR == 0) (True) else (False);",
-            Value::from("True")
+            "TEST_VAR = 0; if ($TEST_VAR == 0) (My_True) else (My_False);",
+            Value::from("My_True")
         );
         assert_eval_ok!(
-            "TEST_VAR = 1; if ($TEST_VAR > 0) (True) else (False);",
-            Value::from("True")
+            "TEST_VAR = 1; if ($TEST_VAR > 0) (My_True) else (My_False);",
+            Value::from("My_True")
         );
         assert_eval_ok!(
-            "TEST_VAR = 1; if ($TEST_VAR >= 0) (True) else (False);",
-            Value::from("True")
+            "TEST_VAR = 1; if ($TEST_VAR >= 0) (My_True) else (My_False);",
+            Value::from("My_True")
         );
         assert_eval_ok!(
-            "TEST_VAR = -1; if ($TEST_VAR < 0) (True) else (False);",
-            Value::from("True")
+            "TEST_VAR = -1; if ($TEST_VAR < 0) (My_True) else (My_False);",
+            Value::from("My_True")
         );
         assert_eval_ok!(
-            "TEST_VAR = -1; if ($TEST_VAR <= 0) (True) else (False);",
-            Value::from("True")
+            "TEST_VAR = -1; if ($TEST_VAR <= 0) (My_True) else (My_False);",
+            Value::from("My_True")
         );
     }
 
