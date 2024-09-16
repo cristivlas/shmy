@@ -1,5 +1,5 @@
 # A Command Line Interpreter in Rust
-
+[![Rust CI](https://github.com/cristivlas/shmy/actions/workflows/rust.yml/badge.svg)](https://github.com/cristivlas/shmy/actions/workflows/rust.yml)
 ## Introduction
 
 A lightweight command line interpreter implemented in Rust, featuring Unix-like built-in commands.
