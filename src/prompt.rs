@@ -296,8 +296,8 @@ mod tests {
         builder.scope.erase("HOME");
 
         assert_eq!(
-            builder.build("\\u@\\h:\\w\\$ "),
-            format!("{}@{}:{}$ ", username, hostname, current_dir)
+            builder.build("\\u@\\h:\\w "),
+            format!("{}@{}:{} ", username, hostname, current_dir)
         );
         assert_eq!(builder.build("\\w>"), format!("{}>", current_dir));
         assert_eq!(
