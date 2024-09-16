@@ -1596,6 +1596,7 @@ macro_rules! eval_cmp_fn {
     ($fn_name:ident, $op:tt) => {
         fn $fn_name(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
             match self.eval_cmp(lhs, rhs)? {
+                Value::Int(i) => Ok(Value::Int((i $op 0) as _)),
                 Value::Real(r) => Ok(Value::Int((r $op 0.0) as i64)),
                 _ => panic!("Unexpected result type in comparison"),
             }
@@ -1681,7 +1682,7 @@ impl BinExpr {
         use Value::*;
 
         match (lhs, rhs) {
-            (Int(i), Int(j)) => Ok(Real((i - j) as f64)),
+            (Int(i), Int(j)) => Ok(Int(i - j)),
             (Int(i), Real(j)) => Ok(Real((i as f64) - j)),
             (Real(i), Int(j)) => Ok(Real(i - (j as f64))),
             (Real(i), Real(j)) => Ok(Real(i - j)),
