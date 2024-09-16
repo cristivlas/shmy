@@ -1,6 +1,6 @@
 [package]
 name = "shmy"
-version = "0.17.5"
+version = "0.18.0"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like utility commands, and WSL symbolic link support"
@@ -13,7 +13,6 @@ categories = ["command-line-utilities"]
 [dependencies]
 chrono = "0.4"
 chrono-tz = "0.10"
-clearscreen = "3.0.0"
 crossterm = "0.28"
 colored = "2.1.0"
 console = "0.15"
@@ -27,7 +26,7 @@ indicatif = "0.17"
 memmap2 = "0.9"
 os_pipe = "1.1.4"
 open = "5.3"
-regex = "1"
+regex = "1.10"
 rustyline = { version = "14.0", features = ["derive"] }
 serial_test = "3.1"
 strsim = "0.11"
