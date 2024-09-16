@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::{self, format_size, read_symlink};
+use crate::utils::{self, format_size, read_symlink, MAX_USER_DISPLAY_LEN};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
@@ -88,8 +88,6 @@ struct Dir {
     flags: CommandFlags,
 }
 
-const OWNER_MAX_LEN: usize = 16;
-
 struct Options {
     all_files: bool,
     show_details: bool,
@@ -161,19 +159,17 @@ impl Exec for Dir {
 
 #[cfg(windows)]
 mod win {
-    use super::OWNER_MAX_LEN;
     use super::*;
-    use std::cmp::min;
+    use crate::utils::win::name_from_sid;
     use std::fs::{self, OpenOptions};
     use std::os::windows::prelude::*;
-    use windows::core::{PCWSTR, PWSTR};
+    use windows::core::PWSTR;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSidToSidW, GetSecurityInfo, SE_FILE_OBJECT,
+        ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT,
     };
     use windows::Win32::Security::{
-        LookupAccountSidW, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-        PSECURITY_DESCRIPTOR, PSID, SID_NAME_USE,
+        GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
     use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows_sys::Win32::Foundation::LocalFree;
@@ -232,61 +228,6 @@ mod win {
             } else {
                 (None, None)
             }
-        }
-    }
-
-    /// Convert the SID string to an account name.
-    fn name_from_sid(opt_sid: Option<String>) -> String {
-        if let Some(sid) = opt_sid {
-            unsafe {
-                let mut psid = PSID::default();
-                let wide_sid: Vec<u16> = sid.encode_utf16().chain(std::iter::once(0)).collect();
-
-                if ConvertStringSidToSidW(PCWSTR(wide_sid.as_ptr()), &mut psid).is_err() {
-                    return sid[..OWNER_MAX_LEN].to_string();
-                }
-
-                let mut name_size: u32 = 0;
-                let mut domain_size: u32 = 0;
-                let mut sid_use = SID_NAME_USE::default();
-
-                // First call to get buffer sizes, ignore result
-                _ = LookupAccountSidW(
-                    PWSTR::null(),
-                    psid,
-                    PWSTR::null(),
-                    &mut name_size,
-                    PWSTR::null(),
-                    &mut domain_size,
-                    &mut sid_use,
-                );
-
-                let mut name = vec![0u16; name_size as usize];
-                let mut domain = vec![0u16; domain_size as usize];
-
-                // Second call to get actual data
-                let success = LookupAccountSidW(
-                    PWSTR::null(),
-                    psid,
-                    PWSTR(name.as_mut_ptr()),
-                    &mut name_size,
-                    PWSTR(domain.as_mut_ptr()),
-                    &mut domain_size,
-                    &mut sid_use,
-                )
-                .is_ok();
-
-                LocalFree(psid.0);
-
-                if success {
-                    name_size = min(name_size, OWNER_MAX_LEN as u32);
-                    String::from_utf16_lossy(&name[..name_size as usize])
-                } else {
-                    sid[..OWNER_MAX_LEN].to_string()
-                }
-            }
-        } else {
-            "-".to_string()
         }
     }
 
@@ -510,7 +451,7 @@ fn print_detailed_entries(
                 );
                 let unknown = "-";
                 my_println!(
-                    "-?????????  {0:OWNER_MAX_LEN$} {0:OWNER_MAX_LEN$} {1:>12}  {1:>12}  {2}",
+                    "-?????????  {0:MAX_USER_DISPLAY_LEN$} {0:MAX_USER_DISPLAY_LEN$} {1:>12}  {1:>12}  {2}",
                     unknown,
                     "?",
                     args.colors.render_error_path(&entry.path())
@@ -557,7 +498,7 @@ fn print_details(path: &Path, metadata: &Metadata, opts: &Options) -> Result<(),
         let (owner, group) = get_owner_and_group(&real_path, &metadata);
 
         my_println!(
-            "{}{}  {:OWNER_MAX_LEN$} {:OWNER_MAX_LEN$} {:>12}  {}  {}",
+            "{}{}  {:MAX_USER_DISPLAY_LEN$} {:MAX_USER_DISPLAY_LEN$} {:>12}  {}  {}",
             opts.colors.render_file_type(format_file_type(&metadata)),
             opts.colors.render_permissions(get_permissions(&metadata)),
             owner,

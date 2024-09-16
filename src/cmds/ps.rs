@@ -1,15 +1,18 @@
+// TODO: Allow user to specify column widths?
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope};
+use crate::{
+    eval::Value,
+    scope::Scope,
+    utils::{format_error, MAX_USER_DISPLAY_LEN},
+};
 use std::any::Any;
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::ffi::OsString;
 use std::fmt;
 use std::sync::Arc;
-use sysinfo::{Pid, Process, System, Uid, Users};
+use sysinfo::{Pid, Process, System, Uid};
 
 const MAX_STR_WIDTH: usize = 32;
-const MAX_USER_WIDTH: usize = 16;
 
 trait Filter {
     fn apply<'a>(&self, proc: &'a Process) -> Option<&'a Process>;
@@ -152,6 +155,8 @@ fn truncate_and_pad(s: &str, width: usize) -> String {
     format!("{:>width$}", truncated, width = width)
 }
 
+/// Wrap f32 to define partial ordering for sorting by Cpu utilization,
+/// memory, etc. f32 does not implement ordering by default, due to NaN.
 #[derive(PartialEq, PartialOrd)]
 struct F32(f32);
 
@@ -220,11 +225,25 @@ impl Field for OsString {
 ///
 /// Convert Uid to User.name and format for printing
 ///
-use std::sync::OnceLock;
-static USERS: OnceLock<Users> = OnceLock::new();
+#[cfg(windows)]
+fn uid_to_name(uid: &Uid) -> String {
+    crate::utils::win::name_from_sid(Some(uid.to_string()))
+}
 
-fn get_users() -> &'static Users {
-    USERS.get_or_init(|| Users::new_with_refreshed_list())
+#[cfg(not(windows))]
+fn uid_to_name(uid: &Uid) -> String {
+    use std::sync::OnceLock;
+    use sysinfo::Users;
+    static USERS: OnceLock<Users> = OnceLock::new();
+
+    fn get_users() -> &'static Users {
+        USERS.get_or_init(|| Users::new_with_refreshed_list())
+    }
+
+    match get_users().iter().find(|user| user.id() == uid) {
+        Some(user) => user.name().to_string(),
+        None => uid.to_string(),
+    }
 }
 
 impl Field for Option<Uid> {
@@ -234,14 +253,11 @@ impl Field for Option<Uid> {
 
     fn to_string(&self, fmt: &Fmt) -> String {
         let s = match self {
-            Some(uid) => match get_users().iter().find(|user| user.id() == uid) {
-                Some(user) => user.name().to_string(),
-                None => uid.to_string(),
-            },
+            Some(uid) => uid_to_name(uid),
             None => String::default(),
         };
 
-        Helper::new(truncate_and_pad(&s, MAX_USER_WIDTH), fmt).to_string()
+        Helper::new(truncate_and_pad(&s, MAX_USER_DISPLAY_LEN), fmt).to_string()
     }
 }
 
@@ -458,7 +474,7 @@ impl View {
         Box::new(Column::new(
             "user",
             "USER",
-            Box::new(|f, d| write!(f, "{:>MAX_USER_WIDTH$}", d)),
+            Box::new(|f, d| write!(f, "{:>MAX_USER_DISPLAY_LEN$}", d)),
             Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
         ))
     }

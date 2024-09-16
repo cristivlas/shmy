@@ -5,6 +5,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+// Maximum length for displaying user account name (ls, ps)
+pub const MAX_USER_DISPLAY_LEN: usize = 16;
+
 /// Copy variables from the current scope outwards into the environment of the
 /// command to be executed, but do not carry over special redirect variables.
 pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Arc<Scope>) {
@@ -94,25 +97,32 @@ pub fn terminal_width() -> usize {
 ///
 #[cfg(windows)]
 pub mod win {
+    use super::MAX_USER_DISPLAY_LEN;
     use crate::symlnk::SymLink;
+    use std::cmp::min;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::mem;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Security::Authorization::ConvertStringSidToSidW;
     use windows::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     };
+    use windows::Win32::Security::{LookupAccountSidW, PSID, SID_NAME_USE};
+    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows::{
         Win32::Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
         },
         Win32::System::Ioctl::{FSCTL_DELETE_REPARSE_POINT, FSCTL_GET_REPARSE_POINT},
         Win32::System::IO::DeviceIoControl,
     };
+    use windows_sys::Win32::Foundation::LocalFree;
 
     pub const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
     pub const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
@@ -303,6 +313,61 @@ pub mod win {
                 }
                 Err(_) => Err(std::io::Error::last_os_error()),
             }
+        }
+    }
+
+    /// Convert the SID string to an account name.
+    pub fn name_from_sid(opt_sid: Option<String>) -> String {
+        if let Some(sid) = opt_sid {
+            unsafe {
+                let mut psid = PSID::default();
+                let wide_sid: Vec<u16> = sid.encode_utf16().chain(std::iter::once(0)).collect();
+
+                if ConvertStringSidToSidW(PCWSTR(wide_sid.as_ptr()), &mut psid).is_err() {
+                    return sid[..MAX_USER_DISPLAY_LEN].to_string();
+                }
+
+                let mut name_size: u32 = 0;
+                let mut domain_size: u32 = 0;
+                let mut sid_use = SID_NAME_USE::default();
+
+                // First call to get buffer sizes, ignore result
+                _ = LookupAccountSidW(
+                    PWSTR::null(),
+                    psid,
+                    PWSTR::null(),
+                    &mut name_size,
+                    PWSTR::null(),
+                    &mut domain_size,
+                    &mut sid_use,
+                );
+
+                let mut name = vec![0u16; name_size as usize];
+                let mut domain = vec![0u16; domain_size as usize];
+
+                // Second call to get actual data
+                let success = LookupAccountSidW(
+                    PWSTR::null(),
+                    psid,
+                    PWSTR(name.as_mut_ptr()),
+                    &mut name_size,
+                    PWSTR(domain.as_mut_ptr()),
+                    &mut domain_size,
+                    &mut sid_use,
+                )
+                .is_ok();
+
+                LocalFree(psid.0);
+
+                if success {
+                    name_size = min(name_size, MAX_USER_DISPLAY_LEN as u32);
+                    String::from_utf16_lossy(&name[..name_size as usize])
+                } else {
+                    sid[..MAX_USER_DISPLAY_LEN].to_string()
+                }
+            }
+        } else {
+            "-".to_string()
         }
     }
 }
