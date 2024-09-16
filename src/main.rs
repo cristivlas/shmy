@@ -566,6 +566,7 @@ impl Shell {
     }
 
     fn eval(&mut self, input: &String) {
+        ABORT.store(false, SeqCst);
         INTERRUPT.store(false, SeqCst);
         let scope = self.new_top_scope();
 
@@ -644,6 +645,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
     Ok(shell)
 }
 
+static ABORT: AtomicBool = AtomicBool::new(false);
 static INTERRUPT: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), ()> {

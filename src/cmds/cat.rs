@@ -103,14 +103,14 @@ impl Exec for CatHeadTail {
     }
 }
 
-async fn check_interrupt() {
+async fn check_abort() {
     let poll_interval = Duration::from_millis(50);
 
     loop {
-        sleep(poll_interval).await;
-        if crate::INTERRUPT.load(Ordering::SeqCst) {
+        if crate::ABORT.load(Ordering::SeqCst) {
             return;
         }
+        sleep(poll_interval).await;
     }
 }
 
@@ -122,11 +122,17 @@ async fn process_input<R: tokio::io::AsyncBufRead + Unpin>(
 ) -> Result<(), String> {
     let mut lines_stream = reader.lines();
     let mut i = 0;
-    let mut buffer: VecDeque<_> = VecDeque::with_capacity(lines);
+    let mut tail: VecDeque<_> = VecDeque::with_capacity(lines);
 
     loop {
         tokio::select! {
+            _ = check_abort() => {
+                return Err("Aborted".into());
+            }
             line = lines_stream.next_line() => {
+                if crate::INTERRUPT.load(Ordering::SeqCst) {
+                    break;
+                }
                 match line.map_err(|e| e.to_string())? {
                     Some(line) => {
                         i += 1;
@@ -136,27 +142,24 @@ async fn process_input<R: tokio::io::AsyncBufRead + Unpin>(
                             line
                         };
                         match mode {
-                            Mode::Cat => { println!("{line}") },
-                            Mode::Head => { if i > lines { break }; println!("{line}"); },
+                            Mode::Cat => { my_println!("{line}")? },
+                            Mode::Head => { if i > lines { break }; my_println!("{line}")?; },
                             Mode::Tail => {
-                                if buffer.len() == lines {
-                                    buffer.pop_front();
+                                if tail.len() == lines {
+                                    tail.pop_front();
                                 }
-                                buffer.push_back(line);
+                                tail.push_back(line);
                             }
                         }
                     },
                     None => break,
                 }
             }
-            _ = check_interrupt() => {
-                return Err("Canceled".into());
-            }
         }
     }
 
-    for line in buffer {
-        println!("{line}");
+    for line in tail {
+        my_println!("{line}")?;
     }
 
     Ok(())

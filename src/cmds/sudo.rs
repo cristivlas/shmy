@@ -89,7 +89,7 @@ impl Exec for Sudo {
             return Err("No command specified".to_string());
         }
 
-        if !(std::io::stdin().is_terminal()) {
+        if !std::io::stdin().is_terminal() {
             return Err("Cannot pipe or redirect input to elevated command".to_string());
         }
 

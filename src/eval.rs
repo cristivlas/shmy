@@ -2,7 +2,7 @@ use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
 use crate::utils::{self, copy_vars_to_command_env, executable};
-use crate::INTERRUPT;
+use crate::ABORT;
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -1878,6 +1878,18 @@ impl BinExpr {
         Ok(None)
     }
 
+    /// Evaluate pipe expression.
+    /// Start an instance of this interpreter, and pass it the expression on the right hand-side of the pipe
+    /// via -c <expr>. Redirect the standard output of to a pipe, and evaluate the left hand-side expression
+    /// with its output redirected. The pipe is connected to the input of the child process that evaluates the
+    /// right side expression.
+    /// #Experimental left hand-side unblocking
+    /// The ABORT atomic variable is set when early termination of the child process is detected, to break
+    /// out of an otherwise blocking read. Consider for example:
+    /// ```cat | sudo ls ```
+    /// The sudo implementation under Windows uses UAC elevation, and does not accept incoming pipes;
+    /// in the above scenario, it errors out; `cat` needs to cancel out of reading user input.
+    ///
     fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> EvalResult<Value> {
         if lhs.is_empty() {
             return error(self, "Expecting pipe input");
@@ -1888,10 +1900,8 @@ impl BinExpr {
         }
 
         // Create a pipe
-        let (reader, writer) = match os_pipe::pipe() {
-            Ok((r, w)) => (r, w),
-            Err(e) => return error(self, &format!("Failed to create pipe: {}", e)),
-        };
+        let (reader, writer) = os_pipe::pipe()
+            .map_err(|e| EvalError::new(self.loc(), format!("Failed to create pipe: {}", e)))?;
 
         // Get our own program name
         let program = executable().map_err(|e| EvalError::new(self.loc(), e))?;
@@ -1916,26 +1926,33 @@ impl BinExpr {
                 EvalError::new(rhs.loc(), format!("Failed to spawn child process: {}", e))
             })?;
 
+        // Drop the command to avoid deadlocks, see https://docs.rs/os_pipe/latest/os_pipe/index.html
+        drop(command);
+
+        // Redirect stdout to the pipe
+        let redirect = Redirect::stdout(writer)
+            .map_err(|e| EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e)))?;
+
+        // Spawn a thread that "monitors" the child process.
         let wait = thread::spawn(move || {
             let result = child.wait_with_output();
-            INTERRUPT.store(true, std::sync::atomic::Ordering::SeqCst);
+
+            // Abort blocking reads (experimental, cooperative, see cat.rs)
+            ABORT.store(true, std::sync::atomic::Ordering::SeqCst);
 
             result
         });
 
-        // Redirect stdout to the pipe
-        let redirect = match Redirect::stdout(writer) {
-            Ok(r) => r,
-            Err(e) => return error(self, &format!("Failed to redirect stdout: {}", e)),
-        };
-
         // Left-side evaluation's stdout goes into the pipe.
-        let result = Status::check_result(lhs.eval(), false);
+        let lhs_result = Status::check_result(lhs.eval(), false);
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
 
-        match wait.join() {
+        lhs_result?; // Check left hand-side for errors.
+
+        // Join the "monitoring" thread, to get the full output and exit code of the child process.
+        let rhs_result = match wait.join() {
             Ok(result) => {
                 let output = result.map_err(|e| {
                     EvalError::new(
@@ -1946,14 +1963,15 @@ impl BinExpr {
 
                 // Print the output of the right-hand side expression.
                 print!("{}", String::from_utf8_lossy(&output.stdout));
-                self.eval_exit_code(rhs_str, &output.status)?;
+                self.eval_exit_code(rhs_str, &output.status)
             }
-            Err(panic_info) => {
-                eprintln!("Thread panicked: {:?}", panic_info);
-            }
-        }
+            Err(panic_info) => Err(EvalError::new(
+                rhs.loc(),
+                format!("Thread panicked: {:?}", panic_info),
+            )),
+        };
 
-        result
+        rhs_result
     }
 
     /// Binary plus
@@ -2366,9 +2384,9 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.err_loc(), e));
 
-        // if Scope::is_interrupted() {
-        //     eprintln!("^C");
-        // }
+        if Scope::is_interrupted() {
+            eprintln!("^C");
+        }
         let cmd = self.to_string();
         Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
     }
@@ -2545,7 +2563,7 @@ derive_has_location!(LoopExpr);
 macro_rules! eval_iteration {
     ($self:expr, $result:ident) => {
         if Scope::is_interrupted() {
-            // eprintln!("^C");
+            eprintln!("^C");
             break;
         }
 

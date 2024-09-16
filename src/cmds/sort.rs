@@ -4,7 +4,7 @@ use crate::utils::format_error;
 use crate::{eval::Value, scope::Scope};
 use std::collections::HashSet;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -85,6 +85,9 @@ impl Exec for Sort {
             let stdin = io::stdin();
             let reader = stdin.lock();
             for line in reader.lines() {
+                if Scope::is_interrupted() {
+                    break;
+                }
                 let line = line.map_err(|e| e.to_string())?;
                 lines.push(line);
             }
@@ -97,6 +100,9 @@ impl Exec for Sort {
                 if path.is_file() {
                     match fs::read_to_string(&path) {
                         Ok(content) => {
+                            if Scope::is_interrupted() {
+                                break;
+                            }
                             lines.extend(content.lines().map(String::from));
                         }
                         Err(e) => {
@@ -113,10 +119,12 @@ impl Exec for Sort {
 
         let sorted_lines = self.sort_lines(lines, unique, reverse, numeric);
 
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
         for line in sorted_lines {
-            writeln!(handle, "{}", line).map_err(|e| e.to_string())?;
+            if Scope::is_interrupted() {
+                break;
+            }
+
+            my_println!("{line}")?;
         }
 
         Ok(Value::success())
