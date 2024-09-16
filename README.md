@@ -122,6 +122,19 @@ Example of using pipe operator for variable assignment:
 realpath .. | x; basename $x
 ```
 
+##### Limitations
+Output and redirects are not allowed with 'sudo', because on Windows the semantics of 'sudo' is not
+"substitute-user-do", but "runas Administrator" (UAC).
+```
+ls -al | sudo cat
+```
+The above expression does not work on Windows under this shell. Workaround:
+
+```
+sudo $SHELL
+```
+Then evaluate any expression, including pipes, in the elevated shell window.
+
 ### 5. Special Variables
 
 The interpreter provides special variables for output redirection:
@@ -134,6 +147,15 @@ __stderr=null; ls;
 __stderr=log.txt; ls -al;
 __stderr=__stdout; ls -al /
 __stdout=some/path/file.txt ls -al;
+```
+
+#### Color.
+Some commands have default color output (ls, grep).
+The NO_COLOR variable, if defined (value does not matter) in the environment or the current evaluation
+scope, suppresses color output.
+E.g.
+```
+NO_COLOR = _; ls -al
 ```
 
 ### 6. Variable Parsing and Expansion
@@ -269,4 +291,4 @@ The expression `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`.
 
 The expression ```echo 2 + 2``` is evaluated as ```(echo 2) + 2```, due to the low precedence of the addition operator. It is recommended to always use parentheses, as in ```echo (2 + 2)```, to ensure correct evaluation.
 
-For more detailed information or specific use cases, refer to the original source code and accompanying comments.
+For more detailed information or specific use cases, refer to the source code and examples in the repo at: https://github.com/cristivlas/shmy
