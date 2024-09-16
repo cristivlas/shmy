@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::assert_eval_err;
     use crate::assert_eval_ok;
     use crate::eval::*;
     use crate::testeval::tests::*;
@@ -143,5 +144,11 @@ mod tests {
 
         let sort_command = format!("sort -un {} | result; $result", file_path.display());
         assert_eval_ok!(&sort_command, Value::from("1\n2\n10"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_which_error() {
+        assert_eval_err!("which if", "Expecting IF condition");
     }
 }
