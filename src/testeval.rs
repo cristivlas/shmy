@@ -71,7 +71,7 @@ pub mod tests {
 
     #[test]
     fn test_if() {
-        assert_eval_ok!("i = 1; if $i (True)", Value::from("True"));
+        assert_eval_ok!("ijk = 1; if $ijk (True)", Value::from("True"));
     }
 
     #[test]
@@ -171,28 +171,28 @@ pub mod tests {
 
     #[test]
     fn test_var_subst() {
-        // assert_eval_ok!(
-        //     "TEST=/tmp/foobar/baz/bam; $TEST",
-        //     Value::from("/tmp/foobar/baz/bam")
-        // );
         assert_eval_ok!(
-            "TEST=/tmp/foobar/baz/bam; ${TEST}",
+            "TESTVAR=/tmp/foobar/baz/bam; $TESTVAR",
             Value::from("/tmp/foobar/baz/bam")
         );
         assert_eval_ok!(
-            "TEST=/tmp/foobar/baz/bam; aaa${TEST}bbb",
+            "TESTVAR=/tmp/foobar/baz/bam; ${TESTVAR}",
+            Value::from("/tmp/foobar/baz/bam")
+        );
+        assert_eval_ok!(
+            "TESTVAR=/tmp/foobar/baz/bam; aaa${TESTVAR}bbb",
             Value::from("aaa/tmp/foobar/baz/bambbb")
         );
         assert_eval_ok!(
-            "TEST=/tmp/foobar/baz/bam; aaa${TEST/.a/}",
+            "TESTVAR=/tmp/foobar/baz/bam; aaa${TESTVAR/.a/}",
             Value::from("aaa/tmp/foor/z/m")
         );
         assert_eval_ok!(
-            "TEST=\"/tmp/f  bar/baz/bam\"; \"${TEST/ +/_}\"",
+            "TESTVAR=\"/tmp/f  bar/baz/bam\"; \"${TESTVAR/ +/_}\"",
             Value::from("/tmp/f_bar/baz/bam")
         );
         assert_eval_ok!(
-            "TEST=/tmp/foobar.txt; \"${TEST/(.txt)/\\\\1.tmp}\"",
+            "TESTVAR=/tmp/foobar.txt; \"${TESTVAR/(.txt)/\\\\1.tmp}\"",
             Value::from("/tmp/foobar.txt.tmp")
         );
 
