@@ -1,6 +1,7 @@
 #[cfg(test)]
 pub mod tests {
     use crate::eval::*;
+    use serial_test::serial;
     use std::{io, str::FromStr};
 
     pub fn eval(input: &str) -> EvalResult<Value> {
@@ -35,6 +36,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_add() {
         assert_eval_ok!("i = 2; $i + 1", Value::Int(3));
         assert_eval_ok!("hello + 0", Value::from_str("hello0").unwrap());
@@ -47,22 +49,26 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_assign() {
         assert_eval_ok!("i = 3; $i", Value::Int(3));
     }
 
     #[test]
+    #[serial]
     fn test_assign_chain() {
         assert_eval_ok!("i = j = 3; $i == $j && $i == 3 && $j == 3", Value::Int(1));
     }
 
     #[test]
+    #[serial]
     fn test_equals() {
         assert_eval_ok!("i = 42; $i == 42", Value::Int(1));
         assert_eval_ok!("i = 42; $i != 13", Value::Int(1));
     }
 
     #[test]
+    #[serial]
     fn test_gt() {
         assert_eval_ok!("i = 42; $i > 42", Value::Int(0));
         assert_eval_ok!("i = 50; $i > 42", Value::Int(1));
@@ -70,11 +76,33 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_if() {
-        assert_eval_ok!("ijk = 1; if $ijk (True)", Value::from("True"));
+        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (True);", Value::from("True"));
+        assert_eval_ok!(
+            "TEST_VAR = 0; if ($TEST_VAR == 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = 1; if ($TEST_VAR > 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = 1; if ($TEST_VAR >= 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = -1; if ($TEST_VAR < 0) (True);",
+            Value::from("True")
+        );
+        assert_eval_ok!(
+            "TEST_VAR = -1; if ($TEST_VAR <= 0) (True);",
+            Value::from("True")
+        );
     }
 
     #[test]
+    #[serial]
     fn test_if_no_group() {
         assert_eval_err!(
             "i = 1; if $i true",
@@ -83,6 +111,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_else() {
         assert_eval_ok!(
             "i = 1; if ($i < 0) (Apple) else (Orange)",
@@ -91,11 +120,13 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_else_no_if() {
         assert_eval_err!("else fail", "ELSE without IF")
     }
 
     #[test]
+    #[serial]
     fn test_else_no_group() {
         assert_eval_err!(
             "i = 1; if $i (1) else 0",
@@ -104,6 +135,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_for() {
         assert_eval_ok!(
             "i = \"\"; for j in a b c d; ($i = $i + $j);",
@@ -112,6 +144,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_for_tilde() {
         let mut interp = Interp::new();
         interp
@@ -123,6 +156,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_for_no_group() {
         assert_eval_err!(
             "for i in _; hello",
@@ -131,6 +165,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_for_with_expr_args() {
         assert_eval_ok!(
             "acc = \"\"; x = 3; for i in x ($x + 2) (2 - $x * 2) y; ($acc = $acc + _ + $i)",
@@ -139,16 +174,19 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_for_slash() {
         assert_eval_ok!("for i in /; ($i)", "/".parse::<Value>().unwrap());
     }
 
     #[test]
+    #[serial]
     fn test_for_pipe() {
         assert_eval_ok!("echo 123 | for x in -; (echo $x) | y; $y", Value::Int(123));
     }
 
     #[test]
+    #[serial]
     fn test_while() {
         assert_eval_ok!(
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
@@ -162,6 +200,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_while_no_group() {
         assert_eval_err!(
             "while (1) hello",
@@ -170,6 +209,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_var_subst() {
         assert_eval_ok!(
             "TESTVAR=/tmp/foobar/baz/bam; $TESTVAR",
@@ -235,6 +275,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_command_error_handling() {
         assert_eval_err!("cp", "Missing source and destination");
         assert_eval_ok!("if (cp)()", Value::Int(0));
@@ -253,6 +294,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_status_as_arg() {
         assert_eval_err!("for i in (cp); ()", "Missing source and destination");
         assert_eval_err!("for i in (cp); (echo $i)", "Missing source and destination");
@@ -264,6 +306,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_mul() {
         assert_eval_err!("x = 2; y = 3; x * y", "Cannot multiply strings");
         assert_eval_ok!("x = 2; y = 3; $x * $y", Value::Int(6));
@@ -274,12 +317,14 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_arithmetic() {
         assert_eval_ok!("2+2", Value::Int(4));
         assert_eval_ok!("1 - 2 * 2 + 3", Value::Int(0));
     }
 
     #[test]
+    #[serial]
     fn test_error() {
         assert_eval_ok!(
             "if (echo Hello && cp x) () else ($__errors)",
@@ -292,12 +337,14 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_erase() {
         assert_eval_ok!("x = 123; $x = ", Value::Int(123));
         assert_eval_err!("x = 123; $x = ; $x = 0", "Variable not found: $x");
     }
 
     #[test]
+    #[serial]
     fn test_logical_or_error() {
         assert_eval_ok!(
             "(basename . || echo $__errors) | x; $x",
@@ -306,6 +353,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pipeline_rewrite() {
         assert_eval_ok!(
             "echo World | (echo Hello; cat) | cat | x; $x",
@@ -314,6 +362,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_power() {
         assert_eval_ok!("2 ^ 14", Value::Int(16384));
         assert_eval_ok!("2 ^ (-2)", Value::Real(0.25));
@@ -324,6 +373,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sub() {
         assert_eval_ok!("10000 - 2 ^ 14", Value::Int(-6384));
         assert_eval_ok!("1 - 2 * 2 - 1", Value::Int(-4));
@@ -340,11 +390,13 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_status_and() {
         assert_eval_err!("(echo Hello && cp x && ls .)", "Missing destination");
     }
 
     #[test]
+    #[serial]
     fn test_status_or() {
         // Expect the error of the last of any that failed
         assert_eval_err!("(0 || cp -x || cp)", "Missing source and destination");
@@ -356,6 +408,7 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_negated_status() {
         assert_eval_ok!(
             "if (!(0 || cp -x || cp)) ($__errors)",
@@ -364,32 +417,38 @@ pub mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_dash_parse() {
         assert_eval_ok!("echo ---Hello--- | x; $x", Value::from("---Hello---"));
     }
 
     #[test]
+    #[serial]
     fn test_pass_vars_thru_pipes() {
         assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
     }
 
     #[test]
+    #[serial]
     fn test_hash_tag() {
         assert_eval_ok!("x = hey#world; $x", Value::from("hey"));
         assert_eval_ok!("x = \"hey#world\"; $x", Value::from("hey#world"));
     }
 
     #[test]
+    #[serial]
     fn test_raw_strings() {
         assert_eval_ok!("r\"(_;)( \" )\"", Value::from("_;)( \" "));
     }
 
     #[test]
+    #[serial]
     fn test_trailing_equals() {
         assert_eval_err!("FOO=", "Variable expected on left hand-side of assignment");
     }
 
     #[test]
+    #[serial]
     fn test_export() {
         assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
         // Expect value to be preserved across evals.

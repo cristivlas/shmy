@@ -3,6 +3,7 @@ mod tests {
     use crate::assert_eval_ok;
     use crate::eval::*;
     use crate::testeval::tests::*;
+    use serial_test::serial;
     use std::fs::File;
     use std::io::{Read, Write};
     use tempfile::TempDir;
@@ -21,22 +22,26 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cat_err() {
         assert_eval_ok!("echo abc | cat | x; $x", Value::from("abc"));
         assert_err_loc!("cat   -n bogus", Location::new(1, 9));
     }
 
     #[test]
+    #[serial]
     fn test_chmod_err() {
         assert_err_loc!("chmod  -r   -v  w+x bogus", Location::new(1, 20));
     }
 
     #[test]
+    #[serial]
     fn test_cp_err() {
         assert_err_loc!("cp -f  -P  -ir fuzz .", Location::new(1, 15));
     }
 
     #[test]
+    #[serial]
     fn test_cp() {
         // Create a temporary directory for our test
         let temp_dir = TempDir::new().unwrap();
@@ -72,16 +77,19 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_diff_err() {
         assert_err_loc!("diff  --color x y", Location::new(1, 14));
     }
 
     #[test]
+    #[serial]
     fn test_ls_err() {
         assert_err_loc!("ls  -u  -h  -l null", Location::new(1, 15));
     }
 
     #[test]
+    #[serial]
     fn test_realpath_err() {
         assert_err_loc!("realpath . foo", Location::new(1, 11));
     }
@@ -94,6 +102,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sort_basic() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = create_test_file(&temp_dir, "test.txt", "banana\napple\ncherry\n");
@@ -103,6 +112,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sort_unique() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = create_test_file(
@@ -116,6 +126,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sort_reverse() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = create_test_file(&temp_dir, "test_reverse.txt", "banana\napple\ncherry\n");
@@ -125,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_sort_unique_numeric() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = create_test_file(&temp_dir, "test_numeric.txt", "10\n2\n1\n10\n");
