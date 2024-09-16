@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use std::path::Path;
 use std::sync::Arc;
 

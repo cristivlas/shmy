@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope, symlnk::SymLink};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use open;
 use std::path::PathBuf;
 use std::sync::Arc;

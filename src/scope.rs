@@ -1,5 +1,4 @@
-use crate::eval::Value;
-use crate::utils::executable;
+use crate::{eval::Value, utils::executable};
 use colored::*;
 use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;

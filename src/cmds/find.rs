@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;

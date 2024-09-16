@@ -1974,7 +1974,7 @@ impl BinExpr {
         rhs_result
     }
 
-    /// Binary plus
+    /// Evaluate binary plus expression.
     fn eval_plus(&self, lhs: Value, rhs: Value) -> EvalResult<Value> {
         match lhs {
             Value::Int(i) => match rhs {

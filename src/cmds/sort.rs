@@ -1,7 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::format_error};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead};
