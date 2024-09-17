@@ -243,9 +243,10 @@ impl Viewer {
         }
         stdout.flush()?;
 
-        if let Some(file_name) = &self.file_info {
-            self.state.status_line = Some(self.strong(&file_name));
-        }
+        self.state.status_line = self
+            .file_info
+            .as_ref()
+            .and_then(|info| Some(self.strong(&info)));
 
         Ok(())
     }
