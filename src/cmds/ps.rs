@@ -218,6 +218,7 @@ impl Field for String {
 }
 
 /// OsString is used for showing the command that started a process.
+/// Alternatively we could make a custom type, but this works.
 impl Field for OsString {
     fn as_any(&self) -> &dyn Any {
         self
@@ -225,6 +226,32 @@ impl Field for OsString {
 
     fn to_string(&self, fmt: &Fmt) -> String {
         Helper::new(self.to_string_lossy(), fmt).to_string()
+    }
+}
+
+#[derive(Eq, PartialEq, PartialOrd, Ord)]
+struct RunTime(u64);
+
+impl Field for RunTime {
+    fn as_any(&self) -> &dyn Any {
+        &self.0
+    }
+
+    fn to_string(&self, fmt: &Fmt) -> String {
+        let duration = std::time::Duration::from_secs(self.0);
+        let days = duration.as_secs() / 86400;
+        let hours = (duration.as_secs() % 86400) / 3600;
+        let minutes = (duration.as_secs() % 3600) / 60;
+        let seconds = duration.as_secs() % 60;
+
+        // Format the duration
+        let s = if days > 0 {
+            format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+        } else {
+            format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+        };
+        // Apply column formatting, for alignment and width
+        Helper::new(s, fmt).to_string()
     }
 }
 
@@ -396,10 +423,6 @@ impl View {
         for proc in processes.values() {
             let mut child = proc;
             loop {
-                // if !seen.insert(child.pid()) {
-                //     roots.insert(child.pid());
-                //     break;
-                // }
                 match child.parent() {
                     None => {
                         roots.insert(child.pid());
@@ -486,6 +509,9 @@ impl View {
         Ok(())
     }
 
+    /// Parse a string containing sorting specification.
+    /// The spec is a comma-separated list of column names, optionally prefixed by + or -
+    /// + specifies increasing sort order (the default) and - specifies decreasing order.
     fn parse_sort_spec(
         &mut self,
         scope: &Arc<Scope>,
@@ -583,6 +609,15 @@ impl View {
         ))
     }
 
+    fn run_time_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "time",
+            "TIME",
+            Box::new(|f, d| write!(f, "{:>12}", d)),
+            Box::new(|p: &Process| RunTime(p.run_time())),
+        ))
+    }
+
     fn user_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
             "user",
@@ -615,7 +650,7 @@ impl ProcStatus {
             "List all processes, not just processes belonging to the current user",
         );
         flags.add_flag('l', "long", "Long format");
-        flags.add_flag('t', "tree", "Display processes in a tree view");
+        flags.add_flag('t', "tree", "Display processes in a hierarchical view");
         flags.add_option('s', "sort", "Specify sorting order");
 
         Self { flags }
@@ -626,7 +661,7 @@ impl Exec for ProcStatus {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
 
-        // Use forgiving, non-error checking parsin here, for compat with ps -efl, ps -afx etc.
+        // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc.
         let _ = flags.parse_all(scope, args);
 
         if flags.is_present("help") {
@@ -634,8 +669,10 @@ impl Exec for ProcStatus {
             println!("List currently running processes and their details.");
             println!("\nOptions:");
             println!("{}", flags.help());
-            println!("NOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less");
-            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem,user\".(+/- indicates increasing or decreasing order)");
+            println!("The sort spec is a comma-separated list of column names, optionally prefixed by a + or - sign.");
+            println!("The PLUS sign specifies increasing sorting order (the default), and MINUS specifies decreasing order.");
+            println!("Examples:\n\tps --sort name,-mem\n\tps -s \"+cpu,-mem,user\"\n");
+            println!("\nNOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less\n");
             return Ok(Value::success());
         }
 
@@ -650,7 +687,7 @@ impl Exec for ProcStatus {
         view.columns.push(View::name_column());
         view.columns.push(View::cpu_usage_column());
         view.columns.push(View::mem_usage_column());
-
+        view.columns.push(View::run_time_column());
         if long {
             view.columns.push(View::cmd_column());
         }
