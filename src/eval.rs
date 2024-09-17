@@ -18,7 +18,6 @@ use std::process::{Command as StdCommand, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::thread;
 
 pub const KEYWORDS: [&str; 8] = [
     "BREAK", "CONTINUE", "ELSE", "FOR", "IF", "IN", "QUIT", "WHILE",
@@ -1821,6 +1820,15 @@ impl BinExpr {
         Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
     }
 
+    /// Evaluate piping an expression into a variable (assign the output of an expression to a var.)
+    /// Example:
+    /// ```
+    /// ls -al | x; echo $x
+    /// ```
+    /// is similar to the bash syntax:
+    /// ```
+    /// x = `ls -al`; echo $x
+    /// ```
     fn eval_pipe_to_var(
         &self,
         lhs: &Rc<Expression>,
@@ -1933,9 +1941,6 @@ impl BinExpr {
         let redirect = Redirect::stdout(writer)
             .map_err(|e| EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e)))?;
 
-        // Spawn a thread that "monitors" the child process.
-        let monitor = thread::spawn(move || child.wait_with_output());
-
         // Left-side evaluation's stdout goes into the pipe.
         let lhs_result = Status::check_result(lhs.eval(), false);
 
@@ -1948,16 +1953,9 @@ impl BinExpr {
             _ = Gag::stdout().and_then(|_| std::io::stdout().flush());
         }
 
-        // Join the "monitoring" thread, to get the full output and exit code of the child process.
-        let rhs_result = match monitor.join() {
-            Ok(result) => {
-                let output = result.map_err(|e| {
-                    EvalError::new(
-                        rhs.loc(),
-                        format!("Failed to get child process output: {}", e),
-                    )
-                })?;
-
+        // Get the output and exit code of the child process.
+        let rhs_result = match child.wait_with_output() {
+            Ok(output) => {
                 // Print the output of the right-hand side expression.
                 print!("{}", String::from_utf8_lossy(&output.stdout));
                 self.eval_exit_code(rhs_str, &output.status)
