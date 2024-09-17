@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
 use std::fs::{File, OpenOptions};
-use std::io::{self, ErrorKind, IsTerminal, Read};
+use std::io::{self, ErrorKind, IsTerminal, Read, Write};
 use std::iter::Peekable;
 use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
@@ -1938,7 +1938,7 @@ impl BinExpr {
         let wait = thread::spawn(move || {
             let result = child.wait_with_output();
 
-            // Abort blocking reads (experimental, cooperative, see cat.rs)
+            // Abort blocking reads (currently observed by 'cat' command only).
             ABORT.store(true, std::sync::atomic::Ordering::SeqCst);
 
             result
@@ -1950,7 +1950,11 @@ impl BinExpr {
         // Drop the redirect to close the write end of the pipe
         drop(redirect);
 
-        lhs_result?; // Check left hand-side for errors.
+        // Flush any unread stdout buffer content to the null device,
+        // in case the child process exited without consuming it all.
+        {
+            _ = Gag::stdout().and_then(|_| std::io::stdout().flush());
+        }
 
         // Join the "monitoring" thread, to get the full output and exit code of the child process.
         let rhs_result = match wait.join() {
@@ -1972,7 +1976,7 @@ impl BinExpr {
             )),
         };
 
-        rhs_result
+        lhs_result.and_then(|_| rhs_result)
     }
 
     /// Evaluate binary plus expression.
