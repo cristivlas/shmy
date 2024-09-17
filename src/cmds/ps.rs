@@ -5,11 +5,17 @@ use crate::{
     scope::Scope,
     utils::{format_error, MAX_USER_DISPLAY_LEN},
 };
-use std::any::Any;
-use std::cmp::{Ord, Ordering, PartialOrd};
-use std::ffi::OsString;
-use std::fmt;
-use std::sync::Arc;
+use std::{
+    any::Any,
+    cmp::{Ord, Ordering, PartialOrd},
+    collections::BTreeMap,
+    collections::BTreeSet,
+    collections::HashMap,
+    collections::HashSet,
+    ffi::OsString,
+    fmt,
+    sync::Arc,
+};
 use sysinfo::{Pid, Process, System, Uid};
 
 const MAX_STR_WIDTH: usize = 32;
@@ -301,6 +307,18 @@ impl Filter for UserProc {
     }
 }
 
+struct TreeNode {
+    children: BTreeSet<Pid>,
+}
+
+impl Default for TreeNode {
+    fn default() -> Self {
+        Self {
+            children: BTreeSet::new(),
+        }
+    }
+}
+
 struct View {
     columns: Vec<Box<dyn ViewColumn>>,
     filters: Vec<Box<dyn Filter>>,
@@ -321,7 +339,7 @@ impl View {
         }
     }
 
-    fn list_processes(&self) -> Result<(), String> {
+    fn process_list(&self) -> Result<(), String> {
         let mut header = String::new();
 
         for col in &self.columns {
@@ -367,13 +385,114 @@ impl View {
         Ok(())
     }
 
+    fn process_tree(&mut self, long: bool) -> Result<(), String> {
+        let mut tree_map: BTreeMap<Pid, TreeNode> = BTreeMap::new();
+        let mut roots = BTreeSet::new();
+        let mut seen = HashSet::new(); // Cycles happen on Windows
+
+        let processes = self.system.processes();
+
+        // 1st pass: identify "roots"
+        for proc in processes.values() {
+            let mut child = proc;
+            loop {
+                // if !seen.insert(child.pid()) {
+                //     roots.insert(child.pid());
+                //     break;
+                // }
+                match child.parent() {
+                    None => {
+                        roots.insert(child.pid());
+                        break;
+                    }
+                    Some(parent_id) => {
+                        if let Some(parent) = processes.get(&parent_id) {
+                            if !seen.insert(child.pid()) {
+                                roots.insert(parent_id);
+                                break;
+                            }
+                            child = parent;
+                        } else {
+                            roots.insert(child.pid());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2nd pass: construct a forest
+        for proc in processes.values() {
+            let mut child = proc;
+            while !roots.contains(&child.pid()) {
+                let parent_id = child.parent().expect("child with no parent");
+                tree_map
+                    .entry(parent_id)
+                    .or_default()
+                    .children
+                    .insert(child.pid());
+
+                child = processes
+                    .get(&parent_id)
+                    .expect("child with unknown parent");
+            }
+        }
+
+        // Visualize the tree.
+        fn print_tree(
+            pid: Pid,
+            level: usize,
+            long: bool,
+            tree_map: &BTreeMap<Pid, TreeNode>,
+            processes: &HashMap<Pid, Process>,
+        ) -> Result<(), String> {
+            let root = "root".to_string();
+            let proc = processes.get(&pid).expect("process not found");
+            let ppid = if let Some(ppid) = proc.parent() {
+                format!("{}", ppid.as_u32())
+            } else {
+                root
+            };
+
+            my_println!(
+                "{:indent$}{:>8} ({}) {} {}",
+                "",
+                pid.as_u32(),
+                ppid,
+                proc.name().to_string_lossy(),
+                if long {
+                    cmd_string(proc)
+                } else {
+                    OsString::default()
+                }
+                .to_string_lossy(),
+                indent = level * 4,
+            )?;
+
+            // Print the children recursively.
+            if let Some(node) = tree_map.get(&pid) {
+                for child_pid in &node.children {
+                    print_tree(*child_pid, level + 1, long, tree_map, processes)?;
+                }
+            }
+
+            Ok(())
+        }
+
+        for pid in roots {
+            print_tree(pid, 0, long, &tree_map, processes)?;
+        }
+
+        Ok(())
+    }
+
     fn parse_sort_spec(
         &mut self,
         scope: &Arc<Scope>,
         sort_spec: &str,
         args: &Vec<String>,
     ) -> Result<(), String> {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
 
         for spec in sort_spec.split(',') {
             let (name, reverse) = match spec.trim() {
@@ -424,13 +543,7 @@ impl View {
             "cmd",
             "CMD",
             Box::new(|f, d| write!(f, "{:<}", d)),
-            Box::new(|proc: &Process| {
-                proc.cmd()
-                    .iter()
-                    .map(|s| s.to_owned())
-                    .collect::<Vec<_>>()
-                    .join(&OsString::from(" "))
-            }),
+            Box::new(|proc: &Process| cmd_string(proc)),
         ))
     }
 
@@ -480,6 +593,14 @@ impl View {
     }
 }
 
+fn cmd_string(proc: &Process) -> OsString {
+    proc.cmd()
+        .iter()
+        .map(|s| s.to_owned())
+        .collect::<Vec<_>>()
+        .join(&OsString::from(" "))
+}
+
 struct ProcStatus {
     flags: CommandFlags,
 }
@@ -494,6 +615,7 @@ impl ProcStatus {
             "List all processes, not just processes belonging to the current user",
         );
         flags.add_flag('l', "long", "Long format");
+        flags.add_flag('t', "tree", "Display processes in a tree view");
         flags.add_option('s', "sort", "Specify sorting order");
 
         Self { flags }
@@ -512,9 +634,13 @@ impl Exec for ProcStatus {
             println!("List currently running processes and their details.");
             println!("\nOptions:");
             println!("{}", flags.help());
-            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem,user\".(+/- indicates increasing or decreasing order)\n");
+            println!("NOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less");
+            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem,user\".(+/- indicates increasing or decreasing order)");
             return Ok(Value::success());
         }
+
+        let tree_view = flags.is_present("tree");
+        let long = flags.is_present("long");
 
         let mut view = View::new();
 
@@ -525,11 +651,14 @@ impl Exec for ProcStatus {
         view.columns.push(View::cpu_usage_column());
         view.columns.push(View::mem_usage_column());
 
-        if flags.is_present("long") {
+        if long {
             view.columns.push(View::cmd_column());
         }
 
         if let Some(sort_spec) = flags.option("sort") {
+            if tree_view {
+                my_warning!(scope, "Sort ignored due to --tree option");
+            }
             view.parse_sort_spec(scope, sort_spec, args)?;
         }
 
@@ -537,7 +666,11 @@ impl Exec for ProcStatus {
             view.filters.push(Box::new(UserProc::new(&view.system)));
         }
 
-        view.list_processes()?;
+        if tree_view {
+            view.process_tree(long)?;
+        } else {
+            view.process_list()?;
+        }
 
         Ok(Value::success())
     }
