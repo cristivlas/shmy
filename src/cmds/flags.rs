@@ -65,8 +65,10 @@ impl CommandFlags {
             self.index = i;
             if arg.starts_with("--") && arg != "--" {
                 self.handle_long_flag(scope, arg, &mut args_iter)?;
-            } else if arg.starts_with('-') && arg != "-" {
-                self.handle_short_flags(scope, arg, &mut args_iter)?;
+            } else if arg.starts_with('-') {
+                if arg != "-" {
+                    self.handle_short_flags(scope, arg, &mut args_iter)?;
+                }
             } else {
                 non_flag_args.push(arg.clone());
             }
@@ -88,8 +90,8 @@ impl CommandFlags {
                 if !self.handle_long_flag(scope, arg, &mut args_iter).is_ok() {
                     non_flag_args.push(arg.clone());
                 }
-            } else if arg.starts_with('-') && arg != "-" {
-                if !self.handle_short_flags(scope, arg, &mut args_iter).is_ok() {
+            } else if arg.starts_with('-') {
+                if arg != "-" && !self.handle_short_flags(scope, arg, &mut args_iter).is_ok() {
                     non_flag_args.push(arg.clone());
                 }
             } else {

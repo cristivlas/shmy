@@ -1447,7 +1447,7 @@ impl Expression {
 
     /// Evaluate and tokenize arguments.
     /// If tokenization results in one single - (dash) and read_stdin_if_dash is true,
-    /// read arguments from stdin. If read_stdin_if_dash is false, return empty vector.
+    /// read arguments from stdin.
     fn tokenize_args(
         &self,
         scope: &Arc<Scope>,
@@ -1482,17 +1482,13 @@ impl Expression {
 
                 // Read from stdin if args consist of one single dash, allowing arguments to be piped
                 // into FOR commands e.g. ```find . ".*\\.rs" | for file in -; (echo $file);```
-                if tokens.len() == 1 && tokens[0] == "-" {
-                    if read_stdin_if_dash {
-                        scope.show_eof_hint();
-                        let mut buffer = String::new();
-                        io::stdin()
-                            .read_to_string(&mut buffer)
-                            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
-                        tokens = buffer.split_ascii_whitespace().map(String::from).collect();
-                    } else {
-                        tokens.pop();
-                    }
+                if read_stdin_if_dash && tokens.len() == 1 && tokens[0] == "-" {
+                    scope.show_eof_hint();
+                    let mut buffer = String::new();
+                    io::stdin()
+                        .read_to_string(&mut buffer)
+                        .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+                    tokens = buffer.split_ascii_whitespace().map(String::from).collect();
                 }
 
                 Ok(tokens)

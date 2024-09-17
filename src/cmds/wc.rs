@@ -60,9 +60,9 @@ impl WordCount {
         Ok(result)
     }
 
-    fn count_stdin() -> io::Result<CountResult> {
-        let stdin = io::stdin();
-        let reader = stdin.lock();
+    fn count_stdin(scope: &Arc<Scope>) -> io::Result<CountResult> {
+        scope.show_eof_hint();
+        let reader = io::stdin().lock();
         let mut result = CountResult {
             lines: 0,
             words: 0,
@@ -133,7 +133,7 @@ impl Exec for WordCount {
 
         if args.is_empty() {
             // Read from stdin
-            match WordCount::count_stdin() {
+            match WordCount::count_stdin(scope) {
                 Ok(result) => WordCount::print_result(&result, None, &flags)?,
                 Err(e) => return Err(format!("Error reading stdin: {}", e)),
             }

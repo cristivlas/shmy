@@ -129,7 +129,10 @@ impl FileContent for MemoryMappedContent {
 }
 
 // Factory function to create the appropriate FileContent instance
-fn create_file_content(path: Option<&Path>) -> io::Result<Box<dyn FileContent>> {
+fn create_file_content(
+    scope: &Arc<Scope>,
+    path: Option<&Path>,
+) -> io::Result<Box<dyn FileContent>> {
     if let Some(path) = path {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
@@ -141,6 +144,7 @@ fn create_file_content(path: Option<&Path>) -> io::Result<Box<dyn FileContent>> 
             Ok(Box::new(InMemoryContent::new(reader)?))
         }
     } else {
+        scope.show_eof_hint();
         Ok(Box::new(InMemoryContent::new(io::stdin().lock())?))
     }
 }
@@ -182,8 +186,8 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn new(file_info: Option<String>, path: Option<&Path>) -> io::Result<Self> {
-        let content = create_file_content(path)?;
+    fn new(scope: &Arc<Scope>, file_info: Option<String>, path: Option<&Path>) -> io::Result<Self> {
+        let content = create_file_content(scope, path)?;
         let line_num_width = content.len().to_string().len() + 1;
 
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
@@ -639,7 +643,7 @@ impl Exec for Less {
         }
 
         if filenames.is_empty() {
-            run_viewer(&flags, None, None).map_err(|e| e.to_string())?;
+            run_viewer(scope, &flags, None, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -649,6 +653,7 @@ impl Exec for Less {
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 match run_viewer(
+                    scope,
                     &flags,
                     Some(&path),
                     Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
@@ -668,11 +673,12 @@ impl Exec for Less {
 }
 
 fn run_viewer(
+    scope: &Arc<Scope>,
     flags: &CommandFlags,
     path: Option<&Path>,
     file_info: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = Viewer::new(file_info, path)?;
+    let mut viewer = Viewer::new(scope, file_info, path)?;
 
     viewer.state.show_line_numbers = flags.is_present("number");
     viewer.run()

@@ -230,8 +230,8 @@ impl Exec for Grep {
 
         if files.is_empty() {
             // Read from stdin if no files are provided
-            let stdin = io::stdin();
-            let reader = stdin.lock();
+            scope.show_eof_hint();
+            let reader = io::stdin().lock();
             for (line_number, line) in reader.lines().enumerate() {
                 let line = line.map_err(|e| e.to_string())?;
                 Self::process_line(
