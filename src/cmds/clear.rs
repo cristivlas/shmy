@@ -4,6 +4,7 @@ use crossterm::{
     cursor, execute,
     terminal::{Clear, ClearType},
 };
+use std::io::{stdout, Write};
 use std::sync::Arc;
 
 struct ClearScreen {
@@ -14,6 +15,7 @@ impl ClearScreen {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
+        flags.add_flag('k', "keep", "Keep the scroll (history) buffer");
 
         Self { flags }
     }
@@ -32,12 +34,18 @@ impl Exec for ClearScreen {
             return Ok(Value::success());
         }
 
-        execute!(
-            std::io::stdout(),
-            cursor::MoveTo(0, 0),
-            Clear(ClearType::All)
-        )
-        .map_err(|e| format!("Could not clear screen: {}", e))?;
+        let mut stdout = stdout().lock();
+
+        execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
+            .and_then(|_| {
+                if !flags.is_present("keep") {
+                    execute!(stdout, Clear(ClearType::Purge))
+                } else {
+                    Ok(())
+                }
+                .and_then(|_| stdout.flush())
+            })
+            .map_err(|e| format!("Could not clear screen: {}", e))?;
 
         Ok(Value::success())
     }
