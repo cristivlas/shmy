@@ -3,14 +3,12 @@ use crate::symlnk::SymLink;
 use crate::utils::format_error;
 use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
 use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
 use std::path::Path;
-use std::sync::{atomic::Ordering, Arc};
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::runtime::Runtime;
-use tokio::time::{sleep, Duration};
+use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum Mode {
     Cat,
     Head,
@@ -65,95 +63,77 @@ impl Exec for CatHeadTail {
             })
             .unwrap_or(Ok(10))?;
 
-        // Create a Tokio runtime
-        let rt = Runtime::new().map_err(|e| format!("Failed to start Tokio runtime: {}", e))?;
+        let result = if filenames.is_empty() {
+            scope.show_eof_hint();
 
-        let result = rt.block_on(async {
-            if filenames.is_empty() {
+            let mode = self.mode.clone();
+            let mut stdin = BufReader::new(io::stdin());
+            process_input(&mut stdin, mode, line_num, lines)
+        } else {
+            let mut result = Ok(());
+            for filename in &filenames {
+                let path = Path::new(filename)
+                    .resolve()
+                    .map_err(|e| format_error(&scope, filename, args, e))?;
+
                 let mode = self.mode.clone();
+                let file =
+                    File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
 
-                let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
-                process_input(&mut stdin, mode, line_num, lines).await
-            } else {
-                let mut result = Ok(());
-                for filename in &filenames {
-                    let path = Path::new(filename)
-                        .resolve()
-                        .map_err(|e| format_error(&scope, filename, args, e))?;
+                let mut reader = BufReader::new(file);
+                result = process_input(&mut reader, mode, line_num, lines);
 
-                    let mode = self.mode.clone();
-                    let file = File::open(&path)
-                        .await
-                        .map_err(|e| format_error(&scope, filename, args, e))?;
-
-                    let mut reader = BufReader::new(file);
-                    result = process_input(&mut reader, mode, line_num, lines).await;
-
-                    if result.is_err() {
-                        break;
-                    }
+                if result.is_err() {
+                    break;
                 }
-                result
             }
-        });
-        rt.shutdown_background();
+            result
+        };
 
         result?;
         Ok(Value::success())
     }
 }
 
-async fn check_abort() {
-    let poll_interval = Duration::from_millis(50);
-
-    loop {
-        if crate::ABORT.load(Ordering::SeqCst) {
-            return;
-        }
-        sleep(poll_interval).await;
-    }
-}
-
-async fn process_input<R: tokio::io::AsyncBufRead + Unpin>(
+fn process_input<R: BufRead>(
     reader: &mut R,
-    mode: Mode,
+    mode: Mode, // Cat, Head or Tail
     line_numbers: bool,
     lines: usize,
 ) -> Result<(), String> {
-    let mut lines_stream = reader.lines();
     let mut i = 0;
-    let mut tail: VecDeque<_> = VecDeque::with_capacity(lines);
+    let mut tail = VecDeque::with_capacity(lines);
 
-    loop {
-        tokio::select! {
-            _ = check_abort() => {
-                return Err("Aborted".into());
-            }
-            line = lines_stream.next_line() => {
-                if crate::INTERRUPT.load(Ordering::SeqCst) {
-                    break;
-                }
-                match line.map_err(|e| e.to_string())? {
-                    Some(line) => {
-                        i += 1;
-                        let line = if line_numbers {
-                            format!("{:>6}: {}", i, line)
-                        } else {
-                            line
+    for line in reader.lines() {
+        if Scope::is_interrupted() {
+            break;
+        }
+        match line {
+            Ok(line) => {
+                i += 1;
+                let line = if line_numbers {
+                    format!("{:>6}: {}", i, line)
+                } else {
+                    line
+                };
+                match mode {
+                    Mode::Cat => my_println!("{line}")?,
+                    Mode::Head => {
+                        if i > lines {
+                            break;
                         };
-                        match mode {
-                            Mode::Cat => { my_println!("{line}")? },
-                            Mode::Head => { if i > lines { break }; my_println!("{line}")?; },
-                            Mode::Tail => {
-                                if tail.len() == lines {
-                                    tail.pop_front();
-                                }
-                                tail.push_back(line);
-                            }
+                        my_println!("{line}")?;
+                    }
+                    Mode::Tail => {
+                        if tail.len() == lines {
+                            tail.pop_front();
                         }
-                    },
-                    None => break,
+                        tail.push_back(line);
+                    }
                 }
+            }
+            Err(e) => {
+                return Err(e.to_string());
             }
         }
     }

@@ -2,7 +2,6 @@ use crate::cmds::{get_command, Exec, ShellCommand};
 use crate::prompt::{confirm, Answer};
 use crate::scope::Scope;
 use crate::utils::{self, copy_vars_to_command_env, executable};
-use crate::ABORT;
 use colored::*;
 use gag::{BufferRedirect, Gag, Redirect};
 use glob::glob;
@@ -1447,7 +1446,7 @@ impl Expression {
     }
 
     /// Evaluate and tokenize arguments
-    fn tokenize_args(&self) -> EvalResult<Vec<String>> {
+    fn tokenize_args(&self, scope: &Arc<Scope>) -> EvalResult<Vec<String>> {
         match &self {
             Expression::Args(args) => {
                 let mut tokens = Vec::new();
@@ -1478,6 +1477,7 @@ impl Expression {
                 // Read from stdin if args consist of one single dash, allowing arguments to be piped
                 // into FOR commands e.g. ```find . ".*\\.rs" | for file in -; (echo $file);```
                 if tokens.len() == 1 && tokens[0] == "-" {
+                    scope.show_eof_hint();
                     let mut buffer = String::new();
                     io::stdin()
                         .read_to_string(&mut buffer)
@@ -1884,13 +1884,6 @@ impl BinExpr {
     /// via -c <expr>. Redirect the standard output of to a pipe, and evaluate the left hand-side expression
     /// with its output redirected. The pipe is connected to the input of the child process that evaluates the
     /// right side expression.
-    /// #Experimental left hand-side unblocking
-    /// The ABORT atomic variable is set when early termination of the child process is detected, to break
-    /// out of an otherwise blocking read. Consider for example:
-    /// ```cat | sudo ls ```
-    /// The sudo implementation under Windows uses UAC elevation, and does not accept incoming pipes;
-    /// in the above scenario, it errors out; `cat` needs to cancel out of reading user input.
-    ///
     fn eval_pipe(&self, lhs: &Rc<Expression>, rhs: &Rc<Expression>) -> EvalResult<Value> {
         if lhs.is_empty() {
             return error(self, "Expecting pipe input");
@@ -1935,14 +1928,7 @@ impl BinExpr {
             .map_err(|e| EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e)))?;
 
         // Spawn a thread that "monitors" the child process.
-        let wait = thread::spawn(move || {
-            let result = child.wait_with_output();
-
-            // Abort blocking reads (currently observed by 'cat' command only).
-            ABORT.store(true, std::sync::atomic::Ordering::SeqCst);
-
-            result
-        });
+        let monitor = thread::spawn(move || child.wait_with_output());
 
         // Left-side evaluation's stdout goes into the pipe.
         let lhs_result = Status::check_result(lhs.eval(), false);
@@ -1957,7 +1943,7 @@ impl BinExpr {
         }
 
         // Join the "monitoring" thread, to get the full output and exit code of the child process.
-        let rhs_result = match wait.join() {
+        let rhs_result = match monitor.join() {
             Ok(result) => {
                 let output = result.map_err(|e| {
                     EvalError::new(
@@ -2381,7 +2367,7 @@ impl Eval for Command {
         let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
         handle_redir_error!(&redir_stderr, self.loc());
 
-        let args = self.args.tokenize_args()?;
+        let args = self.args.tokenize_args(&self.scope)?;
 
         // Execute command
         let result = self
@@ -2658,7 +2644,7 @@ impl Eval for ForExpr {
 
         let mut result = Ok(Value::success());
 
-        let args = self.args.tokenize_args()?;
+        let args = self.args.tokenize_args(&self.scope)?;
         for arg in &args {
             self.scope.insert(self.var.clone(), arg.parse::<Value>()?);
             eval_iteration!(self, result);
