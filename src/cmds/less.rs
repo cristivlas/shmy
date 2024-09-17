@@ -256,6 +256,17 @@ impl Viewer {
     }
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
+        fn adjust_index_to_utf8_boundary(line: &str, index: usize) -> usize {
+            if index >= line.len() {
+                return line.len();
+            }
+            // Find the nearest valid UTF-8 boundary
+            line.char_indices()
+                .take_while(|&(i, _)| i <= index)
+                .last()
+                .map_or(0, |(i, _)| i)
+        }
+
         // Determine the effective width of the line to be displayed
         let effective_width = if self.state.show_line_numbers {
             self.screen_width.saturating_sub(self.line_num_width + 2)
@@ -266,6 +277,10 @@ impl Viewer {
         // Compute the starting point based on horizontal scroll
         let start_index = self.state.horizontal_scroll.min(line.len());
         let end_index = (start_index + effective_width).min(line.len());
+
+        // Adjust at UTF8 boundary so we don't panic when taking a slice of the line.
+        let start_index = adjust_index_to_utf8_boundary(line, start_index);
+        let end_index = adjust_index_to_utf8_boundary(line, end_index);
 
         // Handle search highlighting if present
         if let Some(ref search) = self.state.last_search {

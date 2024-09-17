@@ -1,4 +1,3 @@
-// TODO: Allow user to specify column widths?
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{
     eval::Value,
@@ -12,6 +11,7 @@ use std::{
     collections::BTreeSet,
     collections::HashMap,
     collections::HashSet,
+    ffi::OsStr,
     ffi::OsString,
     fmt,
     sync::Arc,
@@ -334,11 +334,13 @@ impl Filter for UserProc {
     }
 }
 
-struct TreeNode {
-    children: BTreeSet<Pid>,
+/// Sort children by name, depth and Pid
+#[derive(Clone)]
+struct TreeNode<'a> {
+    children: BTreeSet<(&'a OsStr, usize, Pid)>,
 }
 
-impl Default for TreeNode {
+impl<'a> Default for TreeNode<'a> {
     fn default() -> Self {
         Self {
             children: BTreeSet::new(),
@@ -366,6 +368,7 @@ impl View {
         }
     }
 
+    /// Display a list of running processes.
     fn process_list(&self) -> Result<(), String> {
         let mut header = String::new();
 
@@ -412,8 +415,8 @@ impl View {
         Ok(())
     }
 
+    /// Display processes in a tree-like, hierarchical view.
     fn process_tree(&mut self, long: bool) -> Result<(), String> {
-        let mut tree_map: BTreeMap<Pid, TreeNode> = BTreeMap::new();
         let mut roots = BTreeSet::new();
         let mut seen = HashSet::new(); // Cycles happen on Windows
 
@@ -444,16 +447,18 @@ impl View {
             }
         }
 
-        // 2nd pass: construct a forest
+        // 2nd pass: construct a forest.
+        let mut tree_map: BTreeMap<Pid, TreeNode> = BTreeMap::new();
+
         for proc in processes.values() {
             let mut child = proc;
             while !roots.contains(&child.pid()) {
                 let parent_id = child.parent().expect("child with no parent");
-                tree_map
-                    .entry(parent_id)
-                    .or_default()
-                    .children
-                    .insert(child.pid());
+                tree_map.entry(parent_id).or_default().children.insert((
+                    child.name(),
+                    0, // Place-holder, depth is updated in 3rd pass
+                    child.pid(),
+                ));
 
                 child = processes
                     .get(&parent_id)
@@ -461,49 +466,27 @@ impl View {
             }
         }
 
-        // Visualize the tree.
-        fn print_tree(
-            pid: Pid,
-            level: usize,
-            long: bool,
-            tree_map: &BTreeMap<Pid, TreeNode>,
-            processes: &HashMap<Pid, Process>,
-        ) -> Result<(), String> {
-            let root = "root".to_string();
-            let proc = processes.get(&pid).expect("process not found");
-            let ppid = if let Some(ppid) = proc.parent() {
-                format!("{}", ppid.as_u32())
-            } else {
-                root
-            };
-
-            my_println!(
-                "{:indent$}{:>8} ({}) {} {}",
-                "",
-                pid.as_u32(),
-                ppid,
-                proc.name().to_string_lossy(),
-                if long {
-                    cmd_string(proc)
-                } else {
-                    OsString::default()
-                }
-                .to_string_lossy(),
-                indent = level * 4,
-            )?;
-
-            // Print the children recursively.
-            if let Some(node) = tree_map.get(&pid) {
-                for child_pid in &node.children {
-                    print_tree(*child_pid, level + 1, long, tree_map, processes)?;
-                }
-            }
-
-            Ok(())
+        // 3rd pass: construct a copy of tree_map with updated depth tuple
+        // elems in the key, so that children are sorted by (name, depth, pid)
+        let mut depth_map = HashMap::new();
+        for pid in processes.keys() {
+            let depth = calculate_depth(pid, &tree_map);
+            depth_map.insert(pid, depth);
         }
 
-        for pid in roots {
-            print_tree(pid, 0, long, &tree_map, processes)?;
+        let mut tree_depth_map = BTreeMap::new();
+
+        for (pid, tree_node) in tree_map {
+            let mut node = TreeNode::default();
+            for (name, _, pid) in tree_node.children {
+                let depth = *depth_map.get(&pid).unwrap();
+                node.children.insert((name, depth, pid));
+            }
+            tree_depth_map.insert(pid, node);
+        }
+
+        for pid in &roots {
+            print_tree(pid, long, &tree_depth_map, processes, "", false)?;
         }
 
         Ok(())
@@ -553,7 +536,8 @@ impl View {
     }
 
     //
-    // Factory methods for ViewColumn-s
+    // Factory methods for ViewColumn-s. Columns are used in the default list view,
+    // currently not used in the tree view.
     //
     fn cpu_usage_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
@@ -628,12 +612,95 @@ impl View {
     }
 }
 
+/// Concatenate command arguments.
 fn cmd_string(proc: &Process) -> OsString {
     proc.cmd()
         .iter()
         .map(|s| s.to_owned())
         .collect::<Vec<_>>()
         .join(&OsString::from(" "))
+}
+
+fn calculate_depth(pid: &Pid, tree_map: &BTreeMap<Pid, TreeNode>) -> usize {
+    if let Some(node) = tree_map.get(&pid) {
+        node.children
+            .iter()
+            .map(|(_, _, child_pid)| calculate_depth(child_pid, tree_map))
+            .max()
+            .unwrap_or(0)
+            + 1
+    } else {
+        0
+    }
+}
+
+fn print_tree(
+    pid: &Pid,
+    long: bool,
+    tree_map: &BTreeMap<Pid, TreeNode>,
+    processes: &HashMap<Pid, Process>,
+    prefix: &str, // New argument for the tree branch prefix
+    last: bool,   // Indicates if this is the last child
+) -> Result<(), String> {
+    let root = "root".to_string();
+    let proc = processes.get(&pid).expect("process not found");
+    let ppid = if let Some(ppid) = proc.parent() {
+        format!("{}", ppid.as_u32())
+    } else {
+        root
+    };
+
+    let node = tree_map.get(&pid);
+    let branch = if node.is_none() || node.unwrap().children.len() == 0 {
+        if last {
+            "└────"
+        } else {
+            "├────"
+        }
+    } else {
+        // if last {
+        //     "└───"
+        // } else {
+        //     "├───┐"
+        // }
+        if last {
+            "└───┬"
+        } else {
+            "├───┬"
+        }
+    };
+
+    my_println!(
+        "{}{} {} ({}) {} {}",
+        prefix,
+        branch,
+        pid.as_u32(),
+        ppid,
+        proc.name().to_string_lossy(),
+        if long {
+            cmd_string(proc)
+        } else {
+            OsString::default()
+        }
+        .to_string_lossy(),
+    )?;
+
+    // Print the children recursively.
+    if let Some(node) = node {
+        let child_count = node.children.len();
+        for (i, (_, _, child_pid)) in node.children.iter().enumerate() {
+            let is_last = i == child_count - 1;
+            let new_prefix = if last {
+                format!("{}    ", prefix)
+            } else {
+                format!("{}│   ", prefix)
+            };
+
+            print_tree(child_pid, long, tree_map, processes, &new_prefix, is_last)?;
+        }
+    }
+
+    Ok(())
 }
 
 struct ProcStatus {
