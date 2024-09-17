@@ -1445,8 +1445,14 @@ impl Expression {
         }
     }
 
-    /// Evaluate and tokenize arguments
-    fn tokenize_args(&self, scope: &Arc<Scope>) -> EvalResult<Vec<String>> {
+    /// Evaluate and tokenize arguments.
+    /// If tokenization results in one single - (dash) and read_stdin_if_dash is true,
+    /// read arguments from stdin. If read_stdin_if_dash is false, return empty vector.
+    fn tokenize_args(
+        &self,
+        scope: &Arc<Scope>,
+        read_stdin_if_dash: bool,
+    ) -> EvalResult<Vec<String>> {
         match &self {
             Expression::Args(args) => {
                 let mut tokens = Vec::new();
@@ -1477,12 +1483,16 @@ impl Expression {
                 // Read from stdin if args consist of one single dash, allowing arguments to be piped
                 // into FOR commands e.g. ```find . ".*\\.rs" | for file in -; (echo $file);```
                 if tokens.len() == 1 && tokens[0] == "-" {
-                    scope.show_eof_hint();
-                    let mut buffer = String::new();
-                    io::stdin()
-                        .read_to_string(&mut buffer)
-                        .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
-                    tokens = buffer.split_ascii_whitespace().map(String::from).collect();
+                    if read_stdin_if_dash {
+                        scope.show_eof_hint();
+                        let mut buffer = String::new();
+                        io::stdin()
+                            .read_to_string(&mut buffer)
+                            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+                        tokens = buffer.split_ascii_whitespace().map(String::from).collect();
+                    } else {
+                        tokens.pop();
+                    }
                 }
 
                 Ok(tokens)
@@ -2367,7 +2377,7 @@ impl Eval for Command {
         let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
         handle_redir_error!(&redir_stderr, self.loc());
 
-        let args = self.args.tokenize_args(&self.scope)?;
+        let args = self.args.tokenize_args(&self.scope, false)?;
 
         // Execute command
         let result = self
@@ -2644,7 +2654,7 @@ impl Eval for ForExpr {
 
         let mut result = Ok(Value::success());
 
-        let args = self.args.tokenize_args(&self.scope)?;
+        let args = self.args.tokenize_args(&self.scope, true)?;
         for arg in &args {
             self.scope.insert(self.var.clone(), arg.parse::<Value>()?);
             eval_iteration!(self, result);
