@@ -42,9 +42,9 @@ impl Help {
         println!("        while ($i > 0) (echo $i; $i = $i - 1)");
         println!("        for f in *.rs; (echo $f; ls -l $f)");
         println!("    Arithmetic Operations");
-        println!("        Supported: +, -, /, *");
+        println!("        +, -, /, //, %, *, ^");
         println!("    Logical Operations");
-        println!("        Supported: ||, &&");
+        println!("        ||, &&");
         println!();
         println!("COMMAND EXECUTION");
         println!(
