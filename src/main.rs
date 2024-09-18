@@ -323,6 +323,7 @@ struct Shell {
     profile: Option<PathBuf>,
     edit_config: rustyline::config::Config,
     prompt_builder: prompt::PromptBuilder,
+    user_dirs: UserDirs,
 }
 
 /// Search history in reverse for entry that starts with &line[1..]
@@ -336,7 +337,7 @@ fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Opti
 }
 
 impl Shell {
-    fn new() -> Self {
+    fn new() -> Result<Self, String> {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
@@ -348,7 +349,7 @@ impl Shell {
         let interp = Interp::new();
         let scope = interp.global_scope();
 
-        Self {
+        let mut shell = Self {
             source: None,
             interactive: true,
             wait: false,
@@ -366,26 +367,26 @@ impl Shell {
                 .unwrap()
                 .build(),
             prompt_builder: PromptBuilder::with_scope(&scope),
-        }
+            user_dirs: UserDirs::new()
+                .ok_or_else(|| "Failed to get user directories".to_string())?,
+        };
+        shell.set_home_dir(shell.user_dirs.home_dir().to_path_buf());
+
+        Ok(shell)
     }
 
     /// Retrieve the path to the file where history is saved. Set profile path.
     fn init_interactive_mode(&mut self) -> Result<&PathBuf, String> {
-        assert!(self.history_path.is_none());
-        let base_dirs =
-            UserDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
-
-        let mut path = base_dirs.home_dir().to_path_buf();
-
-        assert!(self.home_dir.is_none());
-        self.set_home_dir(&path);
+        let mut path = self.home_dir.as_ref().expect("home dir not set").clone();
 
         path.push(".shmy");
 
+        // Ensure the directory exists.
         fs::create_dir_all(&path)
             .map_err(|e| format!("Failed to create .shmy directory: {}", e))?;
 
         self.profile = Some(path.join("profile"));
+
         path.push("history.txt");
 
         // Create the file if it doesn't exist
@@ -512,9 +513,9 @@ impl Shell {
             .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
     }
 
-    fn set_home_dir(&mut self, path: &PathBuf) {
-        self.home_dir = Some(path.clone());
+    fn set_home_dir(&mut self, path: PathBuf) {
         let home_dir = path.to_string_lossy().to_string();
+        self.home_dir = Some(path);
         self.interp.set_var("HOME", home_dir);
     }
 
@@ -606,7 +607,7 @@ pub fn current_dir() -> Result<String, String> {
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
-    let mut shell = Shell::new();
+    let mut shell = Shell::new()?;
 
     let args: Vec<String> = env::args().collect();
     for (i, arg) in args.iter().enumerate().skip(1) {
