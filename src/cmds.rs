@@ -42,6 +42,7 @@ mod realpath;
 mod rm;
 mod run;
 mod sort;
+mod strings;
 #[cfg(windows)]
 mod sudo;
 mod touch;
