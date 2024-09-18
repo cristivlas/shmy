@@ -1,0 +1,250 @@
+commands:
+  - name: cargo
+    subcommands:
+      - --list
+      - name: build
+        options:
+          - --release
+          - --verbose
+          - --target
+          - --features
+          - --jobs
+          - --example
+      - name: run
+        options:
+          - --release
+          - --verbose
+          - --example
+          - --manifest-path
+          - --jobs
+      - name: test
+        options:
+          - --release
+          - --verbose
+          - --no-default-features
+          - --features
+          - --ignore
+          - --package
+          - --workspace
+          - --exclude
+      - name: clean
+        options:
+          - --target
+          - --release
+          - --doc
+          - --target-dir
+      - name: update
+        options:
+          - --package
+          - --workspace
+          - --all
+          - --dry-run
+      - name: new
+        options:
+          - --bin
+          - --lib
+          - --name
+          - --edition
+      - name: init
+        options:
+          - --name
+          - --vcs
+      - name: add
+        options:
+          - --package
+          - --workspace
+      - name: outdated
+        options:
+          - --exclude
+          - --format
+          - --locked
+          - --verbose
+          - --quiet
+      - name: test
+        options:
+          - --no-default-features
+          - --features
+          - --release
+          - --ignore
+          - --package
+          - --workspace
+
+  - name: git
+    subcommands:
+      - name: add
+        options:
+          - --interactive
+          - --patch
+          - --all
+          - --intent-to-add
+          - --force
+          - --ignore-errors
+          - --verbose
+
+      - name: rm
+        options:
+          - --force
+          - --cached
+          - --ignore-unmatch
+          - --quiet
+
+      - name: mv
+        options:
+          - --force
+          - --verbose
+
+      - name: commit
+        options:
+          - --amend
+          - --no-verify
+          - --message
+          - --author
+          - --signoff
+          - --verbose
+          - --allow-empty
+      - name: clone
+        options:
+          - --depth
+          - --branch
+          - --single-branch
+          - --recursive
+          - --bare
+          - --mirror
+          - --quiet
+          - --no-checkout
+          - --filter
+      - name: branch
+        options:
+          - --delete
+          - --force
+          - --list
+          - --rename
+          - --set-upstream-to
+          - --color
+          - --edit-description
+          - --sort
+      - name: help
+      - name: merge
+        options:
+          - --no-ff
+          - --no-commit
+          - --no-verify
+          - --strategy
+          - --commit
+          - --squash
+          - --strategy-option
+      - name: rebase
+        options:
+          - --interactive
+          - --onto
+          - --preserve-merges
+          - --auto-squash
+          - --exec
+          - --keep-empty
+          - --autosquash
+          - --skip
+          - --continue
+          - --abort
+      - name: push
+        options:
+          - --force
+          - --tags
+          - --set-upstream
+          - --dry-run
+          - --mirror
+          - --force-with-lease
+          - --follow-tags
+          - --quiet
+      - name: pull
+        options:
+          - --rebase
+          - --no-rebase
+          - --all
+          - --quiet
+          - --strategy
+          - --strategy-option
+          - --depth
+          - --ff-only
+          - --no-ff
+          - --unshallow
+          - --no-tags
+      - name: fetch
+        options:
+          - --all
+          - --prune
+          - --tags
+          - --depth
+          - --quiet
+          - --no-tags
+          - --force
+          - --no-recurse-submodules
+          - --shallow-since
+          - --shallow-exclude
+      - name: checkout
+        options:
+          - -b
+          - --branch
+          - --orphan
+          - --force
+          - --create
+          - --track
+          - --detach
+          - --quiet
+      - name: status
+        options:
+          - --short
+          - --branch
+          - --verbose
+          - --ahead-behind
+          - --porcelain
+      - name: log
+        options:
+          - --pretty
+          - --oneline
+          - --graph
+          - --decorate
+          - --since
+          - --until
+          - --follow
+          - --author
+          - --grep
+          - --abbrev-commit
+          - --stat
+      - name: tag
+        options:
+          - --annotate
+          - --force
+          - --list
+          - --delete
+          - --sign
+          - --message
+      - name: reset
+        options:
+          - --hard
+          - --soft
+          - --mixed
+          - --keep
+          - --merge
+          - --patch
+      - name: stash
+        options:
+          - push
+          - pop
+          - apply
+          - drop
+          - list
+          - clear
+          - show
+          - --include-untracked
+      - name: diff
+        options:
+          - --cached
+          - --name-only
+          - --name-status
+          - --stat
+          - --word-diff
+          - --color
+          - --ignore-space-change
+          - --ignore-all-space
+          - --ignore-blank-lines
+          - --diff-filter
