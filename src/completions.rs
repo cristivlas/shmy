@@ -86,12 +86,11 @@ pub fn suggest(config: &Yaml, input: &str) -> Vec<String> {
                         }
 
                         if elem_name.starts_with(part) {
-                            let prefix = if prefix.is_empty() {
-                                String::default()
+                            if prefix.is_empty() {
+                                suggestions.push(elem_name.to_string());
                             } else {
-                                prefix.join(" ")
+                                suggestions.push(format!("{} {}", prefix.join(" "), elem_name));
                             };
-                            suggestions.push(format!("{} {}", prefix, elem_name));
                         }
                     }
                 }
