@@ -216,6 +216,20 @@ fn has_links(_: &Path) -> bool {
 #[cfg(not(windows))]
 fn match_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
+/// Provides autocomplete suggestions for the given input line using various strategies.
+///
+/// The method handles completion based on different scenarios:
+///
+/// - **History Expansion:** If the line starts with `!`, it expands history entries.
+/// - **Environment Variable Expansion:** If the line contains `~`, it expands the `HOME` environment variable.
+///   If the line contains `$`, lookup and expand the variable if it exists.
+///
+/// - **Keyword and Command Completion:** Completes keywords and built-in commands based on the input.
+/// - **Custom Command Completions:** If no matches are found, it attempts to provide completions using custom configurations.
+/// - **File Completion:** If all other completions fail, it resorts to file completions using `rustyline`'s built-in completer.
+///
+/// The function returns a tuple containing the position for insertion and a vector of candidates, or a `ReadlineError`
+/// in case of failure.
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -271,7 +285,8 @@ impl completion::Completer for CmdLineHelper {
             let tok = head.split_ascii_whitespace().next();
 
             if tok.is_none() || tok.is_some_and(|tok| get_command(&tok).is_none()) {
-                // Expand keywords and commands if the line does not start with a command
+                // Expand keywords and commands if the line does not start with a command.
+                // TODO: expand command line flags for the builtin commands.
                 kw_pos = 0;
 
                 for kw in self.keywords() {
