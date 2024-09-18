@@ -1,4 +1,5 @@
 # A Command Line Interpreter in Rust
+[![Rust CI](https://github.com/cristivlas/shmy/actions/workflows/rust.yml/badge.svg)](https://github.com/cristivlas/shmy/actions/workflows/rust.yml)
 
 ## Introduction
 
@@ -18,9 +19,7 @@ The interpreter operates in both interactive mode and script execution mode, wit
 2. Strict enforcement of command result error checking.
 3. Dual-mode operation: interactive and script execution.
 
-## Command-Line Autocompletion
-
-### Overview
+## Command-Line Autocompletion Notes
 
 This shell provides autocompletion when the `TAB` key is pressed.
 
@@ -51,7 +50,7 @@ This shell provides autocompletion when the `TAB` key is pressed.
 - **Setup Instructions**:
   - **Add a File**: Create a file named `completions.yaml` in `~\.shmy\`.
   - **Edit the File**: Define commands, subcommands, and options in YAML format. Example:
-    ```yaml
+```yaml
   commands:
   - name: cargo
     subcommands:
@@ -78,7 +77,7 @@ This shell provides autocompletion when the `TAB` key is pressed.
           - --recursive
       - name: diff
         options:
-    ```
+```
 ### 4. **File Completion**
 
 - **When**: Other completions do not apply, and the input involves file paths.
