@@ -406,7 +406,7 @@ impl Shell {
         self.profile = Some(path.join("profile"));
 
         // Load custom completion file if present
-        let compl_config_path = path.join("complete.yaml");
+        let compl_config_path = path.join("completions.yaml");
         let compl_config = if compl_config_path.exists() {
             Some(
                 completions::load_config_from_file(&compl_config_path).map_err(|e| {

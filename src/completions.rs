@@ -104,7 +104,7 @@ pub fn suggest(config: &Yaml, input: &str) -> Vec<String> {
 ///
 /// # Arguments
 ///
-/// * `file_path` - A string slice that holds the path to the YAML file.
+/// * `file_path` - A reference to the Path to the YAML file.
 ///
 /// # Returns
 ///
