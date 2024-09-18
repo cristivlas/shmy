@@ -1,5 +1,7 @@
 # A Command Line Interpreter in Rust
 [![Rust CI](https://github.com/cristivlas/shmy/actions/workflows/rust.yml/badge.svg)](https://github.com/cristivlas/shmy/actions/workflows/rust.yml)
+[![Crates.io](https://img.shields.io/crates/v/shmy.svg)](https://crates.io/crates/shmy)
+![Rust Version](https://img.shields.io/badge/rustc-1.80+-blue.svg)
 
 ## Introduction
 
