@@ -18,11 +18,13 @@ use std::sync::{
     Arc,
 };
 use std::{env, usize};
+use yaml_rust::Yaml;
 
 #[macro_use]
 mod macros;
 
 mod cmds;
+mod completions;
 mod eval;
 mod prompt;
 mod scope;
@@ -38,14 +40,16 @@ struct CmdLineHelper {
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
+    completions: Option<Yaml>,
 }
 
 impl CmdLineHelper {
-    fn new(scope: Arc<Scope>) -> Self {
+    fn new(scope: Arc<Scope>, completions: Option<Yaml>) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
+            completions,
         }
     }
 
@@ -280,6 +284,20 @@ impl completion::Completer for CmdLineHelper {
                     }
                 }
             }
+
+            // Next try custom command completions
+            if keywords.is_empty() {
+                kw_pos = 0;
+
+                if let Some(config) = &self.completions {
+                    for completion in completions::suggest(config, line) {
+                        keywords.push(completion::Pair {
+                            display: completion.clone(),
+                            replacement: completion,
+                        });
+                    }
+                }
+            }
         }
 
         // Handle (Windows-native and WSL) symbolic links using custom logic.
@@ -376,7 +394,7 @@ impl Shell {
     }
 
     /// Retrieve the path to the file where history is saved. Set profile path.
-    fn init_interactive_mode(&mut self) -> Result<&PathBuf, String> {
+    fn init_interactive_mode(&mut self) -> Result<(&PathBuf, Option<Yaml>), String> {
         let mut path = self.home_dir.as_ref().expect("home dir not set").clone();
 
         path.push(".shmy");
@@ -387,6 +405,19 @@ impl Shell {
 
         self.profile = Some(path.join("profile"));
 
+        // Load custom completion file if present
+        let compl_config_path = path.join("complete.yaml");
+        let compl_config = if compl_config_path.exists() {
+            Some(
+                completions::load_config_from_file(&compl_config_path).map_err(|e| {
+                    format!("Failed to load {}: {}", compl_config_path.display(), e)
+                })?,
+            )
+        } else {
+            None
+        };
+
+        // Set up command line history file
         path.push("history.txt");
 
         // Create the file if it doesn't exist
@@ -397,7 +428,7 @@ impl Shell {
         self.history_path = Some(path.clone());
         self.interp.set_var("HISTORY", path.display().to_string());
 
-        Ok(self.history_path.as_ref().unwrap())
+        Ok((self.history_path.as_ref().unwrap(), compl_config))
     }
 
     /// Populate global scope with argument variables.
@@ -437,9 +468,13 @@ impl Shell {
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
-            let h = CmdLineHelper::new(self.interp.global_scope());
+
+            let scope = self.interp.global_scope();
+            let (history_path, completion_config) = self.init_interactive_mode()?;
+            let h = CmdLineHelper::new(scope, completion_config);
+
             rl.set_helper(Some(h));
-            rl.load_history(&self.init_interactive_mode()?).unwrap();
+            rl.load_history(history_path).unwrap();
 
             self.source_profile()?; // source ~/.shmy/profile if found
 
