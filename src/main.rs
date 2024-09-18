@@ -18,11 +18,13 @@ use std::sync::{
     Arc,
 };
 use std::{env, usize};
+use yaml_rust::Yaml;
 
 #[macro_use]
 mod macros;
 
 mod cmds;
+mod completions;
 mod eval;
 mod prompt;
 mod scope;
@@ -38,14 +40,16 @@ struct CmdLineHelper {
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
+    completions: Option<Yaml>,
 }
 
 impl CmdLineHelper {
-    fn new(scope: Arc<Scope>) -> Self {
+    fn new(scope: Arc<Scope>, completions: Option<Yaml>) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
+            completions,
         }
     }
 
@@ -212,6 +216,20 @@ fn has_links(_: &Path) -> bool {
 #[cfg(not(windows))]
 fn match_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
+/// Provides autocomplete suggestions for the given input line using various strategies.
+///
+/// The method handles completion based on different scenarios:
+///
+/// - **History Expansion:** If the line starts with `!`, it expands history entries.
+/// - **Environment Variable Expansion:** If the line contains `~`, it expands the `HOME` environment variable.
+///   If the line contains `$`, lookup and expand the variable if it exists.
+///
+/// - **Keyword and Command Completion:** Completes keywords and built-in commands based on the input.
+/// - **Custom Command Completions:** If no matches are found, it attempts to provide completions using custom configurations.
+/// - **File Completion:** If all other completions fail, it resorts to file completions using `rustyline`'s built-in completer.
+///
+/// The function returns a tuple containing the position for insertion and a vector of candidates, or a `ReadlineError`
+/// in case of failure.
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -267,7 +285,8 @@ impl completion::Completer for CmdLineHelper {
             let tok = head.split_ascii_whitespace().next();
 
             if tok.is_none() || tok.is_some_and(|tok| get_command(&tok).is_none()) {
-                // Expand keywords and commands if the line does not start with a command
+                // Expand keywords and commands if the line does not start with a command.
+                // TODO: expand command line flags for the builtin commands.
                 kw_pos = 0;
 
                 for kw in self.keywords() {
@@ -276,6 +295,20 @@ impl completion::Completer for CmdLineHelper {
                         keywords.push(completion::Pair {
                             display: repl.clone(),
                             replacement: repl,
+                        });
+                    }
+                }
+            }
+
+            // Next try custom command completions
+            if keywords.is_empty() {
+                kw_pos = 0;
+
+                if let Some(config) = &self.completions {
+                    for completion in completions::suggest(config, line) {
+                        keywords.push(completion::Pair {
+                            display: completion.clone(),
+                            replacement: completion,
                         });
                     }
                 }
@@ -323,6 +356,7 @@ struct Shell {
     profile: Option<PathBuf>,
     edit_config: rustyline::config::Config,
     prompt_builder: prompt::PromptBuilder,
+    user_dirs: UserDirs,
 }
 
 /// Search history in reverse for entry that starts with &line[1..]
@@ -336,7 +370,7 @@ fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Opti
 }
 
 impl Shell {
-    fn new() -> Self {
+    fn new() -> Result<Self, String> {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
@@ -348,7 +382,7 @@ impl Shell {
         let interp = Interp::new();
         let scope = interp.global_scope();
 
-        Self {
+        let mut shell = Self {
             source: None,
             interactive: true,
             wait: false,
@@ -366,26 +400,39 @@ impl Shell {
                 .unwrap()
                 .build(),
             prompt_builder: PromptBuilder::with_scope(&scope),
-        }
+            user_dirs: UserDirs::new()
+                .ok_or_else(|| "Failed to get user directories".to_string())?,
+        };
+        shell.set_home_dir(shell.user_dirs.home_dir().to_path_buf());
+
+        Ok(shell)
     }
 
     /// Retrieve the path to the file where history is saved. Set profile path.
-    fn init_interactive_mode(&mut self) -> Result<&PathBuf, String> {
-        assert!(self.history_path.is_none());
-        let base_dirs =
-            UserDirs::new().ok_or_else(|| "Failed to get base directories".to_string())?;
-
-        let mut path = base_dirs.home_dir().to_path_buf();
-
-        assert!(self.home_dir.is_none());
-        self.set_home_dir(&path);
+    fn init_interactive_mode(&mut self) -> Result<(&PathBuf, Option<Yaml>), String> {
+        let mut path = self.home_dir.as_ref().expect("home dir not set").clone();
 
         path.push(".shmy");
 
+        // Ensure the directory exists.
         fs::create_dir_all(&path)
             .map_err(|e| format!("Failed to create .shmy directory: {}", e))?;
 
         self.profile = Some(path.join("profile"));
+
+        // Load custom completion file if present
+        let compl_config_path = path.join("completions.yaml");
+        let compl_config = if compl_config_path.exists() {
+            Some(
+                completions::load_config_from_file(&compl_config_path).map_err(|e| {
+                    format!("Failed to load {}: {}", compl_config_path.display(), e)
+                })?,
+            )
+        } else {
+            None
+        };
+
+        // Set up command line history file
         path.push("history.txt");
 
         // Create the file if it doesn't exist
@@ -396,7 +443,7 @@ impl Shell {
         self.history_path = Some(path.clone());
         self.interp.set_var("HISTORY", path.display().to_string());
 
-        Ok(self.history_path.as_ref().unwrap())
+        Ok((self.history_path.as_ref().unwrap(), compl_config))
     }
 
     /// Populate global scope with argument variables.
@@ -436,9 +483,13 @@ impl Shell {
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
                 .map_err(|e| format!("Failed to create editor: {}", e))?;
-            let h = CmdLineHelper::new(self.interp.global_scope());
+
+            let scope = self.interp.global_scope();
+            let (history_path, completion_config) = self.init_interactive_mode()?;
+            let h = CmdLineHelper::new(scope, completion_config);
+
             rl.set_helper(Some(h));
-            rl.load_history(&self.init_interactive_mode()?).unwrap();
+            rl.load_history(history_path).unwrap();
 
             self.source_profile()?; // source ~/.shmy/profile if found
 
@@ -448,7 +499,7 @@ impl Shell {
                     .insert("NO_COLOR".to_string(), Value::Int(1));
             } else {
                 //
-                // The colored crate has a SHOULD_COLORIZE singleton
+                // The `colored`` crate contains a SHOULD_COLORIZE singleton
                 // https://github.com/colored-rs/colored/blob/775ec9f19f099a987a604b85dc72ca83784f4e38/src/control.rs#L79
                 //
                 // If the very first command executed from our shell is redirected or piped, e.g.
@@ -512,9 +563,9 @@ impl Shell {
             .map_err(|e| format!("Could not save {}: {}", hist_path.to_string_lossy(), e))
     }
 
-    fn set_home_dir(&mut self, path: &PathBuf) {
-        self.home_dir = Some(path.clone());
+    fn set_home_dir(&mut self, path: PathBuf) {
         let home_dir = path.to_string_lossy().to_string();
+        self.home_dir = Some(path);
         self.interp.set_var("HOME", home_dir);
     }
 
@@ -566,7 +617,6 @@ impl Shell {
     }
 
     fn eval(&mut self, input: &String) {
-        ABORT.store(false, SeqCst);
         INTERRUPT.store(false, SeqCst);
         let scope = self.new_top_scope();
 
@@ -607,7 +657,7 @@ pub fn current_dir() -> Result<String, String> {
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
-    let mut shell = Shell::new();
+    let mut shell = Shell::new()?;
 
     let args: Vec<String> = env::args().collect();
     for (i, arg) in args.iter().enumerate().skip(1) {
@@ -645,7 +695,6 @@ fn parse_cmd_line() -> Result<Shell, String> {
     Ok(shell)
 }
 
-static ABORT: AtomicBool = AtomicBool::new(false);
 static INTERRUPT: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), ()> {

@@ -1,15 +1,24 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope};
-use std::any::Any;
-use std::cmp::{Ord, Ordering, PartialOrd};
-use std::ffi::OsString;
-use std::fmt;
-use std::sync::Arc;
-use sysinfo::{Pid, Process, System, Uid, Users};
+use crate::{
+    eval::Value,
+    scope::Scope,
+    utils::{format_error, MAX_USER_DISPLAY_LEN},
+};
+use std::{
+    any::Any,
+    cmp::{Ord, Ordering, PartialOrd},
+    collections::BTreeMap,
+    collections::BTreeSet,
+    collections::HashMap,
+    collections::HashSet,
+    ffi::OsStr,
+    ffi::OsString,
+    fmt,
+    sync::Arc,
+};
+use sysinfo::{Pid, Process, System, Uid};
 
 const MAX_STR_WIDTH: usize = 32;
-const MAX_USER_WIDTH: usize = 16;
 
 trait Filter {
     fn apply<'a>(&self, proc: &'a Process) -> Option<&'a Process>;
@@ -152,6 +161,8 @@ fn truncate_and_pad(s: &str, width: usize) -> String {
     format!("{:>width$}", truncated, width = width)
 }
 
+/// Wrap f32 to define partial ordering for sorting by Cpu utilization,
+/// memory, etc. f32 does not implement ordering by default, due to NaN.
 #[derive(PartialEq, PartialOrd)]
 struct F32(f32);
 
@@ -207,6 +218,7 @@ impl Field for String {
 }
 
 /// OsString is used for showing the command that started a process.
+/// Alternatively we could make a custom type, but this works.
 impl Field for OsString {
     fn as_any(&self) -> &dyn Any {
         self
@@ -217,14 +229,54 @@ impl Field for OsString {
     }
 }
 
+#[derive(Eq, PartialEq, PartialOrd, Ord)]
+struct RunTime(u64);
+
+impl Field for RunTime {
+    fn as_any(&self) -> &dyn Any {
+        &self.0
+    }
+
+    fn to_string(&self, fmt: &Fmt) -> String {
+        let duration = std::time::Duration::from_secs(self.0);
+        let days = duration.as_secs() / 86400;
+        let hours = (duration.as_secs() % 86400) / 3600;
+        let minutes = (duration.as_secs() % 3600) / 60;
+        let seconds = duration.as_secs() % 60;
+
+        // Format the duration
+        let s = if days > 0 {
+            format!("{}-{:02}:{:02}:{:02}", days, hours, minutes, seconds)
+        } else {
+            format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+        };
+        // Apply column formatting, for alignment and width
+        Helper::new(s, fmt).to_string()
+    }
+}
+
 ///
 /// Convert Uid to User.name and format for printing
 ///
-use std::sync::OnceLock;
-static USERS: OnceLock<Users> = OnceLock::new();
+#[cfg(windows)]
+fn uid_to_name(uid: &Uid) -> String {
+    crate::utils::win::name_from_sid(Some(uid.to_string()))
+}
 
-fn get_users() -> &'static Users {
-    USERS.get_or_init(|| Users::new_with_refreshed_list())
+#[cfg(not(windows))]
+fn uid_to_name(uid: &Uid) -> String {
+    use std::sync::OnceLock;
+    use sysinfo::Users;
+    static USERS: OnceLock<Users> = OnceLock::new();
+
+    fn get_users() -> &'static Users {
+        USERS.get_or_init(|| Users::new_with_refreshed_list())
+    }
+
+    match get_users().iter().find(|user| user.id() == uid) {
+        Some(user) => user.name().to_string(),
+        None => uid.to_string(),
+    }
 }
 
 impl Field for Option<Uid> {
@@ -234,14 +286,11 @@ impl Field for Option<Uid> {
 
     fn to_string(&self, fmt: &Fmt) -> String {
         let s = match self {
-            Some(uid) => match get_users().iter().find(|user| user.id() == uid) {
-                Some(user) => user.name().to_string(),
-                None => uid.to_string(),
-            },
+            Some(uid) => uid_to_name(uid),
             None => String::default(),
         };
 
-        Helper::new(truncate_and_pad(&s, MAX_USER_WIDTH), fmt).to_string()
+        Helper::new(truncate_and_pad(&s, MAX_USER_DISPLAY_LEN), fmt).to_string()
     }
 }
 
@@ -285,6 +334,20 @@ impl Filter for UserProc {
     }
 }
 
+/// Sort children by name, depth and Pid
+#[derive(Clone)]
+struct TreeNode<'a> {
+    children: BTreeSet<(&'a OsStr, usize, Pid)>,
+}
+
+impl<'a> Default for TreeNode<'a> {
+    fn default() -> Self {
+        Self {
+            children: BTreeSet::new(),
+        }
+    }
+}
+
 struct View {
     columns: Vec<Box<dyn ViewColumn>>,
     filters: Vec<Box<dyn Filter>>,
@@ -305,7 +368,8 @@ impl View {
         }
     }
 
-    fn list_processes(&self) -> Result<(), String> {
+    /// Display a list of running processes.
+    fn process_list(&self) -> Result<(), String> {
         let mut header = String::new();
 
         for col in &self.columns {
@@ -351,13 +415,93 @@ impl View {
         Ok(())
     }
 
+    /// Display processes in a tree-like, hierarchical view.
+    fn process_tree(&mut self, long: bool) -> Result<(), String> {
+        let mut roots = BTreeSet::new();
+        let mut seen = HashSet::new(); // Cycles happen on Windows
+
+        let processes = self.system.processes();
+
+        // 1st pass: identify "roots"
+        for proc in processes.values() {
+            let mut child = proc;
+            loop {
+                match child.parent() {
+                    None => {
+                        roots.insert(child.pid());
+                        break;
+                    }
+                    Some(parent_id) => {
+                        if let Some(parent) = processes.get(&parent_id) {
+                            if !seen.insert(child.pid()) {
+                                roots.insert(parent_id);
+                                break;
+                            }
+                            child = parent;
+                        } else {
+                            roots.insert(child.pid());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2nd pass: construct a forest.
+        let mut tree_map: BTreeMap<Pid, TreeNode> = BTreeMap::new();
+
+        for proc in processes.values() {
+            let mut child = proc;
+            while !roots.contains(&child.pid()) {
+                let parent_id = child.parent().expect("child with no parent");
+                tree_map.entry(parent_id).or_default().children.insert((
+                    child.name(),
+                    0, // Place-holder, depth is updated in 3rd pass
+                    child.pid(),
+                ));
+
+                child = processes
+                    .get(&parent_id)
+                    .expect("child with unknown parent");
+            }
+        }
+
+        // 3rd pass: construct a copy of tree_map with updated depth tuple
+        // elems in the key, so that children are sorted by (name, depth, pid)
+        let mut depth_map = HashMap::new();
+        for pid in processes.keys() {
+            let depth = calculate_depth(pid, &tree_map);
+            depth_map.insert(pid, depth);
+        }
+
+        let mut tree_depth_map = BTreeMap::new();
+
+        for (pid, tree_node) in tree_map {
+            let mut node = TreeNode::default();
+            for (name, _, pid) in tree_node.children {
+                let depth = *depth_map.get(&pid).unwrap();
+                node.children.insert((name, depth, pid));
+            }
+            tree_depth_map.insert(pid, node);
+        }
+
+        for pid in &roots {
+            print_tree(pid, long, &tree_depth_map, processes, "", false)?;
+        }
+
+        Ok(())
+    }
+
+    /// Parse a string containing sorting specification.
+    /// The spec is a comma-separated list of column names, optionally prefixed by + or -
+    /// + specifies increasing sort order (the default) and - specifies decreasing order.
     fn parse_sort_spec(
         &mut self,
         scope: &Arc<Scope>,
         sort_spec: &str,
         args: &Vec<String>,
     ) -> Result<(), String> {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
 
         for spec in sort_spec.split(',') {
             let (name, reverse) = match spec.trim() {
@@ -392,7 +536,8 @@ impl View {
     }
 
     //
-    // Factory methods for ViewColumn-s
+    // Factory methods for ViewColumn-s. Columns are used in the default list view,
+    // currently not used in the tree view.
     //
     fn cpu_usage_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
@@ -408,13 +553,7 @@ impl View {
             "cmd",
             "CMD",
             Box::new(|f, d| write!(f, "{:<}", d)),
-            Box::new(|proc: &Process| {
-                proc.cmd()
-                    .iter()
-                    .map(|s| s.to_owned())
-                    .collect::<Vec<_>>()
-                    .join(&OsString::from(" "))
-            }),
+            Box::new(|proc: &Process| cmd_string(proc)),
         ))
     }
 
@@ -454,14 +593,114 @@ impl View {
         ))
     }
 
+    fn run_time_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "time",
+            "TIME",
+            Box::new(|f, d| write!(f, "{:>12}", d)),
+            Box::new(|p: &Process| RunTime(p.run_time())),
+        ))
+    }
+
     fn user_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
             "user",
             "USER",
-            Box::new(|f, d| write!(f, "{:>MAX_USER_WIDTH$}", d)),
+            Box::new(|f, d| write!(f, "{:>MAX_USER_DISPLAY_LEN$}", d)),
             Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
         ))
     }
+}
+
+/// Concatenate command arguments.
+fn cmd_string(proc: &Process) -> OsString {
+    proc.cmd()
+        .iter()
+        .map(|s| s.to_owned())
+        .collect::<Vec<_>>()
+        .join(&OsString::from(" "))
+}
+
+fn calculate_depth(pid: &Pid, tree_map: &BTreeMap<Pid, TreeNode>) -> usize {
+    if let Some(node) = tree_map.get(&pid) {
+        node.children
+            .iter()
+            .map(|(_, _, child_pid)| calculate_depth(child_pid, tree_map))
+            .max()
+            .unwrap_or(0)
+            + 1
+    } else {
+        0
+    }
+}
+
+fn print_tree(
+    pid: &Pid,
+    long: bool,
+    tree_map: &BTreeMap<Pid, TreeNode>,
+    processes: &HashMap<Pid, Process>,
+    prefix: &str, // New argument for the tree branch prefix
+    last: bool,   // Indicates if this is the last child
+) -> Result<(), String> {
+    let root = "root".to_string();
+    let proc = processes.get(&pid).expect("process not found");
+    let ppid = if let Some(ppid) = proc.parent() {
+        format!("{}", ppid.as_u32())
+    } else {
+        root
+    };
+
+    let node = tree_map.get(&pid);
+    let branch = if node.is_none() || node.unwrap().children.len() == 0 {
+        if last {
+            "└────"
+        } else {
+            "├────"
+        }
+    } else {
+        // if last {
+        //     "└───"
+        // } else {
+        //     "├───┐"
+        // }
+        if last {
+            "└───┬"
+        } else {
+            "├───┬"
+        }
+    };
+
+    my_println!(
+        "{}{} {} ({}) {} {}",
+        prefix,
+        branch,
+        pid.as_u32(),
+        ppid,
+        proc.name().to_string_lossy(),
+        if long {
+            cmd_string(proc)
+        } else {
+            OsString::default()
+        }
+        .to_string_lossy(),
+    )?;
+
+    // Print the children recursively.
+    if let Some(node) = node {
+        let child_count = node.children.len();
+        for (i, (_, _, child_pid)) in node.children.iter().enumerate() {
+            let is_last = i == child_count - 1;
+            let new_prefix = if last {
+                format!("{}    ", prefix)
+            } else {
+                format!("{}│   ", prefix)
+            };
+
+            print_tree(child_pid, long, tree_map, processes, &new_prefix, is_last)?;
+        }
+    }
+
+    Ok(())
 }
 
 struct ProcStatus {
@@ -478,6 +717,7 @@ impl ProcStatus {
             "List all processes, not just processes belonging to the current user",
         );
         flags.add_flag('l', "long", "Long format");
+        flags.add_flag('t', "tree", "Display processes in a hierarchical view");
         flags.add_option('s', "sort", "Specify sorting order");
 
         Self { flags }
@@ -488,7 +728,7 @@ impl Exec for ProcStatus {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
 
-        // Use forgiving, non-error checking parsin here, for compat with ps -efl, ps -afx etc.
+        // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc.
         let _ = flags.parse_all(scope, args);
 
         if flags.is_present("help") {
@@ -496,9 +736,15 @@ impl Exec for ProcStatus {
             println!("List currently running processes and their details.");
             println!("\nOptions:");
             println!("{}", flags.help());
-            println!("Sort order examples: --sort name,-mem  --sort \"+cpu,-mem,user\".(+/- indicates increasing or decreasing order)\n");
+            println!("The sort spec is a comma-separated list of column names, optionally prefixed by a + or - sign.");
+            println!("The PLUS sign specifies increasing sorting order (the default), and MINUS specifies decreasing order.");
+            println!("Examples:\n\tps --sort name,-mem\n\tps -s \"+cpu,-mem,user\"\n");
+            println!("\nNOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less\n");
             return Ok(Value::success());
         }
+
+        let tree_view = flags.is_present("tree");
+        let long = flags.is_present("long");
 
         let mut view = View::new();
 
@@ -508,12 +754,15 @@ impl Exec for ProcStatus {
         view.columns.push(View::name_column());
         view.columns.push(View::cpu_usage_column());
         view.columns.push(View::mem_usage_column());
-
-        if flags.is_present("long") {
+        view.columns.push(View::run_time_column());
+        if long {
             view.columns.push(View::cmd_column());
         }
 
         if let Some(sort_spec) = flags.option("sort") {
+            if tree_view {
+                my_warning!(scope, "Sort ignored due to --tree option");
+            }
             view.parse_sort_spec(scope, sort_spec, args)?;
         }
 
@@ -521,7 +770,11 @@ impl Exec for ProcStatus {
             view.filters.push(Box::new(UserProc::new(&view.system)));
         }
 
-        view.list_processes()?;
+        if tree_view {
+            view.process_tree(long)?;
+        } else {
+            view.process_list()?;
+        }
 
         Ok(Value::success())
     }

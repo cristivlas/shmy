@@ -81,8 +81,8 @@ impl Exec for Sort {
 
         if args.is_empty() {
             // Read from stdin if no files are provided
-            let stdin = io::stdin();
-            let reader = stdin.lock();
+            scope.show_eof_hint();
+            let reader = io::stdin().lock();
             for line in reader.lines() {
                 if Scope::is_interrupted() {
                     break;

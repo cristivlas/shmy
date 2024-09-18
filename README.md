@@ -1,22 +1,92 @@
 # A Command Line Interpreter in Rust
 [![Rust CI](https://github.com/cristivlas/shmy/actions/workflows/rust.yml/badge.svg)](https://github.com/cristivlas/shmy/actions/workflows/rust.yml)
+[![Crates.io](https://img.shields.io/crates/v/shmy.svg)](https://crates.io/crates/shmy)
+![Rust Version](https://img.shields.io/badge/rustc-1.80+-blue.svg)
+
 ## Introduction
 
-A lightweight command line interpreter implemented in Rust, featuring Unix-like built-in commands.
+A light-weight command line interpreter implemented in Rust, featuring Unix-like built-in commands.
 
 Project purpose and goals:
 
 1. An exercise in Rust programming.
-2. Provide am alternative, light-weight solution for executing Unix-like commands in a Windows environment.
+2. Provide an alternative, light-weight solution for executing Unix-like commands in a Windows environment.
 3. Experiment with design ideas that enforce robust error handling practices in shell scripting.
 
 The interpreter operates in both interactive mode and script execution mode, with the latter activated by passing script files as command line arguments. In interactive mode, the interpreter leverages rustyline to provide history functionality and TAB completion.
 
 ## Key Features
 
-1. WSL (Windows Subsystem for Linux) symbolic link support (read, traversal).
-2. Strict enforcement of command result error checking.
-3. Dual-mode operation: interactive and script execution.
+1. WSL (Windows Subsystem for Linux) symbolic link support.
+2. User-customizable autocompletion.
+3. Strict enforcement of command result error checking.
+
+The implementation of the built-in commands aims to be neither complete nor POSIX-compatible.
+The intent is to provide common functionality that *nix users are familiar with out of the box.
+
+## Command-Line Autocompletion Notes
+
+This shell provides autocompletion when the `TAB` key is pressed.
+
+### 1. **History Expansion**
+
+- **When**: The input starts with `!` followed by some text.
+- **Function**: Autocompletes entries from the command history that match the provided text.
+- **Example**:
+  - **Input**: `!git sta`
+  - **Completion on TAB**: `git status` (if `git status` is in the history)
+
+### 2. **Environment Variable Expansion**
+
+- **When**: The input includes `$` followed by a partial environment variable name.
+- **Function**: Autocompletes environment variable names but **does not** substitute their values.
+- **Examples**:
+  - **Input**: `$HO`
+    - **Completion on TAB**: `$HOMEDRIVE  $HOMEPATH  $HOME`
+  - **Input**: `cat $HIST`
+    - **Completion on TAB**: `cat $HISTORY`
+
+> The autocompletion provides matching environment variables, but does **not** replace them with their actual values.
+
+### 3. **Custom Command Completions**
+
+- **When**: Other completions do not apply.
+- **Function**: Uses a custom YAML configuration file to autocomplete commands, subcommands, and options.
+- **Setup Instructions**:
+  - **Add a File**: Create a file named `completions.yaml` in `~\.shmy\`.
+  - **Edit the File**: Define commands, subcommands, and options in YAML format. Example:
+```yaml
+  commands:
+  - name: cargo
+    subcommands:
+      - name: build
+        options:
+          - --release
+          - --verbose
+          - --target
+          - --features
+          - --jobs
+          - --example
+      - name: test
+        options:
+          - --release
+          - --verbose
+  - name: git
+    subcommands:
+      - name: commit
+        options:
+          - --amend
+          - --message
+      - name: clone
+        options:
+          - --recursive
+      - name: diff
+        options:
+```
+### 4. **File Completion**
+
+- **When**: Other completions do not apply, and the input involves file paths.
+- **Function**: Completes file names using built-in file completion features.
 
 ## Expression Evaluation and Language Features
 
@@ -32,7 +102,7 @@ i = 5; echo $i
 
 Variable scope is constrained to blocks defined by parentheses `( )`. When a variable `$VAR` is not found in the current scope, the interpreter recursively searches parent (enclosing) scopes up to the global level. The global level "shadows" the environment variables.
 
-Variable names are case insensitive (but case-preserving) in Windows.
+Variable names are case-insensitive but case-preserving in Windows.
 
 ### 2. Control Structures
 
@@ -143,20 +213,28 @@ The interpreter provides special variables for output redirection:
 
 Examples:
 ```shell
-__stderr=null; ls;
-__stderr=log.txt; ls -al;
-__stderr=__stdout; ls -al /
-__stdout=some/path/file.txt ls -al;
+__stderr = null; ls;
+__stderr = log.txt; ls -al;
+__stderr = __stdout; ls -al /
+__stdout = some/path/file.txt ls -al;
 ```
 
 #### Color.
 Some commands have default color output (ls, grep).
-The NO_COLOR variable, if defined (value does not matter) in the environment or the current evaluation
-scope, suppresses color output.
+The NO_COLOR variable, if present in the environment or current evaluation scope, suppresses color output regardless of its assigned value.
 E.g.
 ```
 NO_COLOR = _; ls -al
 ```
+#### Action Confirmation.
+Some commands prompt the user for confirmation before taking action, for example 'rm' or 'mv' without '-f' or '--force',
+or redirecting output to a file that exists, example
+```
+cat => some.txt
+some.txt exists, confirm overwrite? (yes/No)
+```
+Defining the NO_CONFIRM variable, regardless of its value, disables confirmation prompts.
+Disabling confirmation may be needed by some "batch" or automation scripts.
 
 ### 6. Variable Parsing and Expansion
 
@@ -211,7 +289,7 @@ If the pattern is successfully globbed, the expanded tokens are passed to the ex
 otherwise, the pattern is treated as a literal. Note the differences in outputs below:
 
 ```shell
-C:~\Projects\shmy> for f in src\*.rs; (echo $f)
+~\Projects\shmy> for f in src\*.rs; (echo $f)
 src\cmds.rs
 src\eval.rs
 src\macros.rs
@@ -219,9 +297,9 @@ src\main.rs
 src\prompt.rs
 src\testeval.rs
 src\utils.rs
-C:~\Projects\shmy> for f in "src\*.rs"; (echo $f)
+~\Projects\shmy> for f in "src\*.rs"; (echo $f)
 src*.rs
-C:~\Projects\shmy> for f in "src\\*.rs"; (echo $f)
+~\Projects\shmy> for f in "src\\*.rs"; (echo $f)
 src\*.rs
 ```
 
@@ -269,7 +347,7 @@ if (defined __OLD_PATH) (
 ) else (
     # Activate
 
-    eval --export "VIRTUAL_ENV = C:\\Users\\crist\\Projects\\venv312-chess";
+    eval --export "VIRTUAL_ENV = C:\\Users\\MyUser\\Projects\\venv312-chess";
     eval --export r"(__OLD_PATH = $PATH)";
 
     # Use raw string r"(...)" to prevent the semicolon from being interpreted as

@@ -129,7 +129,10 @@ impl FileContent for MemoryMappedContent {
 }
 
 // Factory function to create the appropriate FileContent instance
-fn create_file_content(path: Option<&Path>) -> io::Result<Box<dyn FileContent>> {
+fn create_file_content(
+    scope: &Arc<Scope>,
+    path: Option<&Path>,
+) -> io::Result<Box<dyn FileContent>> {
     if let Some(path) = path {
         let file = File::open(path)?;
         let metadata = file.metadata()?;
@@ -141,6 +144,7 @@ fn create_file_content(path: Option<&Path>) -> io::Result<Box<dyn FileContent>> 
             Ok(Box::new(InMemoryContent::new(reader)?))
         }
     } else {
+        scope.show_eof_hint();
         Ok(Box::new(InMemoryContent::new(io::stdin().lock())?))
     }
 }
@@ -182,8 +186,8 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn new(file_info: Option<String>, path: Option<&Path>) -> io::Result<Self> {
-        let content = create_file_content(path)?;
+    fn new(scope: &Arc<Scope>, file_info: Option<String>, path: Option<&Path>) -> io::Result<Self> {
+        let content = create_file_content(scope, path)?;
         let line_num_width = content.len().to_string().len() + 1;
 
         let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
@@ -243,14 +247,26 @@ impl Viewer {
         }
         stdout.flush()?;
 
-        if let Some(file_name) = &self.file_info {
-            self.state.status_line = Some(self.strong(&file_name));
-        }
+        self.state.status_line = self
+            .file_info
+            .as_ref()
+            .and_then(|info| Some(self.strong(&info)));
 
         Ok(())
     }
 
     fn display_line(&self, line: &str, buffer: &mut String) -> io::Result<()> {
+        fn adjust_index_to_utf8_boundary(line: &str, index: usize) -> usize {
+            if index >= line.len() {
+                return line.len();
+            }
+            // Find the nearest valid UTF-8 boundary
+            line.char_indices()
+                .take_while(|&(i, _)| i <= index)
+                .last()
+                .map_or(0, |(i, _)| i)
+        }
+
         // Determine the effective width of the line to be displayed
         let effective_width = if self.state.show_line_numbers {
             self.screen_width.saturating_sub(self.line_num_width + 2)
@@ -261,6 +277,10 @@ impl Viewer {
         // Compute the starting point based on horizontal scroll
         let start_index = self.state.horizontal_scroll.min(line.len());
         let end_index = (start_index + effective_width).min(line.len());
+
+        // Adjust at UTF8 boundary so we don't panic when taking a slice of the line.
+        let start_index = adjust_index_to_utf8_boundary(line, start_index);
+        let end_index = adjust_index_to_utf8_boundary(line, end_index);
 
         // Handle search highlighting if present
         if let Some(ref search) = self.state.last_search {
@@ -638,7 +658,7 @@ impl Exec for Less {
         }
 
         if filenames.is_empty() {
-            run_viewer(&flags, None, None).map_err(|e| e.to_string())?;
+            run_viewer(scope, &flags, None, None).map_err(|e| e.to_string())?;
         } else {
             let mut i: usize = 0;
             loop {
@@ -648,6 +668,7 @@ impl Exec for Less {
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 match run_viewer(
+                    scope,
                     &flags,
                     Some(&path),
                     Some(format!("{} ({} of {})", filename, i + 1, filenames.len())),
@@ -667,11 +688,12 @@ impl Exec for Less {
 }
 
 fn run_viewer(
+    scope: &Arc<Scope>,
     flags: &CommandFlags,
     path: Option<&Path>,
     file_info: Option<String>,
 ) -> io::Result<FileAction> {
-    let mut viewer = Viewer::new(file_info, path)?;
+    let mut viewer = Viewer::new(scope, file_info, path)?;
 
     viewer.state.show_line_numbers = flags.is_present("number");
     viewer.run()

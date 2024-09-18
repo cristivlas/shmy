@@ -346,4 +346,25 @@ impl Scope {
         // TOOD: Canonicalize the path here?
         self.err_str(&path.display().to_string())
     }
+
+    /// Show Ctrl-Z / Ctrl-D hint.
+    /// For situations where user input is expected. Examples
+    /// ```
+    /// cat
+    /// ```
+    /// for i in -; (ls $i)
+    /// ```
+    pub fn show_eof_hint(&self) {
+        if std::io::stdin().is_terminal() {
+            #[cfg(windows)]
+            const MESSAGE: &str = "Press Ctrl-Z to end input";
+            #[cfg(not(windows))]
+            const MESSAGE: &str = "Press Ctrl-D to end input";
+
+            eprintln!(
+                "{}",
+                self.color(MESSAGE, Color::BrightCyan, &std::io::stderr())
+            );
+        }
+    }
 }

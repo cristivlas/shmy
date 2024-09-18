@@ -28,34 +28,31 @@ impl Help {
         println!();
         println!("DESCRIPTION");
         println!("    shmy is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
-        println!("    It supports variable assignment and evaluation, conditional statements, loops, arithmetic and");
-        println!(
-            "    logical operations, command execution evaluation, output redirection, and pipes."
-        );
+        println!("    It supports variable assignment and evaluation; conditional statements; loops; arithmetic and");
+        println!("    logical operations; command execution evaluation; output redirection and pipes.");
         println!();
         println!("EXPRESSIONS");
         println!("    Variable Assignment and Evaluation");
-        println!("        i = 5; echo $i");
+        println!("        Example: i = 5; echo $i");
         println!("    Conditional Statements");
-        println!("        if ($i > 0) (echo \"i is positive\") else (echo \"i is not positive\")");
+        println!("        Example: if ($i > 0) (echo \"i is positive\") else (echo \"i is not positive\")");
         println!("    Loops");
-        println!("        while ($i > 0) (echo $i; $i = $i - 1)");
-        println!("        for f in *.rs; (echo $f; ls -l $f)");
-        println!("    Arithmetic Operations");
-        println!("        Supported: +, -, /, *");
-        println!("    Logical Operations");
-        println!("        Supported: ||, &&");
+        println!("        Example: while ($i > 0) (echo $i; $i = $i - 1)");
+        println!("        Example: for f in *.rs; (echo $f; ls -l $f)");
+        println!();
+        println!("    Arithmetic Operators");
+        println!("        '+': add, '-': subtract, '/': divide, '//': divide integers, '%': modulo, '*': multiply, '^': exponent");
+        println!("    Logical Operators");
+        println!("        '||': or, '&&': and");
         println!();
         println!("COMMAND EXECUTION");
-        println!(
-            "    A command evaluates to true if it succeeds (exit code 0) and false otherwise."
-        );
+        println!("    A command evaluates to true if it succeeds (exit code 0) and false otherwise.");
         println!("    Errors from failed commands are stored in the special variable $__errors.");
         println!("    If a command fails and its status is not evaluated, execution stops.");
         println!();
         println!("REDIRECTS");
-        println!("    Output to file: command => file");
-        println!("    Append to file: command =>> file");
+        println!("    Output to file: <command> => <file path>");
+        println!("    Append to file: <command> =>> <file path>");
         println!();
         println!("PIPES");
         println!("    Pipe output between commands:");
