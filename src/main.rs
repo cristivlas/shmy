@@ -499,7 +499,7 @@ impl Shell {
                     .insert("NO_COLOR".to_string(), Value::Int(1));
             } else {
                 //
-                // The colored crate has a SHOULD_COLORIZE singleton
+                // The `colored`` crate contains a SHOULD_COLORIZE singleton
                 // https://github.com/colored-rs/colored/blob/775ec9f19f099a987a604b85dc72ca83784f4e38/src/control.rs#L79
                 //
                 // If the very first command executed from our shell is redirected or piped, e.g.

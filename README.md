@@ -18,6 +18,72 @@ The interpreter operates in both interactive mode and script execution mode, wit
 2. Strict enforcement of command result error checking.
 3. Dual-mode operation: interactive and script execution.
 
+## Command-Line Autocompletion
+
+### Overview
+
+This shell provides autocompletion when the `TAB` key is pressed.
+
+### 1. **History Expansion**
+
+- **When**: The input starts with `!` followed by some text.
+- **Function**: Autocompletes entries from the command history that match the provided text.
+- **Example**:
+  - **Input**: `!git sta`
+  - **Completion on TAB**: `git status` (if `git status` is in the history)
+
+### 2. **Environment Variable Expansion**
+
+- **When**: The input includes `$` followed by a partial environment variable name.
+- **Function**: Autocompletes environment variable names but **does not** substitute their values.
+- **Examples**:
+  - **Input**: `$HO`
+    - **Completion on TAB**: `$HOMEDRIVE  $HOMEPATH  $HOME`
+  - **Input**: `cat $HIST`
+    - **Completion on TAB**: `cat $HISTORY`
+
+> The autocompletion provides matching environment variables, but does **not** replace them with their actual values.
+
+### 3. **Custom Command Completions**
+
+- **When**: Other completions do not apply.
+- **Function**: Uses a custom YAML configuration file to autocomplete commands, subcommands, and options.
+- **Setup Instructions**:
+  - **Add a File**: Create a file named `completions.yaml` in `~\.shmy\`.
+  - **Edit the File**: Define commands, subcommands, and options in YAML format. Example:
+    ```yaml
+  commands:
+  - name: cargo
+    subcommands:
+      - name: build
+        options:
+          - --release
+          - --verbose
+          - --target
+          - --features
+          - --jobs
+          - --example
+      - name: test
+        options:
+          - --release
+          - --verbose
+  - name: git
+    subcommands:
+      - name: commit
+        options:
+          - --amend
+          - --message
+      - name: clone
+        options:
+          - --recursive
+      - name: diff
+        options:
+    ```
+### 4. **File Completion**
+
+- **When**: Other completions do not apply, and the input involves file paths.
+- **Function**: Completes file names using built-in file completion features.
+
 ## Expression Evaluation and Language Features
 
 ### 1. Variable Assignment and Evaluation
