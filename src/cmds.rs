@@ -18,6 +18,7 @@ mod cd;
 mod chmod;
 mod clear;
 mod cp;
+mod cut;
 #[cfg(windows)]
 mod date;
 mod defined;
