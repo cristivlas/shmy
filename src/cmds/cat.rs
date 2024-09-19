@@ -102,7 +102,14 @@ fn process_input<R: BufRead>(
     lines: usize,
 ) -> Result<(), String> {
     let mut i = 0;
-    let mut tail = VecDeque::with_capacity(lines);
+    let mut tail = VecDeque::new();
+
+    match tail.try_reserve(lines) {
+        Ok(_) => {}
+        Err(e) => {
+            return Err(format!("Memory allocation failed: {}", e));
+        }
+    }
 
     for line in reader.lines() {
         if Scope::is_interrupted() {

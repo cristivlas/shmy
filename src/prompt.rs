@@ -5,6 +5,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
 };
 use regex::{escape, Regex};
+use std::borrow::Cow;
 use std::env;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -143,17 +144,23 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
 }
 
 pub struct PromptBuilder {
-    scope: Arc<Scope>,
-    prompt: String,
-    elevated: bool,
+    scope: Arc<Scope>,    // Reference to Scope, to lookup $__prompt spec variable
+    prompt: String,       // The constructed prompt...
+    without_ansi: String, // ... and it's variant stripped of ANSI codes.
+    elevated: bool,       // Windows only: running in elevated mode? Show # instead of $.
+    spec: Arc<String>,    // Specification.
+    strip_ansi: Regex,    // Regular expression for matching ANSI escape codes
 }
 
 impl PromptBuilder {
     pub fn with_scope(scope: &Arc<Scope>) -> Self {
         Self {
             scope: Arc::clone(&scope),
-            prompt: String::new(),
+            prompt: String::default(),
+            without_ansi: String::default(),
             elevated: Self::is_elevated(),
+            spec: Arc::default(),
+            strip_ansi: Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap(),
         }
     }
 
@@ -162,9 +169,22 @@ impl PromptBuilder {
         Self::with_scope(&Scope::with_env_vars())
     }
 
-    pub fn prompt(&mut self) -> &str {
+    pub fn prompt(&mut self) -> Cow<str> {
         let spec = Self::prompt_spec(&self.scope);
-        self.build(spec.as_str())
+
+        // Rebuild the prompt only when spec changes.
+        if spec != self.spec {
+            self.build(spec.as_str());
+
+            // Replace ANSI escape codes with an empty string
+            self.without_ansi = self.strip_ansi.replace_all(&self.prompt, "").into();
+        }
+
+        Cow::Borrowed(&self.prompt)
+    }
+
+    pub fn without_ansi(&self) -> Cow<str> {
+        Cow::Borrowed(&self.without_ansi)
     }
 
     fn prompt_spec(scope: &Arc<Scope>) -> Arc<String> {
@@ -202,11 +222,7 @@ impl PromptBuilder {
         self.elevated || self.username().as_str() == "root"
     }
 
-    fn push_username(&mut self) {
-        self.prompt.push_str(&self.username())
-    }
-
-    fn push_hostname(&mut self) {
+    fn hostname(&self) -> String {
         if let Some(hostname) = self
             .scope
             .lookup("HOSTNAME")
@@ -214,12 +230,27 @@ impl PromptBuilder {
             .or_else(|| self.scope.lookup("COMPUTERNAME"))
             .or_else(|| self.scope.lookup("NAME"))
         {
-            self.prompt.push_str(&hostname.value().as_str());
+            hostname.value().as_str().into()
+        } else {
+            String::default()
         }
     }
 
+    fn push_hostname(&mut self) {
+        self.prompt.push_str(&self.hostname());
+    }
+
+    fn push_short_hostname(&mut self) {
+        let hostname = self.hostname();
+        let short_hostname = hostname.split('.').next().unwrap_or(&hostname);
+        self.prompt.push_str(short_hostname);
+    }
+
     fn push_current_dir(&mut self) {
-        let work_dir = env::current_dir().unwrap_or_default().display().to_string();
+        let work_dir: String = env::current_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         // Follow bash behavior and substitute ~ for home dir.
         // TODO: prompt_trimdir?
@@ -235,7 +266,7 @@ impl PromptBuilder {
         }
     }
 
-    pub fn build(&mut self, spec: &str) -> &str {
+    pub fn build(&mut self, spec: &str) -> Cow<str> {
         self.prompt.clear();
 
         let mut chars = spec.chars().peekable();
@@ -244,8 +275,9 @@ impl PromptBuilder {
             if ch == '\\' {
                 if let Some(next_ch) = chars.next() {
                     match next_ch {
-                        'u' => self.push_username(),
-                        'h' => self.push_hostname(),
+                        'u' => self.prompt.push_str(&self.username()),
+                        'H' => self.push_hostname(),
+                        'h' => self.push_short_hostname(),
                         'w' => self.push_current_dir(),
                         '$' => self.prompt.push(if self.is_root() { '#' } else { '$' }),
                         _ => {
@@ -258,7 +290,7 @@ impl PromptBuilder {
             }
         }
 
-        &self.prompt
+        Cow::Borrowed(&self.prompt)
     }
 }
 

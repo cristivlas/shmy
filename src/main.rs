@@ -7,8 +7,9 @@ use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
 use rustyline::history::{DefaultHistory, SearchDirection};
-use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
+use rustyline::{highlight::Highlighter, Context, Editor, Helper, Hinter, Validator};
 use scope::Scope;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
@@ -17,6 +18,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc,
 };
+
 use std::{env, usize};
 use yaml_rust::Yaml;
 
@@ -33,7 +35,7 @@ mod testcmds;
 mod testeval;
 mod utils;
 
-#[derive(Helper, Highlighter, Hinter, Validator)]
+#[derive(Helper, Hinter, Validator)]
 struct CmdLineHelper {
     #[rustyline(Completer)]
     completer: FilenameCompleter,
@@ -41,6 +43,29 @@ struct CmdLineHelper {
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
     completions: Option<Yaml>,
+    prompt: String,
+}
+
+impl Highlighter for CmdLineHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        default: bool,
+    ) -> Cow<'b, str> {
+        if default {
+            Cow::Borrowed(&self.prompt)
+        } else {
+            Cow::Borrowed(prompt)
+        }
+    }
+
+    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
+        self.highlighter.highlight(line, pos)
+    }
+
+    fn highlight_char(&self, line: &str, pos: usize, forced: bool) -> bool {
+        self.highlighter.highlight_char(line, pos, forced)
+    }
 }
 
 impl CmdLineHelper {
@@ -50,6 +75,7 @@ impl CmdLineHelper {
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
             completions,
+            prompt: String::default(),
         }
     }
 
@@ -74,6 +100,10 @@ impl CmdLineHelper {
         }
 
         candidates
+    }
+
+    fn set_prompt(&mut self, prompt: &str) {
+        self.prompt = prompt.into()
     }
 }
 
@@ -472,10 +502,6 @@ impl Shell {
         Scope::new(Some(Arc::clone(&scope)))
     }
 
-    fn prompt(&mut self) -> &str {
-        &self.prompt_builder.prompt()
-    }
-
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         if self.interactive {
             println!("Welcome to shmy {}", env!("CARGO_PKG_VERSION"));
@@ -486,9 +512,8 @@ impl Shell {
 
             let scope = self.interp.global_scope();
             let (history_path, completion_config) = self.init_interactive_mode()?;
-            let h = CmdLineHelper::new(scope, completion_config);
 
-            rl.set_helper(Some(h));
+            rl.set_helper(Some(CmdLineHelper::new(scope, completion_config)));
             rl.load_history(history_path).unwrap();
 
             self.source_profile()?; // source ~/.shmy/profile if found
@@ -512,9 +537,18 @@ impl Shell {
                 colored::control::unset_override();
             }
 
+            // Run interactive read-evaluate loop
             while !self.interp.quit {
-                // run interactive read-evaluate loop
-                let readline = rl.readline(self.prompt());
+                let prompt = self.prompt_builder.prompt();
+
+                // Hack around peculiarity in Rustyline, where a prompt that contains color ANSI codes
+                // needs to go through the highlighter trait in the helper. The prompt passed to readline
+                // (see below) causes the Windows terminal to misbehave when it contains ANSI color codes.
+                rl.helper_mut().unwrap().set_prompt(&prompt);
+
+                // Pass prompt without ANSI codes to readline
+                let readline = rl.readline(&self.prompt_builder.without_ansi());
+
                 match readline {
                     Ok(line) => {
                         if line.starts_with("!") {
@@ -651,7 +685,7 @@ impl Shell {
 
 pub fn current_dir() -> Result<String, String> {
     match &env::current_dir() {
-        Ok(path) => Ok(path.display().to_string()),
+        Ok(path) => Ok(path.to_string_lossy().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
 }

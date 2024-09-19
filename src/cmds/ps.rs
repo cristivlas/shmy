@@ -4,19 +4,17 @@ use crate::{
     scope::Scope,
     utils::{format_error, MAX_USER_DISPLAY_LEN},
 };
+use colored::Colorize;
 use std::{
     any::Any,
+    borrow::Cow,
     cmp::{Ord, Ordering, PartialOrd},
-    collections::BTreeMap,
-    collections::BTreeSet,
-    collections::HashMap,
-    collections::HashSet,
-    ffi::OsStr,
-    ffi::OsString,
-    fmt,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    ffi::{OsStr, OsString},
+    fmt, io,
     sync::Arc,
 };
-use sysinfo::{Pid, Process, System, Uid};
+use sysinfo::{DiskUsage, Pid, Process, System, Uid};
 
 const MAX_STR_WIDTH: usize = 32;
 
@@ -27,6 +25,7 @@ trait Filter {
 /// Column formatter.
 type Fmt = Box<dyn Fn(&mut fmt::Formatter<'_>, &dyn fmt::Display) -> fmt::Result>;
 
+/// A helper trait for printing and sorting columns in the List View.
 trait Field {
     fn as_any(&self) -> &dyn Any;
     fn to_string(&self, fmt: &Fmt) -> String;
@@ -230,6 +229,29 @@ impl Field for OsString {
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Ord)]
+struct DiskIO {
+    total: u64,
+}
+
+impl DiskIO {
+    fn new(disk_usage: &DiskUsage) -> Self {
+        Self {
+            total: disk_usage.total_read_bytes / 1024 + disk_usage.total_written_bytes / 1024,
+        }
+    }
+}
+
+impl Field for DiskIO {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_string(&self, fmt: &Fmt) -> String {
+        Helper::new(format!("{:10.2}", self.total as f64 / 1024.0), fmt).to_string()
+    }
+}
+
+#[derive(Eq, PartialEq, PartialOrd, Ord)]
 struct RunTime(u64);
 
 impl Field for RunTime {
@@ -369,7 +391,8 @@ impl View {
     }
 
     /// Display a list of running processes.
-    fn process_list(&self) -> Result<(), String> {
+    fn process_list(&self, scope: &Arc<Scope>) -> Result<(), String> {
+        let use_color = scope.use_colors(&io::stdout());
         let mut header = String::new();
 
         for col in &self.columns {
@@ -378,7 +401,14 @@ impl View {
             }
             header.push_str(&Header::new(col).to_string());
         }
-        my_println!("{}", header)?;
+        my_println!(
+            "{}",
+            if use_color {
+                header.bright_cyan()
+            } else {
+                header.normal()
+            }
+        )?;
 
         let mut processes: Vec<_> = self
             .system
@@ -416,7 +446,7 @@ impl View {
     }
 
     /// Display processes in a tree-like, hierarchical view.
-    fn process_tree(&mut self, long: bool) -> Result<(), String> {
+    fn process_tree(&mut self, scope: &Arc<Scope>, long: bool) -> Result<(), String> {
         let mut roots = BTreeSet::new();
         let mut seen = HashSet::new(); // Cycles happen on Windows
 
@@ -486,7 +516,7 @@ impl View {
         }
 
         for pid in &roots {
-            print_tree(pid, long, &tree_depth_map, processes, "", false)?;
+            print_tree(scope, pid, long, &tree_depth_map, processes, "", false)?;
         }
 
         Ok(())
@@ -557,6 +587,16 @@ impl View {
         ))
     }
 
+    fn disk_usage_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "disk",
+            "DISK (MB)",
+            Box::new(|f, d| write!(f, "{:>10}", d)),
+            Box::new(|proc: &Process| DiskIO::new(&proc.disk_usage())),
+        ))
+    }
+
+    /// Show resident RAM memory.
     fn mem_usage_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
             "mem",
@@ -621,6 +661,7 @@ fn cmd_string(proc: &Process) -> OsString {
         .join(&OsString::from(" "))
 }
 
+/// Used for sorting tree nodes.
 fn calculate_depth(pid: &Pid, tree_map: &BTreeMap<Pid, TreeNode>) -> usize {
     if let Some(node) = tree_map.get(&pid) {
         node.children
@@ -635,19 +676,19 @@ fn calculate_depth(pid: &Pid, tree_map: &BTreeMap<Pid, TreeNode>) -> usize {
 }
 
 fn print_tree(
+    scope: &Arc<Scope>,
     pid: &Pid,
-    long: bool,
+    long_view: bool,
     tree_map: &BTreeMap<Pid, TreeNode>,
     processes: &HashMap<Pid, Process>,
     prefix: &str, // New argument for the tree branch prefix
     last: bool,   // Indicates if this is the last child
 ) -> Result<(), String> {
-    let root = "root".to_string();
     let proc = processes.get(&pid).expect("process not found");
     let ppid = if let Some(ppid) = proc.parent() {
-        format!("{}", ppid.as_u32())
+        Cow::Owned(format!("{}", ppid.as_u32()))
     } else {
-        root
+        Cow::Borrowed("root")
     };
 
     let node = tree_map.get(&pid);
@@ -658,26 +699,29 @@ fn print_tree(
             "├────"
         }
     } else {
-        // if last {
-        //     "└───"
-        // } else {
-        //     "├───┐"
-        // }
         if last {
             "└───┬"
         } else {
             "├───┬"
         }
     };
-
+    let use_color = scope.use_colors(&io::stdout());
     my_println!(
         "{}{} {} ({}) {} {}",
-        prefix,
-        branch,
+        if use_color {
+            prefix.bright_cyan()
+        } else {
+            prefix.normal()
+        },
+        if use_color {
+            branch.bright_cyan()
+        } else {
+            branch.normal()
+        },
         pid.as_u32(),
         ppid,
         proc.name().to_string_lossy(),
-        if long {
+        if long_view {
             cmd_string(proc)
         } else {
             OsString::default()
@@ -696,7 +740,15 @@ fn print_tree(
                 format!("{}│   ", prefix)
             };
 
-            print_tree(child_pid, long, tree_map, processes, &new_prefix, is_last)?;
+            print_tree(
+                scope,
+                child_pid,
+                long_view,
+                tree_map,
+                processes,
+                &new_prefix,
+                is_last,
+            )?;
         }
     }
 
@@ -728,7 +780,8 @@ impl Exec for ProcStatus {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
 
-        // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc.
+        // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc
+        // and to allow minus sign in sort specifiers.
         let _ = flags.parse_all(scope, args);
 
         if flags.is_present("help") {
@@ -736,6 +789,7 @@ impl Exec for ProcStatus {
             println!("List currently running processes and their details.");
             println!("\nOptions:");
             println!("{}", flags.help());
+            println!("The \"long\" view shows the command that started the process");
             println!("The sort spec is a comma-separated list of column names, optionally prefixed by a + or - sign.");
             println!("The PLUS sign specifies increasing sorting order (the default), and MINUS specifies decreasing order.");
             println!("Examples:\n\tps --sort name,-mem\n\tps -s \"+cpu,-mem,user\"\n");
@@ -744,7 +798,7 @@ impl Exec for ProcStatus {
         }
 
         let tree_view = flags.is_present("tree");
-        let long = flags.is_present("long");
+        let long_view = flags.is_present("long");
 
         let mut view = View::new();
 
@@ -753,9 +807,10 @@ impl Exec for ProcStatus {
         view.columns.push(View::parent_pid_column());
         view.columns.push(View::name_column());
         view.columns.push(View::cpu_usage_column());
+        view.columns.push(View::disk_usage_column());
         view.columns.push(View::mem_usage_column());
         view.columns.push(View::run_time_column());
-        if long {
+        if long_view {
             view.columns.push(View::cmd_column());
         }
 
@@ -771,9 +826,9 @@ impl Exec for ProcStatus {
         }
 
         if tree_view {
-            view.process_tree(long)?;
+            view.process_tree(scope, long_view)?;
         } else {
-            view.process_list()?;
+            view.process_list(scope)?;
         }
 
         Ok(Value::success())

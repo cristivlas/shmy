@@ -18,6 +18,7 @@ mod cd;
 mod chmod;
 mod clear;
 mod cp;
+mod cut;
 #[cfg(windows)]
 mod date;
 mod defined;
@@ -42,6 +43,7 @@ mod realpath;
 mod rm;
 mod run;
 mod sort;
+mod strings;
 #[cfg(windows)]
 mod sudo;
 mod touch;

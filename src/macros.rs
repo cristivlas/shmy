@@ -18,16 +18,22 @@ macro_rules! my_println {
     }};
 
     ($($arg:tt)*) => {{
-        use std::io::Write;
+        use std::io::{ErrorKind, Write};
 
         // Create a formatted string
         let output = format!($($arg)*);
-        // Attempt to write to stdout
+
+        // Attempt to write to stdout, ignoring broken pipe errors.
         let mut stdout = std::io::stdout().lock();
-        stdout
+        match stdout
             .write_all(output.as_bytes())
-            .and_then(|_| stdout.write_all(b"\n"))
-            .map_err(|e| e.to_string())
+            .and_then(|_| stdout.write_all(b"\n")) {
+                Ok(_) => Ok(()),
+                Err(e) => match e.kind() {
+                    ErrorKind::BrokenPipe => Ok(()),
+                    _ => Err(e.to_string()),
+                },
+            }
     }};
 }
 
@@ -36,14 +42,19 @@ macro_rules! my_println {
 #[macro_export]
 macro_rules! my_print {
     ($($arg:tt)*) => {{
-        use std::io::Write;
+        use std::io::{ ErrorKind, Write };
 
         // Create a formatted string
         let output = format!($($arg)*);
-        // Attempt to write to stdout
-        std::io::stdout().lock()
-            .write_all(output.as_bytes())
-            .map_err(|e| e.to_string())
+
+        // Attempt to write to stdout, ignoring broken pipe errors.
+        match std::io::stdout().lock().write_all(output.as_bytes()) {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind() {
+                ErrorKind::BrokenPipe => Ok(()),
+                _ => Err(e.to_string()),
+            },
+        }
     }};
 }
 

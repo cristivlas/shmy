@@ -206,26 +206,24 @@ pub mod win {
         // Prepare buffer for reparse point data
         let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
 
-        match read_reparse_data::<ReparseDataBufferLxSymlink>(path, &mut buffer) {
-            Ok(data) => {
-                // Defer to the normal fs operation if not a Linux symlink
-                if data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
-                    return fs::read_link(path);
-                }
+        let data = read_reparse_data::<ReparseDataBufferLxSymlink>(path, &mut buffer)?;
 
-                let target_length = std::cmp::min(
-                    data.data_length.saturating_sub(4) as usize,
-                    buffer.len() - WSL_LINK_SIZE,
-                );
-                let target = &buffer[WSL_LINK_SIZE..][..target_length];
-
-                Ok(String::from_utf8_lossy(target)
-                    .into_owned()
-                    .replace("/", "\\")
-                    .into())
-            }
-            Err(e) => Err(e),
+        // Defer to the normal fs operation if not a Linux symlink
+        if data.reparse_tag != IO_REPARSE_TAG_LX_SYMLINK {
+            return fs::read_link(path);
         }
+
+        let target_length = std::cmp::min(
+            data.data_length.saturating_sub(4) as usize,
+            buffer.len() - WSL_LINK_SIZE,
+        );
+
+        let target = &buffer[WSL_LINK_SIZE..][..target_length];
+
+        Ok(String::from_utf8_lossy(target)
+            .into_owned()
+            .replace("/", "\\")
+            .into())
     }
 
     /// Read the parse point with FSCTL_GET_REPARSE_POINT,

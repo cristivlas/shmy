@@ -2,9 +2,7 @@ use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::symlnk::SymLink;
 use crate::{current_dir, eval::Value, scope::Scope};
 use std::cell::RefCell;
-use std::env;
-use std::path::Path;
-use std::sync::Arc;
+use std::{env, path::Path, sync::Arc};
 
 struct ChangeDir {
     stack: RefCell<Vec<String>>,
