@@ -1485,6 +1485,7 @@ impl Expression {
                     scope.show_eof_hint();
                     let mut buffer = String::new();
                     io::stdin()
+                        .lock()
                         .read_to_string(&mut buffer)
                         .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
                     tokens = buffer.split_ascii_whitespace().map(String::from).collect();
