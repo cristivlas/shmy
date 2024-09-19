@@ -669,22 +669,57 @@ where
         )))
     }
 
-    fn try_hex_escape(&mut self) {
+    fn try_hex_escape(&mut self) -> EvalResult<()> {
         self.next();
-        let mut chars = vec!['x'];
 
         if let (Some(c1), Some(&c2)) = (self.next(), self.chars.peek()) {
-            chars.extend([c1, c2]);
-
             if let (Some(d1), Some(d2)) = (c1.to_digit(16), c2.to_digit(16)) {
                 if let Some(ch) = char::from_u32(16 * d1 + d2) {
                     self.text.push(ch);
-                    return;
+                    return Ok(());
                 }
             }
         }
-        // reached here? not a valid hex escape, add the chars to the text
-        self.text.extend(chars);
+        Err(EvalError::new(self.loc(), "Invalid hex escape sequence"))
+    }
+
+    fn try_unicode_escape(&mut self) -> EvalResult<()> {
+        self.next(); // Consume the 'u'
+
+        // Check for the opening '{'
+        if let Some('{') = self.chars.peek() {
+            self.next();
+
+            // Collect digits
+            let mut hex_string = String::with_capacity(4);
+
+            while let Some(&c) = self.chars.peek() {
+                if c.is_digit(16) {
+                    hex_string.push(c);
+                } else if c == '}' {
+                    break;
+                } else {
+                    return Err(EvalError::new(
+                        self.loc(),
+                        "Invalid unicode escape sequence",
+                    ));
+                }
+                self.next();
+            }
+
+            // Convert collected hex string to Unicode
+            if let Ok(unicode_val) = u32::from_str_radix(&hex_string, 16) {
+                if let Some(unicode_char) = char::from_u32(unicode_val) {
+                    self.text.push(unicode_char);
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(EvalError::new(
+            self.loc(),
+            "Invalid unicode escape sequence",
+        ))
     }
 
     #[rustfmt::skip]
@@ -799,7 +834,8 @@ where
                                 'n' => self.text.push('\n'),
                                 't' => self.text.push('\t'),
                                 'r' => self.text.push('\r'),
-                                'x' => self.try_hex_escape(),
+                                'u' => self.try_unicode_escape()?,
+                                'x' => self.try_hex_escape()?,
                                 _ => self.text.push(next_c),
                             }
                             self.next();

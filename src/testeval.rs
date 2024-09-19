@@ -81,7 +81,10 @@ pub mod tests {
     #[serial]
     fn test_if() {
         assert_eval_ok!("if (42) (My_True) else (My_False);", Value::from("My_True"));
-        assert_eval_ok!("TEST_VAR = 1; if ($TEST_VAR) (My_True) else (My_False);", Value::from("My_True"));
+        assert_eval_ok!(
+            "TEST_VAR = 1; if ($TEST_VAR) (My_True) else (My_False);",
+            Value::from("My_True")
+        );
         assert_eval_ok!(
             "TEST_VAR = 0; if ($TEST_VAR == 0) (My_True) else (My_False);",
             Value::from("My_True")
@@ -464,5 +467,21 @@ pub mod tests {
         assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
         // Should not be found (not expanded)
         assert_eval_ok!("$FOO", Value::from("$FOO"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_escape_unicode() {
+        assert_eval_ok!("\"\\u{1b}\"", Value::from("\x1b"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_invalid_escapes() {
+        assert_eval_err!("\"\\u{1b\"", "Invalid unicode escape sequence");
+        assert_eval_err!("\"\\uac\"", "Invalid unicode escape sequence");
+        assert_eval_err!("\"\\u{x}\"", "Invalid unicode escape sequence");
+        assert_eval_err!("\"\\xyz\"", "Invalid hex escape sequence");
+        assert_eval_err!("\"\\xabc", "Unbalanced quotes");
     }
 }
