@@ -53,23 +53,15 @@ impl Exec for StringsCommand {
             })
             .unwrap_or(Ok(4))?; // default min-length is 4 (same as Linux)
 
-        let mut result = Ok(());
         for filename in &filenames {
-            let path = Path::new(filename)
+            let mmap = Path::new(filename)
                 .resolve()
+                .and_then(|path| File::open(&path).and_then(|file| unsafe { Mmap::map(&file) }))
                 .map_err(|e| format_error(&scope, filename, args, e))?;
 
-            let mmap = { File::open(&path).and_then(|file| unsafe { Mmap::map(&file) }) }
-                .map_err(|e| format_error(&scope, filename, args, e))?;
-
-            result = process_strings(&mmap, min_length);
-
-            if result.is_err() {
-                break;
-            }
+            process_strings(&mmap, min_length)?;
         }
 
-        result?;
         Ok(Value::success())
     }
 }
