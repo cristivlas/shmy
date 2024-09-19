@@ -5,6 +5,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, is_raw_mode_enabled},
 };
 use regex::{escape, Regex};
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::env;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -144,7 +146,7 @@ fn open_tty_for_writing() -> io::Result<impl Write> {
 
 pub struct PromptBuilder {
     scope: Arc<Scope>,
-    prompt: String,
+    prompt: Arc<RefCell<String>>,
     elevated: bool,
 }
 
@@ -152,7 +154,7 @@ impl PromptBuilder {
     pub fn with_scope(scope: &Arc<Scope>) -> Self {
         Self {
             scope: Arc::clone(&scope),
-            prompt: String::new(),
+            prompt: Arc::default(),
             elevated: Self::is_elevated(),
         }
     }
@@ -162,9 +164,13 @@ impl PromptBuilder {
         Self::with_scope(&Scope::with_env_vars())
     }
 
-    pub fn prompt(&mut self) -> &str {
+    pub fn prompt(&self) -> Cow<'_, str> {
         let spec = Self::prompt_spec(&self.scope);
         self.build(spec.as_str())
+    }
+
+    pub fn last_prompt(&self) -> Cow<'_, str> {
+        Cow::Owned(self.prompt.borrow().to_string())
     }
 
     fn prompt_spec(scope: &Arc<Scope>) -> Arc<String> {
@@ -202,11 +208,11 @@ impl PromptBuilder {
         self.elevated || self.username().as_str() == "root"
     }
 
-    fn push_username(&mut self) {
-        self.prompt.push_str(&self.username())
+    fn push_username(&self) {
+        self.prompt.borrow_mut().push_str(&self.username())
     }
 
-    fn push_hostname(&mut self) {
+    fn push_hostname(&self) {
         if let Some(hostname) = self
             .scope
             .lookup("HOSTNAME")
@@ -214,11 +220,13 @@ impl PromptBuilder {
             .or_else(|| self.scope.lookup("COMPUTERNAME"))
             .or_else(|| self.scope.lookup("NAME"))
         {
-            self.prompt.push_str(&hostname.value().as_str());
+            self.prompt
+                .borrow_mut()
+                .push_str(&hostname.value().as_str());
         }
     }
 
-    fn push_current_dir(&mut self) {
+    fn push_current_dir(&self) {
         let work_dir = env::current_dir().unwrap_or_default().display().to_string();
 
         // Follow bash behavior and substitute ~ for home dir.
@@ -229,14 +237,16 @@ impl PromptBuilder {
             #[cfg(not(windows))]
             let re = Regex::new(&format!(r"^{}", escape(&home_dir.value().as_str())));
 
-            self.prompt.push_str(&re.unwrap().replace(&work_dir, "~"));
+            self.prompt
+                .borrow_mut()
+                .push_str(&re.unwrap().replace(&work_dir, "~"));
         } else {
-            self.prompt.push_str(&work_dir);
+            self.prompt.borrow_mut().push_str(&work_dir);
         }
     }
 
-    pub fn build(&mut self, spec: &str) -> &str {
-        self.prompt.clear();
+    pub fn build(&self, spec: &str) -> Cow<'_, str> {
+        self.prompt.borrow_mut().clear();
 
         let mut chars = spec.chars().peekable();
 
@@ -247,18 +257,22 @@ impl PromptBuilder {
                         'u' => self.push_username(),
                         'h' => self.push_hostname(),
                         'w' => self.push_current_dir(),
-                        '$' => self.prompt.push(if self.is_root() { '#' } else { '$' }),
+                        '$' => {
+                            self.prompt
+                                .borrow_mut()
+                                .push(if self.is_root() { '#' } else { '$' })
+                        }
                         _ => {
-                            self.prompt.push(next_ch);
+                            self.prompt.borrow_mut().push(next_ch);
                         }
                     }
                 }
             } else {
-                self.prompt.push(ch);
+                self.prompt.borrow_mut().push(ch);
             }
         }
 
-        &self.prompt
+        Cow::Owned(self.prompt.borrow().to_owned())
     }
 }
 

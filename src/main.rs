@@ -7,8 +7,9 @@ use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
 use rustyline::history::{DefaultHistory, SearchDirection};
-use rustyline::{Context, Editor, Helper, Highlighter, Hinter, Validator};
+use rustyline::{highlight::Highlighter, Context, Editor, Helper, Hinter, Validator};
 use scope::Scope;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
@@ -33,7 +34,7 @@ mod testcmds;
 mod testeval;
 mod utils;
 
-#[derive(Helper, Highlighter, Hinter, Validator)]
+#[derive(Helper, Hinter, Validator)]
 struct CmdLineHelper {
     #[rustyline(Completer)]
     completer: FilenameCompleter,
@@ -41,15 +42,39 @@ struct CmdLineHelper {
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
     completions: Option<Yaml>,
+    prompt_builder: Arc<PromptBuilder>,
+}
+
+impl Highlighter for CmdLineHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        _prompt: &'p str,
+        _default: bool,
+    ) -> Cow<'b, str> {
+        self.prompt_builder.last_prompt()
+    }
+
+    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
+        self.highlighter.highlight(line, pos)
+    }
+
+    fn highlight_char(&self, line: &str, pos: usize, forced: bool) -> bool {
+        self.highlighter.highlight_char(line, pos, forced)
+    }
 }
 
 impl CmdLineHelper {
-    fn new(scope: Arc<Scope>, completions: Option<Yaml>) -> Self {
+    fn new(
+        scope: Arc<Scope>,
+        completions: Option<Yaml>,
+        prompt_builder: Arc<PromptBuilder>,
+    ) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
             completions,
+            prompt_builder,
         }
     }
 
@@ -355,7 +380,7 @@ struct Shell {
     history_path: Option<PathBuf>,
     profile: Option<PathBuf>,
     edit_config: rustyline::config::Config,
-    prompt_builder: prompt::PromptBuilder,
+    prompt_builder: Arc<prompt::PromptBuilder>,
     user_dirs: UserDirs,
 }
 
@@ -399,7 +424,7 @@ impl Shell {
                 .max_history_size(1024)
                 .unwrap()
                 .build(),
-            prompt_builder: PromptBuilder::with_scope(&scope),
+            prompt_builder: Arc::new(PromptBuilder::with_scope(&scope)),
             user_dirs: UserDirs::new()
                 .ok_or_else(|| "Failed to get user directories".to_string())?,
         };
@@ -472,13 +497,15 @@ impl Shell {
         Scope::new(Some(Arc::clone(&scope)))
     }
 
-    fn prompt(&mut self) -> &str {
-        &self.prompt_builder.prompt()
+    fn prompt(&self) -> Cow<'_, str> {
+        self.prompt_builder.prompt()
     }
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         if self.interactive {
             println!("Welcome to shmy {}", env!("CARGO_PKG_VERSION"));
+
+            let prompt_builder = self.prompt_builder.clone();
 
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
@@ -486,7 +513,7 @@ impl Shell {
 
             let scope = self.interp.global_scope();
             let (history_path, completion_config) = self.init_interactive_mode()?;
-            let h = CmdLineHelper::new(scope, completion_config);
+            let h = CmdLineHelper::new(scope, completion_config, prompt_builder);
 
             rl.set_helper(Some(h));
             rl.load_history(history_path).unwrap();
@@ -514,7 +541,7 @@ impl Shell {
 
             while !self.interp.quit {
                 // run interactive read-evaluate loop
-                let readline = rl.readline(self.prompt());
+                let readline = rl.readline(&strip_ansi_controls(&self.prompt()));
                 match readline {
                     Ok(line) => {
                         if line.starts_with("!") {
@@ -654,6 +681,13 @@ pub fn current_dir() -> Result<String, String> {
         Ok(path) => Ok(path.display().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
+}
+
+fn strip_ansi_controls(input: &str) -> String {
+    // Regular expression for matching ANSI escape codes
+    let ansi_regex = regex::Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap();
+    // Replace ANSI escape codes with an empty string
+    ansi_regex.replace_all(input, "").to_string()
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
