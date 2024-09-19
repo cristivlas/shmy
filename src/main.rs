@@ -18,6 +18,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc,
 };
+
 use std::{env, usize};
 use yaml_rust::Yaml;
 
@@ -42,16 +43,20 @@ struct CmdLineHelper {
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
     completions: Option<Yaml>,
-    prompt_builder: Arc<PromptBuilder>,
+    prompt: String,
 }
 
 impl Highlighter for CmdLineHelper {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
         &'s self,
-        _prompt: &'p str,
-        _default: bool,
+        prompt: &'p str,
+        default: bool,
     ) -> Cow<'b, str> {
-        self.prompt_builder.last_prompt()
+        if default {
+            Cow::Borrowed(&self.prompt)
+        } else {
+            Cow::Borrowed(prompt)
+        }
     }
 
     fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
@@ -64,17 +69,13 @@ impl Highlighter for CmdLineHelper {
 }
 
 impl CmdLineHelper {
-    fn new(
-        scope: Arc<Scope>,
-        completions: Option<Yaml>,
-        prompt_builder: Arc<PromptBuilder>,
-    ) -> Self {
+    fn new(scope: Arc<Scope>, completions: Option<Yaml>) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
             completions,
-            prompt_builder,
+            prompt: String::default(),
         }
     }
 
@@ -99,6 +100,10 @@ impl CmdLineHelper {
         }
 
         candidates
+    }
+
+    fn set_prompt(&mut self, prompt: &str) {
+        self.prompt = prompt.into()
     }
 }
 
@@ -380,7 +385,7 @@ struct Shell {
     history_path: Option<PathBuf>,
     profile: Option<PathBuf>,
     edit_config: rustyline::config::Config,
-    prompt_builder: Arc<prompt::PromptBuilder>,
+    prompt_builder: prompt::PromptBuilder,
     user_dirs: UserDirs,
 }
 
@@ -424,7 +429,7 @@ impl Shell {
                 .max_history_size(1024)
                 .unwrap()
                 .build(),
-            prompt_builder: Arc::new(PromptBuilder::with_scope(&scope)),
+            prompt_builder: PromptBuilder::with_scope(&scope),
             user_dirs: UserDirs::new()
                 .ok_or_else(|| "Failed to get user directories".to_string())?,
         };
@@ -497,15 +502,9 @@ impl Shell {
         Scope::new(Some(Arc::clone(&scope)))
     }
 
-    fn prompt(&self) -> Cow<'_, str> {
-        self.prompt_builder.prompt()
-    }
-
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
         if self.interactive {
             println!("Welcome to shmy {}", env!("CARGO_PKG_VERSION"));
-
-            let prompt_builder = self.prompt_builder.clone();
 
             // Set up rustyline
             let mut rl = CmdLineEditor::with_config(self.edit_config)
@@ -513,9 +512,8 @@ impl Shell {
 
             let scope = self.interp.global_scope();
             let (history_path, completion_config) = self.init_interactive_mode()?;
-            let h = CmdLineHelper::new(scope, completion_config, prompt_builder);
 
-            rl.set_helper(Some(h));
+            rl.set_helper(Some(CmdLineHelper::new(scope, completion_config)));
             rl.load_history(history_path).unwrap();
 
             self.source_profile()?; // source ~/.shmy/profile if found
@@ -539,9 +537,18 @@ impl Shell {
                 colored::control::unset_override();
             }
 
+            // Run interactive read-evaluate loop
             while !self.interp.quit {
-                // run interactive read-evaluate loop
-                let readline = rl.readline(&strip_ansi_controls(&self.prompt()));
+                let prompt = self.prompt_builder.prompt();
+
+                // Hack around peculiarity in Rustyline, where a prompt that contains color ANSI codes
+                // needs to go through the highlighter trait in the helper. The prompt passed to readline
+                // (see below) causes the Windows terminal to misbehave when it contains ANSI color codes.
+                rl.helper_mut().unwrap().set_prompt(&prompt);
+
+                // Pass prompt without ANSI codes to readline
+                let readline = rl.readline(&self.prompt_builder.without_ansi());
+
                 match readline {
                     Ok(line) => {
                         if line.starts_with("!") {
@@ -681,13 +688,6 @@ pub fn current_dir() -> Result<String, String> {
         Ok(path) => Ok(path.display().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
-}
-
-fn strip_ansi_controls(input: &str) -> String {
-    // Regular expression for matching ANSI escape codes
-    let ansi_regex = regex::Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap();
-    // Replace ANSI escape codes with an empty string
-    ansi_regex.replace_all(input, "").to_string()
 }
 
 fn parse_cmd_line() -> Result<Shell, String> {
