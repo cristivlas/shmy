@@ -2556,7 +2556,7 @@ struct LoopExpr {
 derive_has_location!(LoopExpr);
 
 macro_rules! eval_iteration {
-    ($self:expr, $result:ident) => {
+    ($self:expr, $result:ident) => {{
         if Scope::is_interrupted() {
             eprintln!("^C");
             break;
@@ -2580,7 +2580,7 @@ macro_rules! eval_iteration {
                 }
             }
         }
-    };
+    }};
 }
 
 impl Eval for LoopExpr {
@@ -2650,7 +2650,9 @@ impl Eval for ForExpr {
 
         let args = self.args.tokenize_args(&self.scope, true)?;
         for arg in &args {
+            // Bind variable to arg. TODO: experiment with binding multiple vars for i, j in $args
             self.scope.insert(self.var.clone(), arg.parse::<Value>()?);
+
             eval_iteration!(self, result);
         }
 
