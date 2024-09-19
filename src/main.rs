@@ -685,7 +685,7 @@ impl Shell {
 
 pub fn current_dir() -> Result<String, String> {
     match &env::current_dir() {
-        Ok(path) => Ok(path.display().to_string()),
+        Ok(path) => Ok(path.to_string_lossy().to_string()),
         Err(e) => Err(format!("Error getting current directory: {}", e)),
     }
 }
