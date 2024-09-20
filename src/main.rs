@@ -13,12 +13,11 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc,
 };
-
 use std::{env, usize};
 use yaml_rust::Yaml;
 
@@ -42,6 +41,7 @@ struct CmdLineHelper {
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
     scope: Arc<Scope>,
+    interp: Interp, // Interpreter instance for auto-complete
     completions: Option<Yaml>,
     prompt: String,
 }
@@ -74,6 +74,7 @@ impl CmdLineHelper {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
             scope: Arc::clone(&scope),
+            interp: Interp::new(scope.clone()),
             completions,
             prompt: String::default(),
         }
@@ -105,38 +106,28 @@ impl CmdLineHelper {
     fn set_prompt(&mut self, prompt: &str) {
         self.prompt = prompt.into()
     }
-}
 
-fn escape_backslashes(input: &str) -> String {
-    let mut result = String::new();
-    let mut chars = input.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            // Check if the next character is a backslash
-            if chars.peek() == Some(&'\\') {
-                // Keep both backslashes (skip one)
-                result.push(c);
-                result.push(chars.next().unwrap());
-            } else {
-                // Replace single backslash with double backslash
-                result.push_str("\\\\");
+    /// Auto-completion helper. Use the helper interpreter instance to parse
+    /// and extract the tail of the input rather than just splitting at whitespace.
+    /// If the parsing attempt does not work, then fail over to simple space split.
+    fn get_tail<'a>(&self, input: &'a str) -> (usize, &'a str) {
+        if let Some((loc, tail)) = self.interp.parse_tail(input) {
+            if loc.line == 1 {
+                // TODO: use the column from the Location. Right now the location
+                // is used primarily for error reporting and may have off-by-one
+                // bugs; when it is fixed it will save a reverse find here.
+                if let Some(pos) = input.rfind(&tail) {
+                    return (pos, &input[pos..]);
+                }
             }
-        } else {
-            result.push(c);
         }
-    }
 
-    result
-}
+        if let Some(mut pos) = input.rfind(&['\t', ' '][..]) {
+            pos += 1;
+            return (pos, input[pos..].trim());
+        }
 
-fn split_delim(line: &str) -> (&str, &str) {
-    if let Some(pos) = line.rfind(&['\t', ' '][..]) {
-        let head = &line[..pos + 1];
-        let tail = line[pos..].trim();
-        (head, tail)
-    } else {
-        ("", line)
+        return (0, "");
     }
 }
 
@@ -199,67 +190,22 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
 }
 
 #[cfg(windows)]
-fn has_links(path: &Path) -> bool {
-    use std::path::Component;
+fn match_symlinks(input: &str, pos: &mut usize, candidates: &mut Vec<completion::Pair>) {
+    if let Some(mut delim_pos) = input.rfind(&['\t', ' '][..]) {
+        delim_pos += 1;
+        match_path_prefix(&input[delim_pos..], candidates);
 
-    let mut buf = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => continue,
-            Component::ParentDir => {
-                buf.pop();
-            }
-            _ => {
-                buf.push(component);
-            }
+        if !candidates.is_empty() {
+            *pos = delim_pos;
         }
-
-        if buf.is_symlink() {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[cfg(windows)]
-fn match_symlinks(line: &str, word: &str, pos: &mut usize, candidates: &mut Vec<completion::Pair>) {
-    if !word.is_empty() {
-        if let Some(mut i) = line.to_lowercase().find(&format!(" {}", word)) {
-            i += 1;
-
-            // Check that the position is compatible with previous
-            // completions before attempting to match path prefix
-            if *pos == i || candidates.is_empty() {
-                *pos = i;
-                match_path_prefix(&line[i..], candidates);
-            }
-        }
+    } else {
+        match_path_prefix(input, candidates);
     }
 }
 
 #[cfg(not(windows))]
-fn has_links(_: &Path) -> bool {
-    false
-}
+fn match_symlinks(_: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
-#[cfg(not(windows))]
-fn match_symlinks(_: &str, _: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
-
-/// Provides autocomplete suggestions for the given input line using various strategies.
-///
-/// The method handles completion based on different scenarios:
-///
-/// - **History Expansion:** If the line starts with `!`, it expands history entries.
-/// - **Environment Variable Expansion:** If the line contains `~`, it expands the `HOME` environment variable.
-///   If the line contains `$`, lookup and expand the variable if it exists.
-///
-/// - **Keyword and Command Completion:** Completes keywords and built-in commands based on the input.
-/// - **Custom Command Completions:** If no matches are found, it attempts to provide completions using custom configurations.
-/// - **File Completion:** If all other completions fail, it resorts to file completions using `rustyline`'s built-in completer.
-///
-/// The function returns a tuple containing the position for insertion and a vector of candidates, or a `ReadlineError`
-/// in case of failure.
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -269,14 +215,16 @@ impl completion::Completer for CmdLineHelper {
         pos: usize,
         ctx: &Context<'_>,
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
+        // Autocomplete only at the end of the input.
         if pos < line.len() {
-            return Ok((pos, vec![])); // Autocomplete only if at the end of the input.
+            return Ok((pos, vec![]));
         }
-        // Expand !... TAB from history.
+
+        // Expand ! TAB from history.
         if line.starts_with("!") {
             let candidates = self.get_history_matches(&line[1..], pos - 1, ctx);
             let completions: Vec<Self::Candidate> = candidates
-                .into_iter()
+                .iter()
                 .map(|entry| Self::Candidate {
                     display: format!("{}{}", &line[1..], entry),
                     replacement: format!("{}{}", &line, entry),
@@ -286,57 +234,41 @@ impl completion::Completer for CmdLineHelper {
             return Ok((0, completions));
         }
 
-        // Expand keywords and builtin commands.
-        let mut keywords = vec![];
-        let mut kw_pos = pos;
+        let (mut tail_pos, tail) = self.get_tail(line);
 
-        let (head, tail) = split_delim(line);
+        let mut completions = vec![];
 
         if tail.starts_with("~") {
-            // TODO: revisit; this may conflict with the rustyline built-in TAB completion, which
-            // uses home_dir, while here the value of $HOME is used (and the user can change it).
+            // NOTE: this may conflict with the rustyline built-in TAB completion, which uses
+            // home_dir, while here the value of the $HOME var is used (which the user can change).
             if let Some(v) = self.scope.lookup("HOME") {
-                keywords.push(completion::Pair {
-                    display: String::default(),
-                    replacement: format!("{}{}{}", head, v.value().as_str(), &tail[1..]),
+                completions.push(completion::Pair {
+                    display: String::default(), // Don't care, there is only one candidate.
+                    replacement: format!("{}{}", v.value().as_str(), &tail[1..]),
                 });
-                kw_pos = 0;
             }
         } else if tail.starts_with("$") {
-            // Expand variables
-            kw_pos -= tail.len();
-            keywords.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
+            // Expand variables. NOTE: No variable substitution, just expand the variable name.
+            completions.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
                 Self::Candidate {
                     replacement: format!("${}", k),
                     display: format!("${}", k),
                 }
             }));
         } else {
-            let tok = head.split_ascii_whitespace().next();
-
-            if tok.is_none() || tok.is_some_and(|tok| get_command(&tok).is_none()) {
-                // Expand keywords and commands if the line does not start with a command.
-                // TODO: expand command line flags for the builtin commands.
-                kw_pos = 0;
-
-                for kw in self.keywords() {
-                    if kw.to_lowercase().starts_with(&tail) {
-                        let repl = format!("{}{} ", head, kw);
-                        keywords.push(completion::Pair {
-                            display: repl.clone(),
-                            replacement: repl,
-                        });
-                    }
+            for kw in self.keywords() {
+                if kw.to_lowercase().starts_with(&tail) {
+                    completions.push(completion::Pair {
+                        display: kw.clone(),
+                        replacement: kw,
+                    });
                 }
             }
-
-            // Next try custom command completions
-            if keywords.is_empty() {
-                kw_pos = 0;
-
+            if completions.is_empty() {
+                // Custom (user-defined) command completions
                 if let Some(config) = &self.completions {
-                    for completion in completions::suggest(config, line) {
-                        keywords.push(completion::Pair {
+                    for completion in completions::suggest(config, tail) {
+                        completions.push(completion::Pair {
                             display: completion.clone(),
                             replacement: completion,
                         });
@@ -345,32 +277,15 @@ impl completion::Completer for CmdLineHelper {
             }
         }
 
-        // Handle (Windows-native and WSL) symbolic links using custom logic.
-        match_symlinks(line, &tail, &mut kw_pos, &mut keywords);
-
-        if keywords.is_empty() && !has_links(Path::new(&tail)) {
-            // Try rustyline file completion next ...
-            let completions = self.completer.complete(line, pos, ctx);
-
-            if let Ok((start, v)) = completions {
-                if !v.is_empty() {
-                    // Replace unescaped \ with \\ in each completion's replacement
-                    let escaped_completions: Vec<Self::Candidate> = v
-                        .into_iter()
-                        .map(|mut candidate| {
-                            if tail.contains('"') || candidate.replacement.starts_with('"') {
-                                candidate.replacement = escape_backslashes(&candidate.replacement);
-                            }
-                            candidate
-                        })
-                        .collect();
-
-                    return Ok((start, escaped_completions));
-                }
-            }
+        if completions.is_empty() {
+            // Handle (Windows-native and WSL) symbolic links.
+            match_symlinks(&tail, &mut tail_pos, &mut completions);
         }
-
-        Ok((kw_pos, keywords))
+        if completions.is_empty() {
+            self.completer.complete(line, pos, ctx) // Rustyline path completion
+        } else {
+            Ok((tail_pos, completions))
+        }
     }
 }
 

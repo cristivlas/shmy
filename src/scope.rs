@@ -207,6 +207,14 @@ impl Debug for Scope {
 }
 
 impl Scope {
+    pub fn new() -> Arc<Scope> {
+        Arc::new(Self {
+            parent: None,
+            vars: VarTable::new(),
+            err_arg: RefCell::default(),
+        })
+    }
+
     pub fn with_parent(parent: Option<Arc<Scope>>) -> Arc<Scope> {
         Arc::new(Self {
             parent,
@@ -307,7 +315,7 @@ impl Scope {
         self.vars.inner_mut()
     }
 
-    /// Getter and setter for the index of argument with error.
+    /// Getter and setter for the index of the argument that caused an error.
     pub fn err_arg(&self) -> usize {
         *self.err_arg.borrow()
     }
