@@ -409,7 +409,7 @@ impl Shell {
             .expect("Error setting Ctrl+C handler");
         }
 
-        let interp = Interp::new();
+        let interp = Interp::with_env_vars();
         let scope = interp.global_scope();
 
         let mut shell = Self {
@@ -499,7 +499,7 @@ impl Shell {
             scope.insert(format!("{}", i), Value::Str(Arc::new(arg)));
         }
 
-        Scope::new(Some(Arc::clone(&scope)))
+        Scope::with_parent(Some(Arc::clone(&scope)))
     }
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {

@@ -207,7 +207,7 @@ impl Debug for Scope {
 }
 
 impl Scope {
-    pub fn new(parent: Option<Arc<Scope>>) -> Arc<Scope> {
+    pub fn with_parent(parent: Option<Arc<Scope>>) -> Arc<Scope> {
         Arc::new(Self {
             parent,
             vars: VarTable::new(),

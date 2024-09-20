@@ -38,7 +38,7 @@ impl Exec for Evaluate {
         let export = flags.is_present("export");
         let source = flags.is_present("source");
 
-        let mut interp = Interp::new();
+        let mut interp = Interp::with_env_vars();
         let global_scope = scope.global();
 
         for arg in &eval_args {

@@ -8,7 +8,7 @@ pub mod tests {
         // Workaround for cargo test using stdout redirection
         let _stdout = io::stdout().lock();
 
-        let mut interp = Interp::new();
+        let mut interp = Interp::with_env_vars();
 
         // Debugging
         // interp.global_scope().insert("__dump_ast".into(), Value::Int(1));
@@ -152,7 +152,7 @@ pub mod tests {
     #[test]
     #[serial]
     fn test_for_tilde() {
-        let mut interp = Interp::new();
+        let mut interp = Interp::with_env_vars();
         interp
             .global_scope()
             .insert("HOME".to_string(), Value::from("abc"));

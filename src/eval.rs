@@ -1053,7 +1053,7 @@ where
             let current_scope = Arc::clone(&self.scope);
             self.scope_stack.push(current_scope.clone());
             // Create new scope and make it current
-            self.scope = Scope::new(Some(current_scope));
+            self.scope = Scope::with_parent(Some(current_scope));
             // Start a new group
             self.group_stack.push(Rc::clone(&self.group));
 
@@ -2792,7 +2792,7 @@ fn new_group(loc: &Location, scope: &Arc<Scope>) -> Rc<Expression> {
 }
 
 impl Interp {
-    pub fn new() -> Self {
+    pub fn with_env_vars() -> Self {
         Self {
             scope: Scope::with_env_vars(),
             file: None,
@@ -2822,7 +2822,7 @@ impl Interp {
             } else {
                 // Create a child scope of the global scope; the global scope contains
                 // the environmental vars, which should be preserved between evaluations.
-                Scope::new(Some(Arc::clone(&self.scope)))
+                Scope::with_parent(Some(Arc::clone(&self.scope)))
             }
         };
 
