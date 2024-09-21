@@ -96,15 +96,19 @@ impl CommandFlags {
     pub fn parse_all(&mut self, scope: &Arc<Scope>, args: &[String]) -> Vec<String> {
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
+        let mut encountered_double_dash = false;
 
         while let Some((i, arg)) = args_iter.next() {
             self.index = i;
-            if arg.starts_with("--") && arg != "--" {
-                if !self.handle_long_flag(scope, arg, &mut args_iter).is_ok() {
+            if encountered_double_dash || arg == "--" {
+                encountered_double_dash = true;
+                non_flag_args.push(arg.clone());
+            } else if arg.starts_with("--") {
+                if self.handle_long_flag(scope, arg, &mut args_iter).is_err() {
                     non_flag_args.push(arg.clone());
                 }
-            } else if arg.starts_with('-') {
-                if arg != "-" && !self.handle_short_flags(scope, arg, &mut args_iter).is_ok() {
+            } else if arg.starts_with('-') && arg != "-" {
+                if self.handle_short_flags(scope, arg, &mut args_iter).is_err() {
                     non_flag_args.push(arg.clone());
                 }
             } else {
@@ -179,7 +183,7 @@ impl CommandFlags {
                         return Err(format!("Flag -{} requires a value", c));
                     };
                     // Special case -- consumes all flags
-                    let final_value = if c == '-' {
+                    let value = if c == '-' {
                         std::iter::once(value)
                             .chain(args_iter.map(|(_, arg)| arg.clone()))
                             .collect::<Vec<_>>()
@@ -188,7 +192,7 @@ impl CommandFlags {
                         value
                     };
 
-                    self.values.insert(flag.long.clone(), final_value);
+                    self.values.insert(flag.long.clone(), value);
                     break; // Exit the loop as we've consumed the rest of the argument
                 } else {
                     self.values.insert(flag.long.clone(), "true".to_string());
@@ -349,5 +353,146 @@ mod tests {
         assert!(flags.is_present("verbose"));
         assert_eq!(flags.option("output"), Some("file.txt"));
         assert_eq!(non_flag_args, vec!["--unknown"]);
+    }
+
+    #[test]
+    fn test_short_flag_with_separate_value() {
+        let mut flags = CommandFlags::new();
+        let scope = Arc::new(Scope::new());
+
+        // Adding flags for the test
+        flags.add_option('d', "debug", "Set debug level");
+
+        // Test input: '-d' followed by '2' as a separate argument
+        let args = vec!["-d".to_string(), "2".to_string()];
+
+        // The parser should successfully parse the flag '-d' and assign the value '2'
+        let result: Result<Vec<String>, String> = flags.parse(&scope, &args);
+
+        assert!(result.is_ok(), "Expected the parser to succeed");
+        assert_eq!(flags.option("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_concatenated_short_flag_with_value() {
+        let mut flags = CommandFlags::new();
+        let scope = Arc::new(Scope::new());
+
+        // Adding flags for the test
+        flags.add_option('d', "debug", "Set debug level");
+
+        // Test input: '-d2', where '2' is concatenated with the flag '-d'
+        let args = vec!["-d2".to_string()];
+
+        // The parser should successfully parse the flag '-d' and assign the value '2'
+        let result = flags.parse(&scope, &args);
+
+        assert!(result.is_ok(), "Expected the parser to succeed");
+        assert_eq!(flags.option("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_parse_all_valid_flags() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--output".to_string(),
+            "file.txt".to_string(),
+            "--debug".to_string(),
+            "2".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.option("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_parse_all_with_unknown_flags() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--unknown".to_string(),
+            "-x".to_string(),
+            "--output".to_string(),
+            "file.txt".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert_eq!(non_flag_args, vec!["--unknown", "-x"]);
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+    }
+
+    #[test]
+    fn test_parse_all_with_missing_value() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--output".to_string()];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert_eq!(non_flag_args, vec!["--output"]);
+        assert!(!flags.is_present("output"));
+    }
+
+    #[test]
+    fn test_parse_all_with_mixed_valid_and_invalid() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--unknown".to_string(),
+            "-o".to_string(),
+            "file.txt".to_string(),
+            "-x".to_string(),
+            "--debug".to_string(),
+            "2".to_string(),
+            "non-flag-arg".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert_eq!(non_flag_args, vec!["--unknown", "-x", "non-flag-arg"]);
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.option("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_parse_all_with_double_dash() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--".to_string(),
+            "--output".to_string(),
+            "file.txt".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert_eq!(non_flag_args, vec!["--", "--output", "file.txt"]);
+        assert!(flags.is_present("verbose"));
+        assert!(!flags.is_present("output"));
+    }
+
+    #[test]
+    fn test_parse_all_with_short_flags() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "-v".to_string(),
+            "-o".to_string(),
+            "file.txt".to_string(),
+            "-d2".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+
+        assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.option("debug"), Some("2"));
     }
 }
