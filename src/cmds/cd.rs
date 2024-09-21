@@ -24,7 +24,7 @@ impl ChangeDir {
     }
 
     fn do_chdir(&self, scope: &Arc<Scope>, dir: &str) -> Result<(), String> {
-        let path = Path::new(dir).resolve().map_err(|e| e.to_string())?;
+        let path = Path::new(dir).dereference().map_err(|e| e.to_string())?;
 
         env::set_current_dir(&path)
             .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_str(dir), e))?;

@@ -46,7 +46,7 @@ impl Exec for Evaluate {
                 // Treat arg as the name of a source file.
                 // Resolve symbolic links (including WSL).
                 let path = Path::new(&arg)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
                 let mut file = File::open(&path).map_err(|e| format_error(scope, arg, &args, e))?;

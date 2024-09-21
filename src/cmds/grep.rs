@@ -102,7 +102,7 @@ impl Grep {
                 }
             } else if path.is_symlink() {
                 if follow {
-                    match path.resolve() {
+                    match path.dereference() {
                         Ok(path) => files.extend(self.collect_files(
                             scope,
                             args,

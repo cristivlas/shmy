@@ -1,6 +1,7 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use regex::Regex;
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
@@ -31,11 +32,9 @@ impl Find {
             return Ok(());
         }
 
-        let search_path = if follow {
-            path.resolve().unwrap_or(path.to_path_buf())
-        } else {
-            path.to_path_buf()
-        };
+        let search_path = path
+            .resolve(follow)
+            .unwrap_or(Cow::Owned(path.into()));
 
         // Check if the current directory or file matches the pattern
         if regex.is_match(&file_name.to_string_lossy()) {

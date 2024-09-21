@@ -70,7 +70,7 @@ impl Exec for CutCommand {
             let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let file =

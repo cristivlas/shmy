@@ -47,7 +47,7 @@ impl Exec for Run {
 
         if flags.is_present("follow-links") {
             cmd_name = Path::new(&cmd_name)
-                .resolve()
+                .dereference()
                 .map_err(|e| e.to_string())?
                 .display()
                 .to_string();

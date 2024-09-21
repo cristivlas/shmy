@@ -50,14 +50,14 @@ impl Exec for Touch {
             let target_path = if no_dereference {
                 path.to_path_buf()
             } else {
-                path.resolve().map_err(|e| {
+                path.dereference().map_err(|e| {
                     format_error(
                         scope,
                         filename,
                         args,
                         format!("Failed to resolve path: {}", e),
                     )
-                })?
+                })?.into()
             };
 
             if target_path.exists() {

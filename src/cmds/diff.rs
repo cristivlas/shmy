@@ -42,7 +42,7 @@ impl Exec for Diff {
 
         for filename in fnames.iter().take(2) {
             let path = Path::new(filename)
-                .resolve()
+                .dereference()
                 .map_err(|e| format_error(scope, filename, args, e))?;
 
             files.push(read_file(filename, &path, scope, args)?);

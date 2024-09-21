@@ -142,12 +142,12 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     let path = std::path::Path::new(word);
     let mut name = path.file_name().unwrap_or_default().to_string_lossy();
     let cwd = env::current_dir().unwrap_or(PathBuf::default());
-    let mut dir = path.parent().unwrap_or(&cwd).resolve().unwrap_or_default();
+    let mut dir = path.parent().unwrap_or(&cwd).dereference().unwrap_or_default().into_owned();
 
     if word.ends_with("\\") {
-        if let Ok(resolved) = path.resolve() {
+        if let Ok(resolved) = path.dereference() {
             if resolved.exists() {
-                dir = resolved;
+                dir = resolved.into();
                 name = std::borrow::Cow::Borrowed("");
             }
         }
@@ -173,7 +173,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                         dir.join(file_name).to_string_lossy().to_string()
                     };
 
-                    let replacement = if path.resolve().unwrap_or(path.to_path_buf()).is_dir() {
+                    let replacement = if path.dereference().unwrap_or(path.into()).is_dir() {
                         format!("{}\\", display)
                     } else {
                         display.clone()

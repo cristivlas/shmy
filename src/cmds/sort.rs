@@ -93,7 +93,7 @@ impl Exec for Sort {
         } else {
             for file_path in &args {
                 let path = Path::new(file_path)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(scope, file_path, &args, e))?;
 
                 if path.is_file() {

@@ -55,7 +55,7 @@ impl Exec for StringsCommand {
 
         for filename in &filenames {
             let mmap = Path::new(filename)
-                .resolve()
+                .dereference()
                 .and_then(|path| File::open(&path).and_then(|file| unsafe { Mmap::map(&file) }))
                 .map_err(|e| format_error(&scope, filename, args, e))?;
 

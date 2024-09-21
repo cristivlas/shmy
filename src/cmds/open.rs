@@ -43,8 +43,9 @@ impl Exec for Open {
             let mut path = PathBuf::from(arg);
             if follow {
                 path = path
-                    .resolve()
-                    .map_err(|e| format_error(scope, arg, &args, e))?;
+                    .dereference()
+                    .map_err(|e| format_error(scope, arg, &args, e))?
+                    .into();
             }
             let result = if let Some(app) = application {
                 open::with(path, app)

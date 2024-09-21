@@ -318,7 +318,7 @@ fn list_entries(
 ) -> Result<Value, String> {
     for entry_path in &opts.paths {
         let path = Path::new(entry_path)
-            .resolve()
+            .dereference()
             .map_err(|e| format!("{}: {}", scope.err_path_arg(&entry_path, args), e))?;
 
         match fs::metadata(&path) {

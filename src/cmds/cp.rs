@@ -194,7 +194,7 @@ impl<'a> FileCopier<'a> {
     fn add_link(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
         // Resolve the link target
         let target =
-            src.resolve()
+            src.dereference()
                 .wrap_err_with_msg(&self, top, src, Some("Could not get link target"))?;
 
         let target_dest = self.resolve_dest(top, parent, &target)?;
@@ -291,15 +291,15 @@ impl<'a> FileCopier<'a> {
         assert!(!self.srcs.is_empty());
 
         // Always resolve symbolic links in the destination.
-        self.dest = self.dest.resolve().wrap_err(
+        self.dest = self.dest.dereference().wrap_err(
             &self,
             self.dest.as_os_str().to_str().unwrap_or(""),
             &self.dest,
-        )?;
+        )?.into();
 
         for src in self.srcs {
             // Always resolve symbolic links for the source paths given in the command line.
-            let path = Path::new(src).resolve()?;
+            let path = Path::new(src).dereference()?;
             let parent = path.parent().unwrap_or(&path);
 
             if self.debug {

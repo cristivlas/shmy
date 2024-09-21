@@ -24,6 +24,7 @@ impl CatHeadTail {
     fn new(mode: Mode) -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('n', "number", "Number output lines");
+        flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
             flags.add_option('l', "lines", "Specify the number of lines to output");
@@ -55,6 +56,8 @@ impl Exec for CatHeadTail {
         }
 
         let line_num: bool = flags.is_present("number");
+        let follow_links = flags.is_present("follow-links");
+
         let lines = flags
             .option("lines")
             .map(|v| {
@@ -73,7 +76,7 @@ impl Exec for CatHeadTail {
             let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve()
+                    .resolve(follow_links)
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let mode = self.mode.clone();

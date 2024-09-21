@@ -140,7 +140,7 @@ impl Exec for WordCount {
         } else {
             for file in &args {
                 let path = Path::new(&file)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(scope, file, &args, e))?;
 
                 if path.is_dir() {

@@ -80,12 +80,15 @@ impl Mv {
     }
 
     fn get_dest_path(scope: &Arc<Scope>, path: &str) -> Result<PathBuf, String> {
-        Ok(PathBuf::from(path).resolve().unwrap_or(
-            Path::new(".")
-                .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_str(path), e))?
-                .join(path),
-        ))
+        Ok(PathBuf::from(path)
+            .dereference()
+            .and_then(|p| Ok(p.into()))
+            .unwrap_or(
+                Path::new(".")
+                    .canonicalize()
+                    .map_err(|e| format!("{}: {}", scope.err_str(path), e))?
+                    .join(path),
+            ))
     }
 }
 
@@ -121,8 +124,9 @@ impl Exec for Mv {
             let mut src_path = PathBuf::from(src);
             if follow {
                 src_path = src_path
-                    .resolve()
-                    .map_err(|e| format!("{}: {}", scope.err_str(src), e))?;
+                    .dereference()
+                    .map_err(|e| format!("{}: {}", scope.err_str(src), e))?
+                    .into();
             }
             if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)
