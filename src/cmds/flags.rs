@@ -8,6 +8,7 @@ struct Flag {
     long: String,
     help: String,
     takes_value: bool,
+    default_value: Option<String>,
 }
 
 #[derive(Clone)]
@@ -29,6 +30,17 @@ impl CommandFlags {
     }
 
     pub fn add(&mut self, short: Option<char>, long: &str, takes_value: bool, help: &str) {
+        self.add_with_default(short, long, takes_value, help, None)
+    }
+
+    pub fn add_with_default(
+        &mut self,
+        short: Option<char>,
+        long: &str,
+        takes_value: bool,
+        help: &str,
+        default_value: Option<&str>,
+    ) {
         if (short.is_some() && self.flags.values().find(|f| f.short == short).is_some())
             || self
                 .flags
@@ -39,6 +51,7 @@ impl CommandFlags {
                         long: long.to_string(),
                         help: help.to_string(),
                         takes_value,
+                        default_value: default_value.map(String::from),
                     },
                 )
                 .is_some()
@@ -109,8 +122,22 @@ impl CommandFlags {
         args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
         let flag_name = &arg[2..];
-        if let Some(flag) = self.flags.get(flag_name) {
+        let is_negation = flag_name.starts_with("no-");
+        let actual_flag_name = if is_negation {
+            &flag_name[3..]
+        } else {
+            flag_name
+        };
+
+        if let Some(flag) = self.flags.get(actual_flag_name) {
             if flag.takes_value {
+                if is_negation {
+                    scope.set_err_arg(self.index);
+                    return Err(format!(
+                        "Flag --no-{} is not valid for option that takes a value",
+                        actual_flag_name
+                    ));
+                }
                 if let Some((i, value)) = args_iter.next() {
                     self.index = i;
                     self.values.insert(flag.long.clone(), value.clone());
@@ -118,7 +145,7 @@ impl CommandFlags {
                     scope.set_err_arg(self.index);
                     return Err(format!("Flag --{} requires a value", flag_name));
                 }
-            } else {
+            } else if !is_negation {
                 self.values.insert(flag.long.clone(), "true".to_string());
             }
         } else {
@@ -184,9 +211,11 @@ impl CommandFlags {
     }
 
     pub fn option(&self, name: &str) -> Option<&str> {
-        self.values.get(name).map(|s| s.as_str())
+        self.values
+            .get(name)
+            .or(self.flags.get(name).and_then(|f| f.default_value.as_ref()))
+            .map(|s| s.as_str())
     }
-
     pub fn help(&self) -> String {
         let mut help_text = String::new();
 
@@ -196,11 +225,129 @@ impl CommandFlags {
             } else {
                 String::new()
             };
+            let default_value_help = if let Some(ref default) = flag.default_value {
+                format!(" (default: {})", default)
+            } else {
+                String::new()
+            };
             help_text.push_str(&format!(
-                "{:4}--{:20} {}\n",
-                short_flag_help, flag.long, flag.help
+                "{:4}--{:20} {}{}\n",
+                short_flag_help, flag.long, flag.help, default_value_help
             ));
         }
         help_text
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn create_test_flags() -> CommandFlags {
+        let mut flags = CommandFlags::new();
+        flags.add_flag('v', "verbose", "Enable verbose output");
+        flags.add_option('o', "output", "Specify output file");
+        flags.add_with_default(Some('d'), "debug", true, "Set debug level", Some("0"));
+        flags
+    }
+
+    #[test]
+    fn test_default_values() {
+        let flags = create_test_flags();
+        assert_eq!(flags.option("verbose"), None);
+        assert_eq!(flags.option("debug"), Some("0"));
+        assert_eq!(flags.option("output"), None);
+    }
+
+    #[test]
+    fn test_parse_long_flags() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--output".to_string(),
+            "file.txt".to_string(),
+        ];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+    }
+
+    #[test]
+    fn test_parse_short_flags() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["-v".to_string(), "-o".to_string(), "file.txt".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+    }
+
+    #[test]
+    fn test_boolean_flag_negation() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--no-verbose".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(!flags.is_present("verbose"));
+    }
+
+    #[test]
+    fn test_invalid_negation() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--no-output".to_string(), "file.txt".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_override_default_value() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--debug".to_string(), "2".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert_eq!(flags.option("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_help_output() {
+        let flags = create_test_flags();
+        let help_text = flags.help();
+        assert!(help_text.contains("Enable verbose output"));
+        assert!(help_text.contains("Specify output file"));
+        assert!(help_text.contains("Set debug level (default: 0)"));
+    }
+
+    #[test]
+    fn test_is_present() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--verbose".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(flags.is_present("verbose"));
+        assert!(!flags.is_present("output"));
+    }
+
+    #[test]
+    fn test_parse_all() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec![
+            "--verbose".to_string(),
+            "--unknown".to_string(),
+            "--output".to_string(),
+            "file.txt".to_string(),
+        ];
+        let non_flag_args = flags.parse_all(&scope, &args);
+        assert!(flags.is_present("verbose"));
+        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(non_flag_args, vec!["--unknown"]);
     }
 }
