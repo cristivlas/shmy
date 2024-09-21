@@ -196,7 +196,7 @@ fn match_symlinks(input: &str, pos: &mut usize, candidates: &mut Vec<completion:
         match_path_prefix(&input[delim_pos..], candidates);
 
         if !candidates.is_empty() {
-            *pos = delim_pos;
+            *pos += delim_pos;
         }
     } else {
         match_path_prefix(input, candidates);
