@@ -65,11 +65,24 @@ impl CommandFlags {
         self.add(Some(short), long, false, help);
     }
 
+    pub fn add_flag_enabled(&mut self, short: char, long: &str, help: &str) {
+        self.add_with_default(Some(short), long, false, help, Some("true"));
+    }
+
     /// Add flag that takes a value
     pub fn add_option(&mut self, short: char, long: &str, help: &str) {
         self.add(Some(short), long, true, help);
     }
 
+    /// Parse command-line arguments and categorize them into flags and non-flag arguments.
+    ///
+    // Parameters:
+    /// - `scope`: The current execution scope, wrapped in an `Arc` for future-proof thread-safety.
+    /// - `args`: A slice of strings representing the command-line arguments to be parsed.
+    ///
+    /// Returns:
+    /// - A `Result` containing a vector of non-flag arguments if parsing is successful,
+    ///   or an error message as a string if parsing fails.
     pub fn parse(&mut self, scope: &Arc<Scope>, args: &[String]) -> Result<Vec<String>, String> {
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
@@ -149,7 +162,9 @@ impl CommandFlags {
                     scope.set_err_arg(self.index);
                     return Err(format!("Flag --{} requires a value", flag_name));
                 }
-            } else if !is_negation {
+            } else if is_negation {
+                self.values.remove(&flag.long);
+            } else {
                 self.values.insert(flag.long.clone(), "true".to_string());
             }
         } else {
@@ -298,6 +313,25 @@ mod tests {
         let result = flags.parse(&scope, &args);
         assert!(result.is_ok());
         assert!(!flags.is_present("verbose"));
+    }
+
+    #[test]
+    fn test_boolean_flag_negation_after() {
+        let mut flags = create_test_flags();
+        let scope = Arc::new(Scope::new());
+        let args = vec!["--verbose".to_string(), "--no-verbose".to_string()];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(!flags.is_present("verbose"));
+
+        let args = vec![
+            "--verbose".to_string(),
+            "--no-verbose".to_string(),
+            "--verbose".to_string(),
+        ];
+        let result = flags.parse(&scope, &args);
+        assert!(result.is_ok());
+        assert!(flags.is_present("verbose"));
     }
 
     #[test]
