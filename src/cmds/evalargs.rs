@@ -56,7 +56,7 @@ impl Exec for Evaluate {
                 file.read_to_string(&mut source)
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
-                interp.set_file(Some(Arc::new(path.display().to_string())));
+                interp.set_file(Some(Arc::new(path.to_string_lossy().to_string())));
 
                 source
             } else {

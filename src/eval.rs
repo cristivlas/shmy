@@ -2574,7 +2574,7 @@ impl fmt::Display for Literal {
             if self.text.raw {
                 write!(f, "r\"({})\"", &self.text.value)
             } else {
-                write!(f, "\"{}\"", &self.text.value)
+                write!(f, "\"{}\"", &self.text.value.escape_default())
             }
         } else {
             write!(f, "{}", &self.text.value)
@@ -2792,6 +2792,14 @@ fn new_group(loc: &Location, scope: &Arc<Scope>) -> Rc<Expression> {
 }
 
 impl Interp {
+    pub fn new(scope: Arc<Scope>) -> Self {
+        Self {
+            scope,
+            file: None,
+            quit: false,
+        }
+    }
+
     pub fn with_env_vars() -> Self {
         Self {
             scope: Scope::with_env_vars(),
@@ -2800,6 +2808,8 @@ impl Interp {
         }
     }
 
+    /// Evaluate input in an optional scope that may be different from the interpreter's own scope.
+    /// If no scope is specified, the interpreter scope is used.
     pub fn eval(&mut self, input: &str, scope: Option<Arc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
@@ -2822,7 +2832,7 @@ impl Interp {
             } else {
                 // Create a child scope of the global scope; the global scope contains
                 // the environmental vars, which should be preserved between evaluations.
-                Scope::with_parent(Some(Arc::clone(&self.scope)))
+                Scope::with_parent(Some(self.scope.clone()))
             }
         };
 
@@ -2842,4 +2852,73 @@ impl Interp {
     pub fn set_file(&mut self, file: Option<Arc<String>>) {
         self.file = file;
     }
+
+    pub fn parse_tail(&self, input: &str) -> Option<(Location, String)> {
+        let scope = Scope::with_parent(Some(self.scope.clone()));
+        let mut parser = Parser::new(input.chars(), &scope, None);
+        let mut quit = false;
+
+        _ = parser.parse(&mut quit);
+
+        let mut expr = &parser.current_expr;
+        if expr.is_empty() && !parser.expr_stack.is_empty() {
+            expr = parser.expr_stack.last().unwrap();
+        }
+        walk_right(&expr).and_then(|tail| Some((tail.loc(), tail.to_string())))
+    }
+}
+
+/// Walk an expression tree and descend right, return expression on the right side.
+/// Used by the command line auto-completion to parse more intelligently than just space-split.
+fn walk_right(expr: &Rc<Expression>) -> Option<Rc<Expression>> {
+    match &**expr {
+        Expression::Args(g) => return g.borrow().content.last().and_then(|e| walk_right(e)),
+        Expression::Bin(b) => {
+            let rhs = &b.borrow().rhs;
+            if !rhs.is_empty() {
+                return walk_right(rhs);
+            }
+        }
+        Expression::Branch(b) => {
+            let b = b.borrow();
+            if !b.else_branch.is_empty() {
+                return walk_right(&b.else_branch);
+            } else if !b.if_branch.is_empty() {
+                return walk_right(&b.if_branch);
+            } else if !b.cond.is_empty() {
+                return walk_right(&b.cond);
+            }
+        }
+        Expression::Cmd(_) => {
+            // Return the partially parsed command, do not walk down the argument expression(s).
+            // For auto-completion purposes it is more helpful to return "git cl" than just "cl"
+        }
+        Expression::Empty => return None,
+        Expression::For(f) => {
+            let f = f.borrow();
+            if !f.body.is_empty() {
+                return walk_right(&f.body);
+            }
+            // TODO: Not sure how helpful it is to descend into for expression arguments.
+            if !f.args.is_empty() {
+                return walk_right(&f.args);
+            }
+        }
+        Expression::Group(g) => {
+            return g.borrow().content.last().and_then(|e| walk_right(e));
+        }
+        Expression::Leaf(_) => {
+            return Some(expr.clone());
+        }
+        Expression::Loop(l) => {
+            let loop_expr = l.borrow();
+            if !loop_expr.body.is_empty() {
+                return walk_right(&loop_expr.body);
+            }
+            if !loop_expr.cond.is_empty() {
+                return walk_right(&loop_expr.cond);
+            }
+        }
+    }
+    return Some(expr.clone());
 }

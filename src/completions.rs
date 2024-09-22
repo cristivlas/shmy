@@ -127,11 +127,9 @@ pub fn load_config_from_file(file_path: &Path) -> Result<Yaml, io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
     use yaml_rust::YamlLoader;
 
     #[test]
-    #[serial]
     fn test_suggest_empty_input() {
         let config_str = r#"
         commands:
@@ -152,7 +150,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_suggest_top_level_command() {
         let config_str = r#"
         commands:
@@ -173,7 +170,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_suggest_subcommands_exact_match() {
         let config_str = r#"
         commands:
@@ -202,7 +198,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_suggest_subcommands_partial_match() {
         let config_str = r#"
         commands:
@@ -229,7 +224,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_suggest_subcommands_partial_option() {
         let config_str = r#"
         commands:
@@ -252,7 +246,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_unknown_command() {
         let config_str = r#"
         commands:
