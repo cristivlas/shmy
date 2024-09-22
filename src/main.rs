@@ -735,9 +735,11 @@ mod tests {
 
     #[test]
     fn test_complete_pipe() {
-        let helper = CmdLineHelper::new(Scope::new(), None);
-        let actual_completions = get_completions(&helper, "ls | cu", &MemHistory::new());
-        let expected_completions = vec![("cut".to_string(), "cut".to_string())];
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("\\home\\bob"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "ls | ~\\foo", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "\\home\\bob\\foo".to_string())];
         assert_eq!(actual_completions, expected_completions);
     }
 }
