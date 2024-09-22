@@ -742,4 +742,16 @@ mod tests {
         let expected_completions = vec![("".to_string(), "\\home\\bob\\foo".to_string())];
         assert_eq!(actual_completions, expected_completions);
     }
+
+    #[test]
+    fn test_complete_path() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let actual_completions =
+            get_completions(&helper, "echo Hello && ls src/mai", &MemHistory::new());
+        #[cfg(windows)]
+        let expected_completions = vec![("src\\main.rs".to_string(), "src\\main.rs".to_string())];
+        #[cfg(not(windows))]
+        let expected_completions = vec![("main.rs".to_string(), "src/main.rs".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
 }
