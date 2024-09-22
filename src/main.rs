@@ -245,18 +245,21 @@ impl completion::Completer for CmdLineHelper {
                     replacement: format!("{}{}", v.value().as_str(), &tail[1..]),
                 });
             }
-        } else if tail.starts_with("$") {
-            // Expand variables. NOTE: No variable substitution, just expand the variable name.
+        } else if let Some(var_pos) = tail.rfind("$") {
+            // Expand variables. NOTE: No variable substitution, just name expansion.
             completions.extend(
                 self.interp
                     .global_scope()
-                    .lookup_starting_with(&tail[1..])
+                    .lookup_starting_with(&tail[var_pos + 1..])
                     .iter()
                     .map(|k| Self::Candidate {
                         replacement: format!("${}", k),
                         display: format!("${}", k),
                     }),
             );
+            if !completions.is_empty() {
+                tail_pos += var_pos;
+            }
         } else {
             for kw in self.keywords() {
                 if kw.to_lowercase().starts_with(&tail) {
@@ -701,6 +704,16 @@ mod tests {
         scope.insert("HOME".into(), Value::from("home"));
         let helper = CmdLineHelper::new(scope, None);
         let actual_completions = get_completions(&helper, "$HO", &MemHistory::new());
+        let expected_completions = vec![("$HOME".to_string(), "$HOME".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_var_arg() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "echo $HO", &MemHistory::new());
         let expected_completions = vec![("$HOME".to_string(), "$HOME".to_string())];
         assert_eq!(actual_completions, expected_completions);
     }

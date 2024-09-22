@@ -100,7 +100,8 @@ mod tests {
         let file_path = create_test_file(&temp_dir, "test.txt", "banana\napple\ncherry\n");
 
         let sort_command = format!("sort {} | result; $result", file_path.display());
-        assert_eval_ok!(&sort_command, Value::from("apple\nbanana\ncherry"));
+        let value = Value::from("apple\nbanana\ncherry");
+        assert_eval_ok!(&sort_command, value);
     }
 
     #[test]
