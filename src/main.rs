@@ -40,8 +40,7 @@ struct CmdLineHelper {
     completer: FilenameCompleter,
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
-    scope: Arc<Scope>,
-    interp: Interp, // Interpreter instance for auto-complete
+    interp: Interp, // Interpreter instance for tab completion
     completions: Option<Yaml>,
     prompt: String,
 }
@@ -73,8 +72,7 @@ impl CmdLineHelper {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
-            scope: Arc::clone(&scope),
-            interp: Interp::new(scope.clone()),
+            interp: Interp::new(scope),
             completions,
             prompt: String::default(),
         }
@@ -241,7 +239,7 @@ impl completion::Completer for CmdLineHelper {
         if tail.starts_with("~") {
             // NOTE: this may conflict with the rustyline built-in TAB completion, which uses
             // home_dir, while here the value of the $HOME var is used (which the user can change).
-            if let Some(v) = self.scope.lookup("HOME") {
+            if let Some(v) = self.interp.global_scope().lookup("HOME") {
                 completions.push(completion::Pair {
                     display: String::default(), // Don't care, there is only one candidate.
                     replacement: format!("{}{}", v.value().as_str(), &tail[1..]),
@@ -249,12 +247,16 @@ impl completion::Completer for CmdLineHelper {
             }
         } else if tail.starts_with("$") {
             // Expand variables. NOTE: No variable substitution, just expand the variable name.
-            completions.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
-                Self::Candidate {
-                    replacement: format!("${}", k),
-                    display: format!("${}", k),
-                }
-            }));
+            completions.extend(
+                self.interp
+                    .global_scope()
+                    .lookup_starting_with(&tail[1..])
+                    .iter()
+                    .map(|k| Self::Candidate {
+                        replacement: format!("${}", k),
+                        display: format!("${}", k),
+                    }),
+            );
         } else {
             for kw in self.keywords() {
                 if kw.to_lowercase().starts_with(&tail) {
