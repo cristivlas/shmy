@@ -40,8 +40,7 @@ struct CmdLineHelper {
     completer: FilenameCompleter,
     #[rustyline(Highlighter)]
     highlighter: MatchingBracketHighlighter,
-    scope: Arc<Scope>,
-    interp: Interp, // Interpreter instance for auto-complete
+    interp: Interp, // Interpreter instance for tab completion
     completions: Option<Yaml>,
     prompt: String,
 }
@@ -73,8 +72,7 @@ impl CmdLineHelper {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
-            scope: Arc::clone(&scope),
-            interp: Interp::new(scope.clone()),
+            interp: Interp::new(scope),
             completions,
             prompt: String::default(),
         }
@@ -127,7 +125,7 @@ impl CmdLineHelper {
             return (pos, input[pos..].trim());
         }
 
-        return (0, "");
+        return (0, input);
     }
 }
 
@@ -196,7 +194,7 @@ fn match_symlinks(input: &str, pos: &mut usize, candidates: &mut Vec<completion:
         match_path_prefix(&input[delim_pos..], candidates);
 
         if !candidates.is_empty() {
-            *pos = delim_pos;
+            *pos += delim_pos;
         }
     } else {
         match_path_prefix(input, candidates);
@@ -241,20 +239,27 @@ impl completion::Completer for CmdLineHelper {
         if tail.starts_with("~") {
             // NOTE: this may conflict with the rustyline built-in TAB completion, which uses
             // home_dir, while here the value of the $HOME var is used (which the user can change).
-            if let Some(v) = self.scope.lookup("HOME") {
+            if let Some(v) = self.interp.global_scope().lookup("HOME") {
                 completions.push(completion::Pair {
                     display: String::default(), // Don't care, there is only one candidate.
                     replacement: format!("{}{}", v.value().as_str(), &tail[1..]),
                 });
             }
-        } else if tail.starts_with("$") {
-            // Expand variables. NOTE: No variable substitution, just expand the variable name.
-            completions.extend(self.scope.lookup_starting_with(&tail[1..]).iter().map(|k| {
-                Self::Candidate {
-                    replacement: format!("${}", k),
-                    display: format!("${}", k),
-                }
-            }));
+        } else if let Some(var_pos) = tail.rfind("$") {
+            // Expand variables. NOTE: No variable substitution, just name expansion.
+            completions.extend(
+                self.interp
+                    .global_scope()
+                    .lookup_starting_with(&tail[var_pos + 1..])
+                    .iter()
+                    .map(|k| Self::Candidate {
+                        replacement: format!("${}", k),
+                        display: format!("${}", k),
+                    }),
+            );
+            if !completions.is_empty() {
+                tail_pos += var_pos;
+            }
         } else {
             for kw in self.keywords() {
                 if kw.to_lowercase().starts_with(&tail) {
@@ -665,4 +670,103 @@ fn main() -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    ///
+    /// TAB completion tests.
+    ///
+    use completion::Completer;
+    use rustyline::history::{History, MemHistory};
+
+    fn get_completions(
+        helper: &CmdLineHelper,
+        input: &str,
+        history: &MemHistory,
+    ) -> Vec<(String, String)> {
+        let pos = input.len();
+        let result = helper.complete(input, pos, &Context::new(history));
+        assert!(result.is_ok());
+
+        result
+            .unwrap()
+            .1
+            .iter()
+            .map(|pair| (pair.display.clone(), pair.replacement.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn test_complete_var() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "$HO", &MemHistory::new());
+        let expected_completions = vec![("$HOME".to_string(), "$HOME".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_var_arg() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "echo $HO", &MemHistory::new());
+        let expected_completions = vec![("$HOME".to_string(), "$HOME".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_tilde() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "~", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "home".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_tilde_prefix() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("\\home\\bob"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "~\\Test", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "\\home\\bob\\Test".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_history() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let mut history = MemHistory::new();
+        history.add("foozy").unwrap();
+        let actual_completions = get_completions(&helper, "!foo", &history);
+        let expected_completions = vec![("foozy".to_string(), "!foozy".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_pipe() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("\\home\\bob"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "ls | ~\\foo", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "\\home\\bob\\foo".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_path() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let actual_completions =
+            get_completions(&helper, "echo Hello && ls src/mai", &MemHistory::new());
+        #[cfg(windows)]
+        let expected_completions = vec![("src\\main.rs".to_string(), "src\\main.rs".to_string())];
+        #[cfg(not(windows))]
+        let expected_completions = vec![("main.rs".to_string(), "src/main.rs".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
 }
