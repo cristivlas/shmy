@@ -127,7 +127,7 @@ impl CmdLineHelper {
             return (pos, input[pos..].trim());
         }
 
-        return (0, "");
+        return (0, input);
     }
 }
 
@@ -665,4 +665,79 @@ fn main() -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    ///
+    /// TAB completion tests.
+    ///
+    use completion::Completer;
+    use rustyline::history::{History, MemHistory};
+
+    fn get_completions(
+        helper: &CmdLineHelper,
+        input: &str,
+        history: &MemHistory,
+    ) -> Vec<(String, String)> {
+        let pos = input.len();
+        let result = helper.complete(input, pos, &Context::new(history));
+        assert!(result.is_ok());
+
+        result
+            .unwrap()
+            .1
+            .iter()
+            .map(|pair| (pair.display.clone(), pair.replacement.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn test_complete_var() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "$HO", &MemHistory::new());
+        let expected_completions = vec![("$HOME".to_string(), "$HOME".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_tilde() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("home"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "~", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "home".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_tilde_prefix() {
+        let scope = Scope::new();
+        scope.insert("HOME".into(), Value::from("\\home\\bob"));
+        let helper = CmdLineHelper::new(scope, None);
+        let actual_completions = get_completions(&helper, "~\\Test", &MemHistory::new());
+        let expected_completions = vec![("".to_string(), "\\home\\bob\\Test".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_history() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let mut history = MemHistory::new();
+        history.add("foozy").unwrap();
+        let actual_completions = get_completions(&helper, "!foo", &history);
+        let expected_completions = vec![("foozy".to_string(), "!foozy".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_pipe() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let actual_completions = get_completions(&helper, "ls | cu", &MemHistory::new());
+        let expected_completions = vec![("cut".to_string(), "cut".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
 }
