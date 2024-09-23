@@ -31,6 +31,20 @@ impl CommandFlags {
         }
     }
 
+    pub fn with_help() -> Self {
+        let mut flags = Self::new();
+        flags.add_flag('?', "help", "Display this help and exit");
+        flags
+    }
+
+    pub fn with_follow_links() -> Self {
+        let mut flags = Self::with_help();
+        flags.add_flag_enabled('L', "follow-links", "Follow symbolic links");
+        flags.add_alias(Some('P'), "no-dereference", "no-follow-links");
+
+        flags
+    }
+
     pub fn add(&mut self, short: Option<char>, long: &str, takes_value: bool, help: &str) {
         self.add_with_default(short, long, takes_value, help, None)
     }
@@ -136,7 +150,7 @@ impl CommandFlags {
     /// Parse flags ignoring unrecognized flags.
     /// Useful when command needs to process arguments containing dashes, e.g. ```chmod a-w```
     /// and when passing commands to `run` and `sudo`.
-    pub fn parse_all(&mut self, scope: &Arc<Scope>, args: &[String]) -> Vec<String> {
+    pub fn parse_relaxed(&mut self, scope: &Arc<Scope>, args: &[String]) -> Vec<String> {
         self.set_defaults();
 
         let mut args_iter = args.iter().enumerate().peekable();
@@ -290,6 +304,7 @@ impl CommandFlags {
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(|s| s.as_str())
     }
+
     pub fn help(&self) -> String {
         let mut help_text = String::new();
 
@@ -439,7 +454,7 @@ mod tests {
             "--output".to_string(),
             "file.txt".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
         assert!(flags.is_present("verbose"));
         assert_eq!(flags.value("output"), Some("file.txt"));
         assert_eq!(non_flag_args, vec!["--unknown"]);
@@ -492,7 +507,7 @@ mod tests {
             "--debug".to_string(),
             "2".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
         assert!(flags.is_present("verbose"));
@@ -511,7 +526,7 @@ mod tests {
             "--output".to_string(),
             "file.txt".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert_eq!(non_flag_args, vec!["--unknown", "-x"]);
         assert!(flags.is_present("verbose"));
@@ -523,7 +538,7 @@ mod tests {
         let mut flags = create_test_flags();
         let scope = Arc::new(Scope::new());
         let args = vec!["--output".to_string()];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert_eq!(non_flag_args, vec!["--output"]);
         assert!(!flags.is_present("output"));
@@ -543,7 +558,7 @@ mod tests {
             "2".to_string(),
             "non-flag-arg".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert_eq!(non_flag_args, vec!["--unknown", "-x", "non-flag-arg"]);
         assert!(flags.is_present("verbose"));
@@ -561,7 +576,7 @@ mod tests {
             "--output".to_string(),
             "file.txt".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert_eq!(non_flag_args, vec!["--", "--output", "file.txt"]);
         assert!(flags.is_present("verbose"));
@@ -578,7 +593,7 @@ mod tests {
             "file.txt".to_string(),
             "-d2".to_string(),
         ];
-        let non_flag_args = flags.parse_all(&scope, &args);
+        let non_flag_args = flags.parse_relaxed(&scope, &args);
 
         assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
         assert!(flags.is_present("verbose"));

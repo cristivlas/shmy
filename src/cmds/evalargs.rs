@@ -13,8 +13,7 @@ struct Evaluate {
 
 impl Evaluate {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('x', "export", "Export variables to environment");
         flags.add_flag('s', "source", "Treat the arguments as file paths");
 
@@ -36,6 +35,7 @@ impl Exec for Evaluate {
         }
 
         let export = flags.is_present("export");
+        let follow = flags.is_present("follow-links");
         let source = flags.is_present("source");
 
         let mut interp = Interp::with_env_vars();
@@ -46,7 +46,7 @@ impl Exec for Evaluate {
                 // Treat arg as the name of a source file.
                 // Resolve symbolic links (including WSL).
                 let path = Path::new(&arg)
-                    .dereference()
+                    .resolve(follow)
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
                 let mut file = File::open(&path).map_err(|e| format_error(scope, arg, &args, e))?;

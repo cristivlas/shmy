@@ -14,7 +14,7 @@ struct CutCommand {
 
 impl CutCommand {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_value(
             'd',
             "delimiter",
@@ -25,11 +25,8 @@ impl CutCommand {
             "fields",
             "Specify the fields to extract (comma-separated list)",
         );
-        flags.add_flag_enabled('L', "follow-links", "Follow symbolic links");
-        flags.add_alias(Some('P'), "no-dereference", "no-follow-links");
 
-        flags.add_flag('?', "help", "Display this help message");
-        CutCommand { flags }
+        Self { flags }
     }
 
     fn mode_specific_help(&self) -> &str {
@@ -40,7 +37,7 @@ impl CutCommand {
 impl Exec for CutCommand {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let filenames = flags.parse_all(scope, args);
+        let filenames = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... [FILE]...", name);

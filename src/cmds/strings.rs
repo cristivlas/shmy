@@ -13,13 +13,12 @@ struct StringsCommand {
 
 impl StringsCommand {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_value(
             'n',
             "min-length",
             "Specify the minimum length of strings to output",
         );
-        flags.add_flag('?', "help", "Display this help message");
         StringsCommand { flags }
     }
 
@@ -45,6 +44,8 @@ impl Exec for StringsCommand {
             return Err("No file specified".to_string());
         }
 
+        let follow = flags.is_present("follow-links");
+
         let min_length = flags
             .value("min-length")
             .map(|v| {
@@ -55,7 +56,7 @@ impl Exec for StringsCommand {
 
         for filename in &filenames {
             let mmap = Path::new(filename)
-                .dereference()
+                .resolve(follow)
                 .and_then(|path| File::open(&path).and_then(|file| unsafe { Mmap::map(&file) }))
                 .map_err(|e| format_error(&scope, filename, args, e))?;
 
@@ -71,12 +72,14 @@ fn process_strings<R: AsRef<[u8]>>(data: R, min_length: usize) -> Result<(), Str
     let mut current_string = Vec::new();
 
     for &byte in bytes {
-        if byte.is_ascii_alphanumeric() || byte.is_ascii_whitespace() {
+        if byte.is_ascii_alphanumeric() && !byte.is_ascii_whitespace() {
             current_string.push(byte);
         } else if !current_string.is_empty() {
             if current_string.len() >= min_length {
                 if let Ok(s) = String::from_utf8(current_string.clone()) {
-                    my_println!("{}", s)?;
+                    if !s.trim().is_empty() {
+                        my_println!("{}", s)?;
+                    }
                 }
             }
             current_string.clear();

@@ -12,11 +12,9 @@ struct Mv {
 
 impl Mv {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('f', "force", "Do not prompt before overwriting");
         flags.add_flag('i', "interactive", "Prompt before overwriting files");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         Self { flags }
     }
@@ -124,7 +122,7 @@ impl Exec for Mv {
             let mut src_path = PathBuf::from(src);
             if follow {
                 src_path = src_path
-                    .dereference()
+                    .resolve(follow)
                     .map_err(|e| format!("{}: {}", scope.err_str(src), e))?
                     .into();
             }

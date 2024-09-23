@@ -761,8 +761,7 @@ struct ProcStatus {
 
 impl ProcStatus {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'a',
             "all",
@@ -782,7 +781,7 @@ impl Exec for ProcStatus {
 
         // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc
         // and to allow minus sign in sort specifiers.
-        let _ = flags.parse_all(scope, args);
+        let _ = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: ps [OPTIONS]");

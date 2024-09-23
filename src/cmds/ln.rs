@@ -18,10 +18,9 @@ struct Options {
 
 impl Link {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('s', "symbolic", "Make symbolic links instead of hard links");
         flags.add_flag('f', "force", "Remove existing destination files");
-        flags.add_flag('?', "help", "Display this help and exit");
 
         Self { flags }
     }

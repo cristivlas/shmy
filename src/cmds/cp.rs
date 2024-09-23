@@ -410,7 +410,7 @@ impl<'a> FileCopier<'a> {
             done = self.do_work_actions(&[Action::Link], &work).map_err(|e| {
                 io::Error::new(
                     Other,
-                    format!("{}. Try again with -P, -no-dereference, or sudo", e),
+                    format!("{}. Try again with -P, --no-dereference, or sudo", e),
                 )
             })?;
         }

@@ -193,7 +193,7 @@ impl Chmod {
 impl Exec for Chmod {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let paths = flags.parse_all(scope, args);
+        let paths = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("{}", "Usage: chmod [OPTIONS] MODE FILE...");

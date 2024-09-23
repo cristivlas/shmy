@@ -11,8 +11,7 @@ struct Date {
 
 impl Date {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('u', "utc", "Display time in UTC instead of local time");
         flags.add_flag('r', "rfc2822", "Display date and time in RFC 2822 format");
         flags.add_flag('I', "iso8601", "Display date in ISO 8601 format");

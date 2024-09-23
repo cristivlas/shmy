@@ -9,9 +9,8 @@ struct Basename {
 
 impl Basename {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        Basename { flags }
+        let flags = CommandFlags::with_help();
+        Self { flags }
     }
 }
 

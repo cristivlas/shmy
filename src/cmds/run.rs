@@ -9,9 +9,7 @@ struct Run {
 
 impl Run {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('D', "debug", "Debug (dump) command line arguments");
         flags.add_flag(
             'r',
@@ -31,7 +29,7 @@ impl Run {
 impl Exec for Run {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut command_args = flags.parse_all(scope, args);
+        let mut command_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: run COMMAND [ARGS]...");
@@ -40,9 +38,11 @@ impl Exec for Run {
             print!("{}", flags.help());
             return Ok(Value::success());
         }
+
         if command_args.is_empty() {
             return Err("No command specified".to_string());
         }
+
         let mut cmd_name = command_args.iter().next().cloned().unwrap();
 
         if flags.is_present("follow-links") {

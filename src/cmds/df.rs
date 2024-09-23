@@ -42,8 +42,7 @@ fn string_from_wide(wide: &mut Vec<u16>) -> String {
 
 impl DiskFree {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'h',
             "human-readable",

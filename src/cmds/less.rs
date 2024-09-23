@@ -601,10 +601,9 @@ struct Less {
 
 impl Less {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('n', "number", "Number output lines");
-        Less { flags }
+        Self { flags }
     }
 }
 
@@ -657,6 +656,8 @@ impl Exec for Less {
             return Ok(Value::success());
         }
 
+        let follow = flags.is_present("follow-links");
+
         if filenames.is_empty() {
             run_viewer(scope, &flags, None, None).map_err(|e| e.to_string())?;
         } else {
@@ -664,7 +665,7 @@ impl Exec for Less {
             loop {
                 let filename = filenames.get(i).unwrap();
                 let path = Path::new(filename)
-                    .dereference()
+                    .resolve(follow)
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 match run_viewer(

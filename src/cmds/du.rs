@@ -58,8 +58,7 @@ impl Exec for DiskUtilization {
 
 impl DiskUtilization {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'a',
             "all",

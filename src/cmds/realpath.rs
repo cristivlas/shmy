@@ -9,9 +9,7 @@ struct Realpath {
 
 impl Realpath {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-
+        let flags = CommandFlags::with_help();
         Self { flags }
     }
 }

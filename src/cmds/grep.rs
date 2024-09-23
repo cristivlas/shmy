@@ -15,8 +15,7 @@ struct Grep {
 
 impl Grep {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag(
             'i',
             "ignore-case",
@@ -43,7 +42,6 @@ impl Grep {
             "Include hyperlinks to files and lines in the output",
         );
         flags.add_flag('r', "recursive", "Recursively search subdirectories");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
         flags.add_flag(
             'v',
             "invert-match",

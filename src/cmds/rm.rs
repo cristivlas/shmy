@@ -42,11 +42,9 @@ struct Remove {
 
 impl Remove {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('f', "force", "Delete without prompting");
         flags.add_flag('i', "interactive", "Prompt before deletion (default)");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
         flags.add_flag(
             'r',
             "recursive",
@@ -126,7 +124,7 @@ impl Remove {
 impl Exec for Remove {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let paths = flags.parse(scope, args)?;
+        let paths = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: rm [OPTIONS] FILE...");

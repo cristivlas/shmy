@@ -13,10 +13,7 @@ struct Find {
 
 impl Find {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
-
+        let flags = CommandFlags::with_follow_links();
         Self { flags }
     }
 
@@ -32,9 +29,7 @@ impl Find {
             return Ok(());
         }
 
-        let search_path = path
-            .resolve(follow)
-            .unwrap_or(Cow::Owned(path.into()));
+        let search_path = path.resolve(follow).unwrap_or(Cow::Owned(path.into()));
 
         // Check if the current directory or file matches the pattern
         if regex.is_match(&file_name.to_string_lossy()) {

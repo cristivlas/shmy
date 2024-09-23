@@ -101,7 +101,7 @@ struct Options {
 
 impl Dir {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('a', "all", "Do not ignore entries starting with .");
         flags.add_flag('l', "long", "Use a long listing format");
         flags.add_flag(
@@ -110,7 +110,6 @@ impl Dir {
             "Print sizes in human readable format (e.g., 1K, 234M, 2G)",
         );
         flags.add_flag('u', "utc", "Show file times in UTC");
-        flags.add_flag('?', "help", "Display this help and exit");
 
         Self { flags }
     }

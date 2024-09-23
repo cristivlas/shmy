@@ -21,12 +21,11 @@ struct CountResult {
 
 impl WordCount {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('l', "lines", "Print the newline counts");
         flags.add_flag('w', "words", "Print the word counts");
         flags.add_flag('m', "chars", "Print the character counts");
         flags.add_flag('c', "bytes", "Print the byte counts");
-        flags.add_flag('?', "help", "Display this help message");
 
         Self { flags }
     }
@@ -124,6 +123,8 @@ impl Exec for WordCount {
             return Ok(Value::success());
         }
 
+        let follow = flags.is_present("follow-links");
+
         let mut total = CountResult {
             lines: 0,
             words: 0,
@@ -140,7 +141,7 @@ impl Exec for WordCount {
         } else {
             for file in &args {
                 let path = Path::new(&file)
-                    .dereference()
+                    .resolve(follow)
                     .map_err(|e| format_error(scope, file, &args, e))?;
 
                 if path.is_dir() {
