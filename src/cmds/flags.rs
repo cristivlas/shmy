@@ -1,15 +1,6 @@
-use crate::scope::Scope;
+use crate::{cmds::Flag, scope::Scope};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-
-#[derive(Clone)]
-struct Flag {
-    short: Option<char>,
-    long: String,
-    help: String,
-    takes_value: bool,
-    default_value: Option<String>,
-}
 
 #[derive(Clone)]
 pub struct CommandFlags {
@@ -301,6 +292,12 @@ impl CommandFlags {
         self.values.contains_key(name)
     }
 
+    /// Returns an iterator over Flag values
+    pub fn iter(&self) -> impl Iterator<Item = &Flag> {
+        self.flags.values()
+    }
+
+    /// Query value, for flags that take value.
     pub fn value(&self, name: &str) -> Option<&str> {
         self.values.get(name).map(|s| s.as_str())
     }

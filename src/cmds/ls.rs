@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::utils::{self, format_size, read_symlink, MAX_USER_DISPLAY_LEN};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
@@ -145,6 +145,10 @@ impl Dir {
 }
 
 impl Exec for Dir {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut opts = self.parse_args(scope, args)?;
         if opts.help {

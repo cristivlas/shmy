@@ -1,4 +1,4 @@
-use super::{register_command, Exec, ShellCommand};
+use super::{register_command, Exec, Flag, ShellCommand};
 use crate::{
     cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
 };
@@ -35,6 +35,10 @@ impl CutCommand {
 }
 
 impl Exec for CutCommand {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse_relaxed(scope, args);

@@ -1,6 +1,5 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::{current_dir, eval::Value, scope::Scope};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
+use crate::{current_dir, eval::Value, scope::Scope, symlnk::SymLink};
 use std::cell::RefCell;
 use std::{env, path::Path, sync::Arc};
 
@@ -92,6 +91,10 @@ impl ChangeDir {
 }
 
 impl Exec for ChangeDir {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         self.chdir(name, args, scope)
     }
@@ -105,6 +108,10 @@ impl PrintWorkingDir {
 }
 
 impl Exec for PrintWorkingDir {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let _ = flags.parse(scope, args)?;

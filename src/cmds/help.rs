@@ -1,5 +1,6 @@
 use super::{
-    flags::CommandFlags, get_command, register_command, registered_commands, Exec, ShellCommand,
+    flags::CommandFlags, get_command, register_command, registered_commands, Exec, Flag,
+    ShellCommand,
 };
 use crate::utils::{self, executable};
 use crate::{eval::Value, scope::Scope};
@@ -29,7 +30,9 @@ impl Help {
         println!("DESCRIPTION");
         println!("    shmy is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
         println!("    It supports variable assignment and evaluation; conditional statements; loops; arithmetic and");
-        println!("    logical operations; command execution evaluation; output redirection and pipes.");
+        println!(
+            "    logical operations; command execution evaluation; output redirection and pipes."
+        );
         println!();
         println!("EXPRESSIONS");
         println!("    Variable Assignment and Evaluation");
@@ -46,7 +49,9 @@ impl Help {
         println!("        '||': or, '&&': and");
         println!();
         println!("COMMAND EXECUTION");
-        println!("    A command evaluates to true if it succeeds (exit code 0) and false otherwise.");
+        println!(
+            "    A command evaluates to true if it succeeds (exit code 0) and false otherwise."
+        );
         println!("    Errors from failed commands are stored in the special variable $__errors.");
         println!("    If a command fails and its status is not evaluated, execution stops.");
         println!();
@@ -173,6 +178,10 @@ impl Help {
 }
 
 impl Exec for Help {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;

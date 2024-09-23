@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::sync::Arc;
 
@@ -14,6 +14,10 @@ impl Defined {
 }
 
 impl Exec for Defined {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
