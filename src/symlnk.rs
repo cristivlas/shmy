@@ -11,11 +11,6 @@ pub trait SymLink: AsRef<Path> {
     fn resolve(&self, follow_links: bool) -> io::Result<Cow<'_, Path>> {
         if follow_links {
             self.dereference()
-        } else if self.as_ref().is_symlink() {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{} is a symbolic link", self.as_ref().display()),
-            ))
         } else {
             Ok(Cow::Borrowed(self.as_ref()))
         }
