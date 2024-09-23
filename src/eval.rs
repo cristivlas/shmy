@@ -1648,27 +1648,54 @@ macro_rules! eval_cmp_fn {
 
 impl BinExpr {
     fn eval_and(&self) -> EvalResult<Value> {
+        let mut status = false;
         let lhs_val = self.lhs.eval()?;
         if let Value::Stat(s) = &lhs_val {
+            status = true;
             if s.borrow().result.is_err() {
                 return Ok(lhs_val); // Return unchecked Status
             }
         }
+        let mut all = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?;
 
-        let rhs_val = self.rhs.eval()?;
-        if let Value::Stat(s) = &rhs_val {
-            if s.borrow().result.is_err() {
-                return Ok(rhs_val); // Return unchecked Status
+        if all {
+            let rhs_val = self.rhs.eval()?;
+            if let Value::Stat(s) = &rhs_val {
+                status &= true;
+                if s.borrow().result.is_err() {
+                    return Ok(rhs_val); // Return unchecked Status
+                }
+            } else {
+                status = false;
             }
-        }
-        let all = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?
-            && value_as_bool(&*self.rhs, &rhs_val, &self.scope)?;
 
-        Ok(Value::Int(all as _))
+            all &= value_as_bool(&*self.rhs, &rhs_val, &self.scope)?;
+        }
+
+        let result = Ok(Value::Int(all as _));
+
+        // If both left or right hand sides are command statuses, wrap the
+        // result into a status as well; this way the interactive mode shell
+        // can supress outputs of 0 or 1 for commands such as ```ls -al && echo```
+        if status {
+            Ok(Value::Stat(Status::new(
+                String::default(),
+                &result,
+                &self.loc,
+            )))
+        } else {
+            result
+        }
     }
 
     fn eval_or(&self) -> EvalResult<Value> {
+        let mut status = false;
         let lhs_val = self.lhs.eval()?;
+
+        if let Value::Stat(_) = &lhs_val {
+            status = true;
+        }
+
         let mut any = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?;
 
         if !any {
@@ -1679,7 +1706,18 @@ impl BinExpr {
             any = value_as_bool(&*self.rhs, &rhs_val, &self.scope)?;
         }
 
-        Ok(Value::Int(any as _))
+        let result = Ok(Value::Int(any as _));
+
+        if status {
+            // Wrap the result in a Status, see eval_and above.
+            Ok(Value::Stat(Status::new(
+                String::default(),
+                &result,
+                &self.loc,
+            )))
+        } else {
+            result
+        }
     }
 
     fn eval_assign(&self) -> EvalResult<Value> {
