@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope, utils::format_size};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error, utils::format_size};
 use std::collections::HashSet;
 use std::fs;
 use std::io::Error;
@@ -19,7 +19,9 @@ impl Exec for DiskUtilization {
             println!("Usage: du [OPTIONS] [PATH...]");
             println!("Estimate file space usage.");
             println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("{}", flags.help());
+            println!("Symbolic links are skipped except at top level (i.e. the paths specified in the command)");
+            println!("unless -P / --no-dereference option is present -- in which case no symlinks are resolved.");
             return Ok(Value::success());
         }
 
@@ -27,17 +29,25 @@ impl Exec for DiskUtilization {
             paths.push(".".to_string());
         }
 
+        let max_depth = flags
+            .value("max-depth")
+            .map(|s| {
+                s.parse::<usize>()
+                    .map_err(|e| format_error(&scope, s, args, e))
+            })
+            .transpose()?; // Propagate error if present
+
         let opts = Options {
             all: flags.is_present("all"),
             apparent: flags.is_present("apparent"),
             summarize: flags.is_present("summarize"),
             human: flags.is_present("human-readable"),
             block_size: 1024,
-            max_depth: flags
-                .value("max-depth")
-                .map(|s| s.parse().unwrap_or(usize::MAX)),
+            max_depth,
             unique_ids: flags.is_present("unique"),
         };
+
+        let follow = flags.is_present("follow-links");
 
         for p in &paths {
             // Set the argument index in case there's an error
@@ -45,7 +55,10 @@ impl Exec for DiskUtilization {
 
             let mut file_ids: HashSet<(u64, u64)> = HashSet::new();
 
-            let path = PathBuf::from(p);
+            let path = Path::new(p)
+                .resolve(follow)
+                .map_err(|e| format_error(&scope, p, args, e))?;
+
             let size = du_size(&path, &opts, scope, 0, &mut file_ids)?;
 
             if opts.summarize {
@@ -58,7 +71,7 @@ impl Exec for DiskUtilization {
 
 impl DiskUtilization {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_help();
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag(
             'a',
             "all",

@@ -1,7 +1,7 @@
 use super::{register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
+use crate::{
+    cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
+};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
