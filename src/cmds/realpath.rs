@@ -9,7 +9,7 @@ struct Realpath {
 
 impl Realpath {
     fn new() -> Self {
-        let flags = CommandFlags::with_follow_links();
+        let flags = CommandFlags::with_help();
         Self { flags }
     }
 }
@@ -31,12 +31,10 @@ impl Exec for Realpath {
             return Err("No arguments provided".to_string());
         }
 
-        let follow = flags.is_present("follow-links");
-
         for (i, arg) in args.iter().enumerate() {
             scope.set_err_arg(i);
             let canonical_path = Path::new(arg)
-                .resolve(follow)
+                .dereference()
                 .and_then(|p| p.canonicalize())
                 .map_err(|e| format!("{}: {}", scope.err_path_arg(arg, args), e))?;
 

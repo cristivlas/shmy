@@ -1,6 +1,5 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope, symlnk::SymLink};
-use std::path::Path;
+use crate::{eval::Value, scope::Scope};
 use std::sync::Arc;
 
 struct Run {
@@ -9,7 +8,7 @@ struct Run {
 
 impl Run {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('D', "debug", "Debug (dump) command line arguments");
         flags.add_flag(
             'r',
@@ -43,15 +42,7 @@ impl Exec for Run {
             return Err("No command specified".to_string());
         }
 
-        let mut cmd_name = command_args.iter().next().cloned().unwrap();
-
-        if flags.is_present("follow-links") {
-            cmd_name = Path::new(&cmd_name)
-                .dereference()
-                .map_err(|e| e.to_string())?
-                .display()
-                .to_string();
-        }
+        let cmd_name = command_args.iter().next().cloned().unwrap();
 
         if let Some(cmd) = get_command(&cmd_name) {
             command_args.remove(0);

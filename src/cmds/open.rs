@@ -10,7 +10,7 @@ struct Open {
 
 impl Open {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_value('a', "application", "Application to open with");
 
         Self { flags }
@@ -35,11 +35,10 @@ impl Exec for Open {
         }
 
         let application = flags.value("application");
-        let follow = flags.is_present("follow-links");
 
         for arg in &args {
             let path = Path::new(arg)
-                .resolve(follow)
+                .dereference()
                 .map_err(|e| format_error(scope, arg, &args, e))?
                 .to_path_buf();
 

@@ -13,7 +13,7 @@ struct StringsCommand {
 
 impl StringsCommand {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_value(
             'n',
             "min-length",
@@ -44,8 +44,6 @@ impl Exec for StringsCommand {
             return Err("No file specified".to_string());
         }
 
-        let follow = flags.is_present("follow-links");
-
         let min_length = flags
             .value("min-length")
             .map(|v| {
@@ -56,7 +54,7 @@ impl Exec for StringsCommand {
 
         for filename in &filenames {
             let mmap = Path::new(filename)
-                .resolve(follow)
+                .dereference()
                 .and_then(|path| File::open(&path).and_then(|file| unsafe { Mmap::map(&file) }))
                 .map_err(|e| format_error(&scope, filename, args, e))?;
 
