@@ -100,8 +100,7 @@ impl Exec for ChangeDir {
 
 impl PrintWorkingDir {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('h', "help", "Display this help message");
+        let flags = CommandFlags::with_help();
         Self { flags }
     }
 }
