@@ -41,9 +41,14 @@ impl Exec for Open {
         let application = flags.value("application");
 
         for arg in &args {
-            let path = Path::new(arg)
+            let path = Path::new(arg);
+            // Attempt to dereference 1st, to resolve WSL symbolic links, if any.
+            // Canonicalize the result, to make sure that the path exits; if the
+            // dereferenced path does not exist, default to the original user input.
+            let path = path
                 .dereference()
-                .map_err(|e| format_error(scope, arg, &args, e))?
+                .and_then(|path| path.canonicalize())
+                .unwrap_or(path.to_path_buf())
                 .to_path_buf();
 
             let result = if let Some(app) = application {
