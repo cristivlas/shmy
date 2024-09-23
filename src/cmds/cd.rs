@@ -148,3 +148,64 @@ fn register() {
         inner: Arc::new(PrintWorkingDir::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Scope;
+    use std::env;
+
+    #[test]
+    fn test_cd_to_specific_dir() {
+        let chdir = ChangeDir::new();
+        let target_dir: String = env::current_dir().unwrap().to_string_lossy().to_string();
+
+        let result = chdir.exec("cd", &vec![target_dir.clone()], &Scope::new());
+
+        assert!(result.is_ok());
+        assert_eq!(env::current_dir().unwrap(), Path::new(&target_dir));
+    }
+
+    #[test]
+    fn test_pushd_and_popd() {
+        let chdir = ChangeDir::new();
+        let initial_dir = env::current_dir().unwrap();
+        let new_dir = initial_dir.parent().unwrap();
+
+        // Test pushd
+        let result_pushd = chdir.exec(
+            "pushd",
+            &vec![new_dir.to_string_lossy().to_string()],
+            &Scope::new(),
+        );
+        assert!(result_pushd.is_ok());
+        assert_eq!(env::current_dir().unwrap(), new_dir);
+
+        // Test popd
+        let result_popd = chdir.exec("popd", &vec![], &Scope::new());
+        assert!(result_popd.is_ok());
+        assert_eq!(env::current_dir().unwrap(), initial_dir);
+    }
+
+    #[test]
+    fn test_popd_empty_stack() {
+        let chdir = ChangeDir::new();
+
+        let result = chdir.exec("popd", &vec![], &Scope::new());
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "popd: directory stack empty".to_string()
+        );
+    }
+
+    #[test]
+    fn test_pwd() {
+        let pwd = PrintWorkingDir::new();
+        let result = pwd.exec("pwd", &vec![], &Scope::new());
+        assert!(result.is_ok());
+        let current_dir = env::current_dir().unwrap().to_str().unwrap().to_string();
+        assert_eq!(current_dir, current_dir);
+    }
+}
