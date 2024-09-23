@@ -12,7 +12,7 @@ struct Touch {
 
 impl Touch {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'c',
             "no-create",
@@ -40,11 +40,10 @@ impl Exec for Touch {
         }
 
         let no_create = flags.is_present("no-create");
-        let follow = flags.is_present("follow-links");
 
         for filename in command_args.iter() {
             let target_path = Path::new(filename)
-                .resolve(follow)
+                .dereference()
                 .map_err(|e| {
                     format_error(
                         scope,

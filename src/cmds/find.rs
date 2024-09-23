@@ -13,7 +13,7 @@ struct Find {
 
 impl Find {
     fn new() -> Self {
-        let flags = CommandFlags::with_follow_links();
+        let flags = CommandFlags::with_help();
         Self { flags }
     }
 
@@ -23,13 +23,12 @@ impl Find {
         file_name: &OsStr,
         path: &Path,
         regex: &Regex,
-        follow: bool,
     ) -> Result<(), String> {
         if Scope::is_interrupted() {
             return Ok(());
         }
 
-        let search_path = path.resolve(follow).unwrap_or(Cow::Owned(path.into()));
+        let search_path = path.dereference().unwrap_or(Cow::Owned(path.into()));
 
         // Check if the current directory or file matches the pattern
         if regex.is_match(&file_name.to_string_lossy()) {
@@ -42,13 +41,7 @@ impl Find {
                     for entry in entries {
                         match entry {
                             Ok(entry) => {
-                                self.search(
-                                    scope,
-                                    &entry.file_name(),
-                                    &entry.path(),
-                                    regex,
-                                    follow,
-                                )?;
+                                self.search(scope, &entry.file_name(), &entry.path(), regex)?;
                             }
                             Err(e) => {
                                 my_warning!(scope, "{}: {}", scope.err_path(path), e);
@@ -83,9 +76,9 @@ impl Exec for Find {
             return Err("Missing search pattern".to_string());
         }
 
-        let follow_links = flags.is_present("follow-links");
         let pattern = args.last().unwrap(); // Last argument is the search pattern
         let regex = Regex::new(pattern).map_err(|e| format!("Invalid regex: {}", e))?;
+
         let dirs = if args.len() > 1 {
             &args[..args.len() - 1] // All except the last
         } else {
@@ -94,7 +87,7 @@ impl Exec for Find {
 
         for dir in dirs {
             let path = Path::new(dir);
-            self.search(scope, OsStr::new(dir), &path, &regex, follow_links)?;
+            self.search(scope, OsStr::new(dir), &path, &regex)?;
         }
 
         Ok(Value::success())

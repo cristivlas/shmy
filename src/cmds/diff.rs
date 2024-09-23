@@ -13,7 +13,7 @@ struct Diff {
 
 impl Diff {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('o', "color", "Color output");
 
         Self { flags }
@@ -38,11 +38,10 @@ impl Exec for Diff {
         }
 
         let mut files = Vec::new();
-        let follow = flags.is_present("follow-links");
 
         for filename in fnames.iter().take(2) {
             let path = Path::new(filename)
-                .resolve(follow)
+                .dereference()
                 .map_err(|e| format_error(scope, filename, args, e))?;
 
             files.push(read_file(filename, &path, scope, args)?);

@@ -14,7 +14,7 @@ struct CutCommand {
 
 impl CutCommand {
     fn new() -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_value(
             'd',
             "delimiter",
@@ -48,7 +48,6 @@ impl Exec for CutCommand {
         }
 
         let delimiter = flags.value("delimiter").unwrap_or("\t");
-        let follow = flags.is_present("follow-links");
 
         let regex_delimiter =
             Regex::new(&delimiter).map_err(|e| format!("Invalid regex delimiter: {}", e))?;
@@ -70,7 +69,7 @@ impl Exec for CutCommand {
         } else {
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve(follow)
+                    .dereference()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let file =

@@ -22,7 +22,7 @@ struct CatHeadTail {
 
 impl CatHeadTail {
     fn new(mode: Mode) -> Self {
-        let mut flags = CommandFlags::with_follow_links();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('n', "number", "Number output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
@@ -54,7 +54,6 @@ impl Exec for CatHeadTail {
         }
 
         let line_num: bool = flags.is_present("number");
-        let follow = flags.is_present("follow-links");
 
         let lines = flags
             .value("lines")
@@ -74,7 +73,7 @@ impl Exec for CatHeadTail {
             let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve(follow)
+                    .dereference()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let mode = self.mode.clone();

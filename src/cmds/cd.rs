@@ -15,15 +15,15 @@ struct PrintWorkingDir {
 
 impl ChangeDir {
     fn new() -> Self {
-        let flags = CommandFlags::with_follow_links();
+        let flags = CommandFlags::with_help();
         Self {
             stack: RefCell::new(Vec::new()), // pushd / popd stack
             flags,
         }
     }
 
-    fn do_chdir(&self, scope: &Arc<Scope>, follow: bool, dir: &str) -> Result<(), String> {
-        let path = Path::new(dir).resolve(follow).map_err(|e| e.to_string())?;
+    fn do_chdir(&self, scope: &Arc<Scope>, dir: &str) -> Result<(), String> {
+        let path = Path::new(dir).dereference().map_err(|e| e.to_string())?;
 
         env::set_current_dir(&path)
             .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_str(dir), e))?;
@@ -56,7 +56,6 @@ impl ChangeDir {
             return Ok(Value::success());
         }
 
-        let follow = flags.is_present("follow-links");
         match name {
             "cd" | "chdir" => {
                 let new_dir = if parsed_args.is_empty() {
@@ -67,7 +66,7 @@ impl ChangeDir {
                 } else {
                     parsed_args.join(" ")
                 };
-                self.do_chdir(scope, follow, &new_dir)?
+                self.do_chdir(scope, &new_dir)?
             }
             "pushd" => {
                 let new_dir = if parsed_args.is_empty() {
@@ -76,14 +75,14 @@ impl ChangeDir {
                     parsed_args.join(" ")
                 };
                 self.stack.borrow_mut().push(current_dir()?);
-                self.do_chdir(scope, follow, &new_dir)?
+                self.do_chdir(scope, &new_dir)?
             }
             "popd" => {
                 if self.stack.borrow().is_empty() {
                     return Err("popd: directory stack empty".to_string());
                 }
                 let old_dir = self.stack.borrow_mut().pop().unwrap();
-                self.do_chdir(scope, follow, &old_dir)?
+                self.do_chdir(scope, &old_dir)?
             }
             _ => unreachable!(),
         }

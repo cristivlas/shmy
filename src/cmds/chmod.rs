@@ -10,8 +10,7 @@ struct Chmod {
 
 impl Chmod {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('r', "recursive", "Change permissions recursively");
         flags.add_flag('v', "verbose", "Report diagnostic for every file processed");
 

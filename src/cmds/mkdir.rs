@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
@@ -10,8 +11,7 @@ struct Mkdir {
 
 impl Mkdir {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('p', "parents", "Create parent directories as needed");
 
         Self { flags }
@@ -38,19 +38,19 @@ impl Exec for Mkdir {
         let create_parents = flags.is_present("parents");
 
         for (i, dir) in args.iter().enumerate() {
-            let path = Path::new(dir);
-            let result = if create_parents {
-                fs::create_dir_all(path)
-            } else {
-                fs::create_dir(path)
-            };
-            match result {
-                Ok(_) => {}
-                Err(e) => {
+            Path::new(dir)
+                .dereference()
+                .and_then(|path| {
+                    if create_parents {
+                        fs::create_dir_all(path)
+                    } else {
+                        fs::create_dir(path)
+                    }
+                })
+                .map_err(|e| {
                     scope.set_err_arg(i);
-                    return Err(format!("{}: {}", scope.err_path(path), e));
-                }
-            }
+                    format!("{}: {}", scope.err_path_arg(dir, &args), e)
+                })?;
         }
 
         Ok(Value::success())
