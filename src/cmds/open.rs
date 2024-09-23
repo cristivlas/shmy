@@ -13,7 +13,7 @@ impl Open {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('L', "follow-links", "Follow symbolic links");
-        flags.add_option('a', "application", "Application to open with");
+        flags.add_value('a', "application", "Application to open with");
 
         Self { flags }
     }
@@ -36,7 +36,7 @@ impl Exec for Open {
             return Err("open: no file or URL specified".to_string());
         }
 
-        let application = flags.option("application");
+        let application = flags.value("application");
         let follow = flags.is_present("follow-links");
 
         for arg in &args {

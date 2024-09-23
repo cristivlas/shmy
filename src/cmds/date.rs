@@ -16,7 +16,7 @@ impl Date {
         flags.add_flag('u', "utc", "Display time in UTC instead of local time");
         flags.add_flag('r', "rfc2822", "Display date and time in RFC 2822 format");
         flags.add_flag('I', "iso8601", "Display date in ISO 8601 format");
-        flags.add_option(
+        flags.add_value(
             'z',
             "timezone",
             "Specify the zone (e.g., America/New_York) to display local time",
@@ -68,7 +68,7 @@ impl Exec for Date {
         let formatted_time = if flags.is_present("utc") {
             let utc_time = Utc::now();
             self.format_time(utc_time, &flags)
-        } else if let Some(tz) = flags.option("timezone") {
+        } else if let Some(tz) = flags.value("timezone") {
             let tz_time = self.get_time_in_timezone(scope, args, tz)?;
             self.format_time(tz_time, &flags)
         } else {

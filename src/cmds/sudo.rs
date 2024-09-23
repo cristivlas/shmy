@@ -22,7 +22,7 @@ impl Sudo {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_value('-', "args", "Pass all remaining arguments to COMMAND");
         Self { flags }
     }
 
@@ -99,7 +99,7 @@ impl Exec for Sudo {
 
         let cmd_name = command_args.remove(0);
 
-        if let Some(additional_args) = flags.option("args") {
+        if let Some(additional_args) = flags.value("args") {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 

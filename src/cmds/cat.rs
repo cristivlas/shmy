@@ -27,7 +27,7 @@ impl CatHeadTail {
         flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
-            flags.add_option('l', "lines", "Specify the number of lines to output");
+            flags.add_value('l', "lines", "Specify the number of lines to output");
         }
         flags.add_flag('?', "help", "Display this help message");
         CatHeadTail { flags, mode }
@@ -59,7 +59,7 @@ impl Exec for CatHeadTail {
         let follow_links = flags.is_present("follow-links");
 
         let lines = flags
-            .option("lines")
+            .value("lines")
             .map(|v| {
                 v.parse::<usize>()
                     .map_err(|e| format_error(&scope, v, args, e))

@@ -15,16 +15,19 @@ struct CutCommand {
 impl CutCommand {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_option(
+        flags.add_value(
             'd',
             "delimiter",
             "Specify the regex delimiter (default: tab)",
         );
-        flags.add_option(
+        flags.add_value(
             'f',
             "fields",
             "Specify the fields to extract (comma-separated list)",
         );
+        flags.add_flag_enabled('L', "follow-links", "Follow symbolic links");
+        flags.add_alias(Some('P'), "no-dereference", "no-follow-links");
+
         flags.add_flag('?', "help", "Display this help message");
         CutCommand { flags }
     }
@@ -47,13 +50,14 @@ impl Exec for CutCommand {
             return Ok(Value::success());
         }
 
-        let delimiter = flags.option("delimiter").unwrap_or("\t");
+        let delimiter = flags.value("delimiter").unwrap_or("\t");
+        let follow = flags.is_present("follow-links");
 
         let regex_delimiter =
             Regex::new(&delimiter).map_err(|e| format!("Invalid regex delimiter: {}", e))?;
 
         let fields: Vec<usize> = flags
-            .option("fields")
+            .value("fields")
             .ok_or_else(|| "Fields option is required.".to_string())?
             .split(',')
             .map(|s| {
@@ -62,30 +66,23 @@ impl Exec for CutCommand {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let result = if filenames.is_empty() {
+        if filenames.is_empty() {
             scope.show_eof_hint();
             let mut stdin = BufReader::new(io::stdin());
-            process_cut(&mut stdin, &regex_delimiter, &fields)
+            process_cut(&mut stdin, &regex_delimiter, &fields)?;
         } else {
-            let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .dereference()
+                    .resolve(follow)
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let file =
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let mut reader = BufReader::new(file);
-                result = process_cut(&mut reader, &regex_delimiter, &fields);
-
-                if result.is_err() {
-                    break;
-                }
+                process_cut(&mut reader, &regex_delimiter, &fields)?;
             }
-            result
         };
 
-        result?;
         Ok(Value::success())
     }
 }

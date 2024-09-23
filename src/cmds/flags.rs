@@ -1,5 +1,5 @@
 use crate::scope::Scope;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -15,6 +15,7 @@ struct Flag {
 pub struct CommandFlags {
     flags: BTreeMap<String, Flag>,
     values: BTreeMap<String, String>,
+    aliases: HashMap<String, String>, // Map aliases to the actual flag
     index: usize,
 }
 
@@ -25,6 +26,7 @@ impl CommandFlags {
         CommandFlags {
             flags: BTreeMap::new(),
             values: BTreeMap::new(),
+            aliases: HashMap::new(),
             index: 0,
         }
     }
@@ -33,7 +35,33 @@ impl CommandFlags {
         self.add_with_default(short, long, takes_value, help, None)
     }
 
-    pub fn add_with_default(
+    pub fn add_alias(&mut self, short: Option<char>, alias: &str, other: &str) {
+        // Get the "base name" i.e. strip negation for the base flag we are aliasing
+        let (base_name, negated) = if other.starts_with("no-") {
+            (&other[3..], true)
+        } else {
+            (other, false)
+        };
+        let flag = self.flags.get(base_name).expect("flag does not exist");
+        if flag.takes_value {
+            panic!("Aliasing not supported for value flags");
+        }
+        if self
+            .aliases
+            .insert(alias.to_string(), other.to_string())
+            .is_some()
+        {
+            panic!("Alias exists: {}", alias);
+        }
+        let help = if negated {
+            format!("Do not {}", flag.help.to_lowercase())
+        } else {
+            flag.help.clone()
+        };
+        self.add(short, alias, false, &help);
+    }
+
+    fn add_with_default(
         &mut self,
         short: Option<char>,
         long: &str,
@@ -70,7 +98,7 @@ impl CommandFlags {
     }
 
     /// Add flag that takes a value
-    pub fn add_option(&mut self, short: char, long: &str, help: &str) {
+    pub fn add_value(&mut self, short: char, long: &str, help: &str) {
         self.add(Some(short), long, true, help);
     }
 
@@ -84,6 +112,8 @@ impl CommandFlags {
     /// - A `Result` containing a vector of non-flag arguments if parsing is successful,
     ///   or an error message as a string if parsing fails.
     pub fn parse(&mut self, scope: &Arc<Scope>, args: &[String]) -> Result<Vec<String>, String> {
+        self.set_defaults();
+
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
 
@@ -107,6 +137,8 @@ impl CommandFlags {
     /// Useful when command needs to process arguments containing dashes, e.g. ```chmod a-w```
     /// and when passing commands to `run` and `sudo`.
     pub fn parse_all(&mut self, scope: &Arc<Scope>, args: &[String]) -> Vec<String> {
+        self.set_defaults();
+
         let mut args_iter = args.iter().enumerate().peekable();
         let mut non_flag_args = Vec::new();
         let mut encountered_double_dash = false;
@@ -132,27 +164,45 @@ impl CommandFlags {
         non_flag_args
     }
 
+    fn set_defaults(&mut self) {
+        for (k, f) in &self.flags {
+            if let Some(value) = &f.default_value {
+                self.values.insert(k.clone(), value.clone());
+            }
+        }
+    }
+
+    fn resolve_name(&self, name: &str) -> Option<(Flag, bool)> {
+        match self.aliases.get(name) {
+            Some(name) => self.resolve_name(name),
+            None => {
+                if let Some(flag) = self.flags.get(name) {
+                    return Some((flag.clone(), false));
+                }
+
+                if name.starts_with("no-") {
+                    if let Some((flag, _)) = self.resolve_name(&name[3..]) {
+                        return Some((flag.clone(), true));
+                    }
+                }
+                None
+            }
+        }
+    }
+
     fn handle_long_flag(
         &mut self,
         scope: &Arc<Scope>,
         arg: &str,
         args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
-        let flag_name = &arg[2..];
-        let is_negation = flag_name.starts_with("no-");
-        let actual_flag_name = if is_negation {
-            &flag_name[3..]
-        } else {
-            flag_name
-        };
-
-        if let Some(flag) = self.flags.get(actual_flag_name) {
+        if let Some((flag, is_negation)) = self.resolve_name(&arg[2..]) {
             if flag.takes_value {
                 if is_negation {
                     scope.set_err_arg(self.index);
                     return Err(format!(
-                        "Flag --no-{} is not valid for option that takes a value",
-                        actual_flag_name
+                        "--no-{} is not valid for flag that takes a value",
+                        flag.long
                     ));
                 }
                 if let Some((i, value)) = args_iter.next() {
@@ -160,7 +210,7 @@ impl CommandFlags {
                     self.values.insert(flag.long.clone(), value.clone());
                 } else {
                     scope.set_err_arg(self.index);
-                    return Err(format!("Flag --{} requires a value", flag_name));
+                    return Err(format!("Flag --{} requires a value", flag.long));
                 }
             } else if is_negation {
                 self.values.remove(&flag.long);
@@ -185,6 +235,9 @@ impl CommandFlags {
         while i < chars.len() {
             let c = chars[i];
             if let Some(flag) = self.flags.values().find(|f| f.short == Some(c)) {
+                let (flag, is_negation) =
+                    self.resolve_name(&flag.long).expect("unknown short flag");
+
                 if flag.takes_value {
                     let value = if i + 1 < chars.len() {
                         // Case: -d2
@@ -209,6 +262,8 @@ impl CommandFlags {
 
                     self.values.insert(flag.long.clone(), value);
                     break; // Exit the loop as we've consumed the rest of the argument
+                } else if is_negation {
+                    self.values.remove(&flag.long);
                 } else {
                     self.values.insert(flag.long.clone(), "true".to_string());
                 }
@@ -226,14 +281,14 @@ impl CommandFlags {
     }
 
     pub fn is_present(&self, name: &str) -> bool {
+        #[cfg(not(test))]
+        assert!(self.flags.contains_key(name));
+
         self.values.contains_key(name)
     }
 
-    pub fn option(&self, name: &str) -> Option<&str> {
-        self.values
-            .get(name)
-            .or(self.flags.get(name).and_then(|f| f.default_value.as_ref()))
-            .map(|s| s.as_str())
+    pub fn value(&self, name: &str) -> Option<&str> {
+        self.values.get(name).map(|s| s.as_str())
     }
     pub fn help(&self) -> String {
         let mut help_text = String::new();
@@ -266,17 +321,18 @@ mod tests {
     fn create_test_flags() -> CommandFlags {
         let mut flags = CommandFlags::new();
         flags.add_flag('v', "verbose", "Enable verbose output");
-        flags.add_option('o', "output", "Specify output file");
+        flags.add_value('o', "output", "Specify output file");
         flags.add_with_default(Some('d'), "debug", true, "Set debug level", Some("0"));
         flags
     }
 
     #[test]
     fn test_default_values() {
-        let flags = create_test_flags();
-        assert_eq!(flags.option("verbose"), None);
-        assert_eq!(flags.option("debug"), Some("0"));
-        assert_eq!(flags.option("output"), None);
+        let mut flags = create_test_flags();
+
+        let result = flags.parse(&Scope::new(), &vec![]);
+        assert!(result.is_ok());
+        assert_eq!(flags.value("debug"), Some("0"));
     }
 
     #[test]
@@ -291,7 +347,7 @@ mod tests {
         let result = flags.parse(&scope, &args);
         assert!(result.is_ok());
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
     }
 
     #[test]
@@ -302,7 +358,7 @@ mod tests {
         let result = flags.parse(&scope, &args);
         assert!(result.is_ok());
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
     }
 
     #[test]
@@ -350,7 +406,7 @@ mod tests {
         let args = vec!["--debug".to_string(), "2".to_string()];
         let result = flags.parse(&scope, &args);
         assert!(result.is_ok());
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("debug"), Some("2"));
     }
 
     #[test]
@@ -385,7 +441,7 @@ mod tests {
         ];
         let non_flag_args = flags.parse_all(&scope, &args);
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
         assert_eq!(non_flag_args, vec!["--unknown"]);
     }
 
@@ -395,7 +451,7 @@ mod tests {
         let scope = Arc::new(Scope::new());
 
         // Adding flags for the test
-        flags.add_option('d', "debug", "Set debug level");
+        flags.add_value('d', "debug", "Set debug level");
 
         // Test input: '-d' followed by '2' as a separate argument
         let args = vec!["-d".to_string(), "2".to_string()];
@@ -404,7 +460,7 @@ mod tests {
         let result: Result<Vec<String>, String> = flags.parse(&scope, &args);
 
         assert!(result.is_ok(), "Expected the parser to succeed");
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("debug"), Some("2"));
     }
 
     #[test]
@@ -413,7 +469,7 @@ mod tests {
         let scope = Arc::new(Scope::new());
 
         // Adding flags for the test
-        flags.add_option('d', "debug", "Set debug level");
+        flags.add_value('d', "debug", "Set debug level");
 
         // Test input: '-d2', where '2' is concatenated with the flag '-d'
         let args = vec!["-d2".to_string()];
@@ -422,7 +478,7 @@ mod tests {
         let result = flags.parse(&scope, &args);
 
         assert!(result.is_ok(), "Expected the parser to succeed");
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("debug"), Some("2"));
     }
 
     #[test]
@@ -440,8 +496,8 @@ mod tests {
 
         assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
+        assert_eq!(flags.value("debug"), Some("2"));
     }
 
     #[test]
@@ -459,7 +515,7 @@ mod tests {
 
         assert_eq!(non_flag_args, vec!["--unknown", "-x"]);
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
     }
 
     #[test]
@@ -491,8 +547,8 @@ mod tests {
 
         assert_eq!(non_flag_args, vec!["--unknown", "-x", "non-flag-arg"]);
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
+        assert_eq!(flags.value("debug"), Some("2"));
     }
 
     #[test]
@@ -526,7 +582,45 @@ mod tests {
 
         assert!(non_flag_args.is_empty(), "Expected no non-flag arguments");
         assert!(flags.is_present("verbose"));
-        assert_eq!(flags.option("output"), Some("file.txt"));
-        assert_eq!(flags.option("debug"), Some("2"));
+        assert_eq!(flags.value("output"), Some("file.txt"));
+        assert_eq!(flags.value("debug"), Some("2"));
+    }
+
+    #[test]
+    fn test_alias() {
+        let mut flags = CommandFlags::new();
+        flags.add_flag('L', "follow", "Follow symbolic links");
+        flags.add_alias(None, "deref", "follow");
+
+        let result = flags.parse(&Scope::new(), &vec!["--deref".to_string()]);
+
+        assert!(result.is_ok());
+        assert!(flags.is_present("follow"));
+        assert!(!flags.is_present("deref"));
+    }
+
+    #[test]
+    fn test_alias_negate() {
+        let mut flags = CommandFlags::new();
+        flags.add_flag_enabled('L', "follow", "Follow symbolic links");
+        flags.add_alias(None, "deref", "follow");
+
+        let result = flags.parse(&Scope::new(), &vec!["--no-deref".to_string()]);
+        assert!(result.is_ok());
+        assert!(!flags.is_present("follow"));
+        assert!(!flags.is_present("deref"));
+    }
+
+    #[test]
+    fn test_alias_short_negate() {
+        let mut flags = CommandFlags::new();
+        flags.add_flag_enabled('L', "follow", "Follow symbolic links");
+        flags.add_alias(Some('P'), "no-deref", "no-follow");
+
+        let result = flags.parse(&Scope::new(), &vec!["-P".to_string()]);
+
+        assert!(result.is_ok());
+        assert!(!flags.is_present("follow"));
+        assert!(!flags.is_present("deref"));
     }
 }

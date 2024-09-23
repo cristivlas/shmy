@@ -14,7 +14,7 @@ struct StringsCommand {
 impl StringsCommand {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
-        flags.add_option(
+        flags.add_value(
             'n',
             "min-length",
             "Specify the minimum length of strings to output",
@@ -46,7 +46,7 @@ impl Exec for StringsCommand {
         }
 
         let min_length = flags
-            .option("min-length")
+            .value("min-length")
             .map(|v| {
                 v.parse::<usize>()
                     .map_err(|e| format_error(&scope, v, args, e))

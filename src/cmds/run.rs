@@ -18,8 +18,8 @@ impl Run {
             "raw",
             "Arguments are passed as a raw string that needs to be tokenized",
         );
-        flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
-        flags.add_option(
+        flags.add_value('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_value(
             'd',
             "delimiter",
             "Specify custom delimiters for tokenizing when '--raw' is specified (default: whitespace)",
@@ -56,13 +56,13 @@ impl Exec for Run {
         if let Some(cmd) = get_command(&cmd_name) {
             command_args.remove(0);
 
-            if let Some(cmd_flags) = flags.option("args") {
+            if let Some(cmd_flags) = flags.value("args") {
                 // Pass all args following -- (or --args) to the command.
                 command_args.extend(cmd_flags.split_ascii_whitespace().map(String::from));
             }
             if flags.is_present("raw") {
                 // Use custom delimiter if specified, otherwise use whitespace
-                let delimiters = flags.option("delimiter").unwrap_or(" \t\n\r");
+                let delimiters = flags.value("delimiter").unwrap_or(" \t\n\r");
                 command_args = command_args
                     .iter()
                     .flat_map(|s| {

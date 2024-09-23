@@ -34,7 +34,7 @@ impl Exec for DiskUtilization {
             human: flags.is_present("human-readable"),
             block_size: 1024,
             max_depth: flags
-                .option("max-depth")
+                .value("max-depth")
                 .map(|s| s.parse().unwrap_or(usize::MAX)),
             unique_ids: flags.is_present("unique"),
         };
@@ -71,7 +71,7 @@ impl DiskUtilization {
             "human-readable",
             "Print sizes in human readable format (e.g., 1.1K, 234M, 2.7G)",
         );
-        flags.add_option(
+        flags.add_value(
             'd',
             "max-depth",
             "Print the total for a directory only if below the specified depth",

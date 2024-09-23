@@ -1,6 +1,6 @@
 [package]
 name = "shmy"
-version = "0.18.2"
+version = "0.18.3"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like commands, and WSL symbolic link support"

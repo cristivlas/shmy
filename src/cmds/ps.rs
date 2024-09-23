@@ -770,7 +770,7 @@ impl ProcStatus {
         );
         flags.add_flag('l', "long", "Long format");
         flags.add_flag('t', "tree", "Display processes in a hierarchical view");
-        flags.add_option('s', "sort", "Specify sorting order");
+        flags.add_value('s', "sort", "Specify sorting order");
 
         Self { flags }
     }
@@ -814,7 +814,7 @@ impl Exec for ProcStatus {
             view.columns.push(View::cmd_column());
         }
 
-        if let Some(sort_spec) = flags.option("sort") {
+        if let Some(sort_spec) = flags.value("sort") {
             if tree_view {
                 my_warning!(scope, "Sort ignored due to --tree option");
             }
