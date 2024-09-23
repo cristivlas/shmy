@@ -1,4 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use crate::symlnk::SymLink;
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
 use std::sync::Arc;
@@ -9,7 +10,7 @@ struct Realpath {
 
 impl Realpath {
     fn new() -> Self {
-        let flags = CommandFlags::with_help();
+        let flags = CommandFlags::with_follow_links();
         Self { flags }
     }
 }
@@ -31,12 +32,14 @@ impl Exec for Realpath {
             return Err("No arguments provided".to_string());
         }
 
+        let follow = flags.is_present("follow-links");
+
         for (i, arg) in args.iter().enumerate() {
             scope.set_err_arg(i);
-            let path = Path::new(arg);
-            let canonical_path = path
-                .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+            let canonical_path = Path::new(arg)
+                .resolve(follow)
+                .and_then(|p| p.canonicalize())
+                .map_err(|e| format!("{}: {}", scope.err_path_arg(arg, args), e))?;
 
             my_println!("{}", canonical_path.display())?;
         }
