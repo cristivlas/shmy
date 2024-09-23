@@ -3,7 +3,7 @@ use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error, uti
 use std::collections::HashSet;
 use std::fs;
 use std::io::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 struct DiskUtilization {
@@ -207,6 +207,7 @@ mod win {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     use std::os::windows::io::AsRawHandle;
+    use std::path::PathBuf;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Storage::FileSystem::{
