@@ -38,6 +38,8 @@ mod ls;
 mod mkdir;
 mod mv;
 mod open;
+#[cfg(windows)]
+mod power;
 mod ps;
 mod realpath;
 mod rm;
