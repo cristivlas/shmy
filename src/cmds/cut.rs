@@ -49,7 +49,7 @@ impl Exec for CutCommand {
             println!("\nOptions:");
             println!("{}", flags.help());
             println!("Example: ps | cut -d\\s+ -f4,2");
-            println!("Split result of 'ps' commands using one or more spaces as delimiter, output colums 4 and 2");
+            println!("Split output of 'ps' command using one or more spaces as delimiter, output colums 4 and 2");
             return Ok(Value::success());
         }
 
