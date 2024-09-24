@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::utils::{self, format_size, read_symlink, MAX_USER_DISPLAY_LEN};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
@@ -101,7 +101,7 @@ struct Options {
 
 impl Dir {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('a', "all", "Do not ignore entries starting with .");
         flags.add_flag('l', "long", "Use a long listing format");
         flags.add_flag(
@@ -110,7 +110,6 @@ impl Dir {
             "Print sizes in human readable format (e.g., 1K, 234M, 2G)",
         );
         flags.add_flag('u', "utc", "Show file times in UTC");
-        flags.add_flag('?', "help", "Display this help and exit");
 
         Self { flags }
     }
@@ -146,6 +145,10 @@ impl Dir {
 }
 
 impl Exec for Dir {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut opts = self.parse_args(scope, args)?;
         if opts.help {
@@ -318,7 +321,7 @@ fn list_entries(
 ) -> Result<Value, String> {
     for entry_path in &opts.paths {
         let path = Path::new(entry_path)
-            .resolve()
+            .dereference()
             .map_err(|e| format!("{}: {}", scope.err_path_arg(&entry_path, args), e))?;
 
         match fs::metadata(&path) {

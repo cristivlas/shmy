@@ -230,7 +230,7 @@ pub mod win {
     /// use FSCTL_DELETE_REPARSE_POINT to remove symbolic link,
     /// then remove the file or directory given by `path`.
     pub fn remove_link(path: &Path) -> std::io::Result<()> {
-        let is_dir = path.resolve()?.is_dir();
+        let is_dir = path.dereference()?.is_dir();
 
         // lifetime scope for the file to close automatically
         {

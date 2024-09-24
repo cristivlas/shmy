@@ -66,6 +66,19 @@ pub trait Exec {
     fn path(&self) -> Cow<'_, Path> {
         unreachable!()
     }
+
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(std::iter::empty())
+    }
+}
+
+#[derive(Clone)]
+pub struct Flag {
+    pub short: Option<char>,
+    pub long: String,
+    help: String,
+    takes_value: bool,
+    default_value: Option<String>,
 }
 
 #[derive(Clone)]
@@ -87,6 +100,10 @@ impl Debug for ShellCommand {
 }
 
 impl Exec for ShellCommand {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        self.inner.cli_flags()
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
     }

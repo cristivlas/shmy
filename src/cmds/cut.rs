@@ -1,4 +1,4 @@
-use super::{register_command, Exec, ShellCommand};
+use super::{register_command, Exec, Flag, ShellCommand};
 use crate::{
     cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
 };
@@ -14,19 +14,19 @@ struct CutCommand {
 
 impl CutCommand {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_option(
+        let mut flags = CommandFlags::with_help();
+        flags.add_value(
             'd',
             "delimiter",
             "Specify the regex delimiter (default: tab)",
         );
-        flags.add_option(
+        flags.add_value(
             'f',
             "fields",
             "Specify the fields to extract (comma-separated list)",
         );
-        flags.add_flag('?', "help", "Display this help message");
-        CutCommand { flags }
+
+        Self { flags }
     }
 
     fn mode_specific_help(&self) -> &str {
@@ -35,9 +35,13 @@ impl CutCommand {
 }
 
 impl Exec for CutCommand {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let filenames = flags.parse_all(scope, args);
+        let filenames = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: {} [OPTION]... [FILE]...", name);
@@ -47,13 +51,13 @@ impl Exec for CutCommand {
             return Ok(Value::success());
         }
 
-        let delimiter = flags.option("delimiter").unwrap_or("\t");
+        let delimiter = flags.value("delimiter").unwrap_or("\t");
 
         let regex_delimiter =
             Regex::new(&delimiter).map_err(|e| format!("Invalid regex delimiter: {}", e))?;
 
         let fields: Vec<usize> = flags
-            .option("fields")
+            .value("fields")
             .ok_or_else(|| "Fields option is required.".to_string())?
             .split(',')
             .map(|s| {
@@ -62,30 +66,23 @@ impl Exec for CutCommand {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let result = if filenames.is_empty() {
+        if filenames.is_empty() {
             scope.show_eof_hint();
             let mut stdin = BufReader::new(io::stdin());
-            process_cut(&mut stdin, &regex_delimiter, &fields)
+            process_cut(&mut stdin, &regex_delimiter, &fields)?;
         } else {
-            let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let file =
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
                 let mut reader = BufReader::new(file);
-                result = process_cut(&mut reader, &regex_delimiter, &fields);
-
-                if result.is_err() {
-                    break;
-                }
+                process_cut(&mut reader, &regex_delimiter, &fields)?;
             }
-            result
         };
 
-        result?;
         Ok(Value::success())
     }
 }

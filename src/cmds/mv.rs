@@ -1,7 +1,6 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::symlnk::SymLink;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,11 +11,9 @@ struct Mv {
 
 impl Mv {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('f', "force", "Do not prompt before overwriting");
         flags.add_flag('i', "interactive", "Prompt before overwriting files");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
 
         Self { flags }
     }
@@ -80,16 +77,23 @@ impl Mv {
     }
 
     fn get_dest_path(scope: &Arc<Scope>, path: &str) -> Result<PathBuf, String> {
-        Ok(PathBuf::from(path).resolve().unwrap_or(
-            Path::new(".")
-                .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_str(path), e))?
-                .join(path),
-        ))
+        Ok(PathBuf::from(path)
+            .dereference()
+            .and_then(|p| Ok(p.into()))
+            .unwrap_or(
+                Path::new(".")
+                    .canonicalize()
+                    .map_err(|e| format!("{}: {}", scope.err_str(path), e))?
+                    .join(path),
+            ))
     }
 }
 
 impl Exec for Mv {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
@@ -121,8 +125,9 @@ impl Exec for Mv {
             let mut src_path = PathBuf::from(src);
             if follow {
                 src_path = src_path
-                    .resolve()
-                    .map_err(|e| format!("{}: {}", scope.err_str(src), e))?;
+                    .resolve(follow)
+                    .map_err(|e| format!("{}: {}", scope.err_str(src), e))?
+                    .into();
             }
             if !Self::move_file(&src_path, &dest, &mut interactive, is_batch, scope)? {
                 break; // Stop if move_file returns false (user chose to quit)

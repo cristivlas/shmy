@@ -13,8 +13,7 @@ struct Sort {
 
 impl Sort {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('u', "unique", "Output only the first of an equal run");
         flags.add_flag('r', "reverse", "Reverse the result of comparisons");
         flags.add_flag(
@@ -93,7 +92,7 @@ impl Exec for Sort {
         } else {
             for file_path in &args {
                 let path = Path::new(file_path)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(scope, file_path, &args, e))?;
 
                 if path.is_file() {

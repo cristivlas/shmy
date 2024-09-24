@@ -1,5 +1,5 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,8 +10,7 @@ struct Mkdir {
 
 impl Mkdir {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('p', "parents", "Create parent directories as needed");
 
         Self { flags }
@@ -19,6 +18,10 @@ impl Mkdir {
 }
 
 impl Exec for Mkdir {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
@@ -38,19 +41,19 @@ impl Exec for Mkdir {
         let create_parents = flags.is_present("parents");
 
         for (i, dir) in args.iter().enumerate() {
-            let path = Path::new(dir);
-            let result = if create_parents {
-                fs::create_dir_all(path)
-            } else {
-                fs::create_dir(path)
-            };
-            match result {
-                Ok(_) => {}
-                Err(e) => {
+            Path::new(dir)
+                .dereference()
+                .and_then(|path| {
+                    if create_parents {
+                        fs::create_dir_all(path)
+                    } else {
+                        fs::create_dir(path)
+                    }
+                })
+                .map_err(|e| {
                     scope.set_err_arg(i);
-                    return Err(format!("{}: {}", scope.err_path(path), e));
-                }
-            }
+                    format!("{}: {}", scope.err_path_arg(dir, &args), e)
+                })?;
         }
 
         Ok(Value::success())

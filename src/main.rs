@@ -78,11 +78,49 @@ impl CmdLineHelper {
         }
     }
 
-    fn keywords(&self) -> Vec<String> {
-        registered_commands(false)
-            .into_iter()
-            .chain(KEYWORDS.iter().map(|s| s.to_string()))
-            .collect()
+    fn complete_commands(
+        &self,
+        input: &str,
+        pos: &mut usize,
+        candidates: &mut Vec<completion::Pair>,
+    ) {
+        for name in &registered_commands(false) {
+            if name.starts_with(input) {
+                candidates.push(completion::Pair {
+                    display: name.clone(),
+                    replacement: name.clone(),
+                })
+            } else if input.starts_with(name) {
+                if let Some(delim_pos) = input.rfind(&['\t', ' '][..]) {
+                    let arg = &input[&delim_pos + 1..];
+                    if arg.is_empty() {
+                        continue;
+                    }
+                    let cmd = get_command(name).unwrap();
+                    for f in cmd.cli_flags() {
+                        if let Some(short) = f.short {
+                            let flag = format!("-{}", short);
+                            if flag.starts_with(arg) {
+                                candidates.push(completion::Pair {
+                                    display: flag.clone(),
+                                    replacement: flag,
+                                })
+                            }
+                        }
+                        let flag = format!("--{}", f.long);
+                        if flag.starts_with(arg) {
+                            candidates.push(completion::Pair {
+                                display: flag.clone(),
+                                replacement: flag,
+                            })
+                        }
+                    }
+                    if !candidates.is_empty() {
+                        *pos += delim_pos + 1;
+                    }
+                }
+            }
+        }
     }
 
     // https://github.com/kkawakam/rustyline/blob/master/src/hint.rs#L66
@@ -105,7 +143,7 @@ impl CmdLineHelper {
         self.prompt = prompt.into()
     }
 
-    /// Auto-completion helper. Use the helper interpreter instance to parse
+    /// Completion helper. Uses the helper interpreter instance to parse
     /// and extract the tail of the input rather than just splitting at whitespace.
     /// If the parsing attempt does not work, then fail over to simple space split.
     fn get_tail<'a>(&self, input: &'a str) -> (usize, &'a str) {
@@ -130,7 +168,7 @@ impl CmdLineHelper {
 }
 
 #[cfg(windows)]
-/// The rustyline file auto-completer does not recognize WSL symbolic links
+/// The rustyline file tab-completer does not recognize WSL symbolic links
 /// (because the standard fs lib does not support them). This function implements some
 /// rudimentary support by matching the file_name prefix (not dealing with quotes and
 /// escapes at this time).
@@ -140,12 +178,17 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
     let path = std::path::Path::new(word);
     let mut name = path.file_name().unwrap_or_default().to_string_lossy();
     let cwd = env::current_dir().unwrap_or(PathBuf::default());
-    let mut dir = path.parent().unwrap_or(&cwd).resolve().unwrap_or_default();
+    let mut dir = path
+        .parent()
+        .unwrap_or(&cwd)
+        .dereference()
+        .unwrap_or_default()
+        .into_owned();
 
     if word.ends_with("\\") {
-        if let Ok(resolved) = path.resolve() {
+        if let Ok(resolved) = path.dereference() {
             if resolved.exists() {
-                dir = resolved;
+                dir = resolved.into();
                 name = std::borrow::Cow::Borrowed("");
             }
         }
@@ -171,7 +214,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                         dir.join(file_name).to_string_lossy().to_string()
                     };
 
-                    let replacement = if path.resolve().unwrap_or(path.to_path_buf()).is_dir() {
+                    let replacement = if path.dereference().unwrap_or(path.into()).is_dir() {
                         format!("{}\\", display)
                     } else {
                         display.clone()
@@ -213,7 +256,7 @@ impl completion::Completer for CmdLineHelper {
         pos: usize,
         ctx: &Context<'_>,
     ) -> Result<(usize, Vec<Self::Candidate>), ReadlineError> {
-        // Autocomplete only at the end of the input.
+        // Complete only at the end of the input.
         if pos < line.len() {
             return Ok((pos, vec![]));
         }
@@ -261,14 +304,18 @@ impl completion::Completer for CmdLineHelper {
                 tail_pos += var_pos;
             }
         } else {
-            for kw in self.keywords() {
+            for kw in KEYWORDS {
                 if kw.to_lowercase().starts_with(&tail) {
                     completions.push(completion::Pair {
-                        display: kw.clone(),
-                        replacement: kw,
+                        display: kw.to_string(),
+                        replacement: kw.to_string(),
                     });
                 }
             }
+            if completions.is_empty() {
+                self.complete_commands(tail, &mut tail_pos, &mut completions);
+            }
+
             if completions.is_empty() {
                 // Custom (user-defined) command completions
                 if let Some(config) = &self.completions {

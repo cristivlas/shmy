@@ -1,7 +1,10 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::prompt::{confirm, Answer};
-use crate::symlnk::SymLink;
-use crate::{eval::Value, scope::Scope};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
+use crate::{
+    eval::Value,
+    prompt::{confirm, Answer},
+    scope::Scope,
+    symlnk::SymLink,
+};
 use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::collections::{BTreeMap, HashSet};
@@ -193,9 +196,12 @@ impl<'a> FileCopier<'a> {
     /// Add a work item for making a symbolic link.
     fn add_link(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
         // Resolve the link target
-        let target =
-            src.resolve()
-                .wrap_err_with_msg(&self, top, src, Some("Could not get link target"))?;
+        let target = src.dereference().wrap_err_with_msg(
+            &self,
+            top,
+            src,
+            Some("Could not get link target"),
+        )?;
 
         let target_dest = self.resolve_dest(top, parent, &target)?;
         let dest = self.resolve_dest(top, parent, src)?;
@@ -291,15 +297,19 @@ impl<'a> FileCopier<'a> {
         assert!(!self.srcs.is_empty());
 
         // Always resolve symbolic links in the destination.
-        self.dest = self.dest.resolve().wrap_err(
-            &self,
-            self.dest.as_os_str().to_str().unwrap_or(""),
-            &self.dest,
-        )?;
+        self.dest = self
+            .dest
+            .dereference()
+            .wrap_err(
+                &self,
+                self.dest.as_os_str().to_str().unwrap_or(""),
+                &self.dest,
+            )?
+            .into();
 
         for src in self.srcs {
             // Always resolve symbolic links for the source paths given in the command line.
-            let path = Path::new(src).resolve()?;
+            let path = Path::new(src).dereference()?;
             let parent = path.parent().unwrap_or(&path);
 
             if self.debug {
@@ -410,7 +420,7 @@ impl<'a> FileCopier<'a> {
             done = self.do_work_actions(&[Action::Link], &work).map_err(|e| {
                 io::Error::new(
                     Other,
-                    format!("{}. Try again with -P, -no-dereference, or sudo", e),
+                    format!("{}. Try again with -P, --no-dereference, or sudo", e),
                 )
             })?;
         }
@@ -606,6 +616,10 @@ impl Cp {
 }
 
 impl Exec for Cp {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let paths = flags.parse(scope, args)?;

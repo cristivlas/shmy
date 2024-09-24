@@ -1,6 +1,5 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::eval::Value;
-use crate::scope::Scope;
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
+use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -18,10 +17,9 @@ struct Options {
 
 impl Link {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('s', "symbolic", "Make symbolic links instead of hard links");
         flags.add_flag('f', "force", "Remove existing destination files");
-        flags.add_flag('?', "help", "Display this help and exit");
 
         Self { flags }
     }
@@ -60,6 +58,10 @@ impl Link {
 }
 
 impl Exec for Link {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let opts = self.parse_args(scope, args)?;
 

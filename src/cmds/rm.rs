@@ -1,6 +1,6 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::prompt::{confirm, Answer};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -42,8 +42,7 @@ struct Remove {
 
 impl Remove {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag('f', "force", "Delete without prompting");
         flags.add_flag('i', "interactive", "Prompt before deletion (default)");
         flags.add_flag(
@@ -123,9 +122,13 @@ impl Remove {
 }
 
 impl Exec for Remove {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let paths = flags.parse(scope, args)?;
+        let paths = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: rm [OPTIONS] FILE...");
@@ -147,16 +150,16 @@ impl Exec for Remove {
             scope: Arc::clone(&scope),
         };
 
+        let follow_links = flags.is_present("follow-links");
+
         // Use a set to dedupe inputs, e.g. avoid ```rm *.rs *.rs``` resulting in error.
         let to_remove: HashSet<&String> = HashSet::from_iter(&paths);
 
-        for path in to_remove.iter() {
-            match self.remove(&Path::new(path), &mut ctx) {
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(format!("{}: {}", scope.err_path_arg(path, args), e));
-                }
-            }
+        for &path in to_remove.iter() {
+            Path::new(path)
+                .resolve(follow_links)
+                .and_then(|path| self.remove(&path, &mut ctx))
+                .map_err(|e| format_error(scope, path, args, e))?;
 
             if ctx.quit {
                 break;

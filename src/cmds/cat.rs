@@ -1,7 +1,7 @@
-use super::{register_command, Exec, ShellCommand};
-use crate::symlnk::SymLink;
-use crate::utils::format_error;
-use crate::{cmds::flags::CommandFlags, eval::Value, scope::Scope};
+use super::{register_command, Exec, Flag, ShellCommand};
+use crate::{
+    cmds::flags::CommandFlags, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
+};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
@@ -22,13 +22,12 @@ struct CatHeadTail {
 
 impl CatHeadTail {
     fn new(mode: Mode) -> Self {
-        let mut flags = CommandFlags::new();
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('n', "number", "Number output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
-            flags.add_option('l', "lines", "Specify the number of lines to output");
+            flags.add_value('l', "lines", "Specify the number of lines to output");
         }
-        flags.add_flag('?', "help", "Display this help message");
         CatHeadTail { flags, mode }
     }
 
@@ -42,6 +41,10 @@ impl CatHeadTail {
 }
 
 impl Exec for CatHeadTail {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let filenames = flags.parse(scope, args)?;
@@ -55,8 +58,9 @@ impl Exec for CatHeadTail {
         }
 
         let line_num: bool = flags.is_present("number");
+
         let lines = flags
-            .option("lines")
+            .value("lines")
             .map(|v| {
                 v.parse::<usize>()
                     .map_err(|e| format_error(&scope, v, args, e))
@@ -73,7 +77,7 @@ impl Exec for CatHeadTail {
             let mut result = Ok(());
             for filename in &filenames {
                 let path = Path::new(filename)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let mode = self.mode.clone();

@@ -1,5 +1,6 @@
 use super::{
-    flags::CommandFlags, get_command, register_command, registered_commands, Exec, ShellCommand,
+    flags::CommandFlags, get_command, register_command, registered_commands, Exec, Flag,
+    ShellCommand,
 };
 use crate::utils::{self, executable};
 use crate::{eval::Value, scope::Scope};
@@ -29,7 +30,9 @@ impl Help {
         println!("DESCRIPTION");
         println!("    shmy is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
         println!("    It supports variable assignment and evaluation; conditional statements; loops; arithmetic and");
-        println!("    logical operations; command execution evaluation; output redirection and pipes.");
+        println!(
+            "    logical operations; command execution evaluation; output redirection and pipes."
+        );
         println!();
         println!("EXPRESSIONS");
         println!("    Variable Assignment and Evaluation");
@@ -59,6 +62,19 @@ impl Help {
         println!("        <expression> | <expression>");
         println!("    Example:");
         println!("        ls -al | (echo \"\\t\\tHEADER\"; cat; echo \"\\t\\tFOOTER\")");
+        println!();
+        println!("PROMPT CUSTOMIZATION");
+        println!("    The prompt can be customized using escape sequences prefixed with '\\'.");
+        println!("    Supported sequences:");
+        println!("        \\u  - Insert the current username");
+        println!("        \\H  - Insert the full hostname");
+        println!("        \\h  - Insert the short hostname (up to the first dot)");
+        println!("        \\w  - Insert the current working directory");
+        println!("        \\$  - Insert '#' if the user is root, otherwise '$'");
+        println!();
+        println!("    Examples:");
+        println!("        $__prompt = \\u@\\h:\\w\\_");
+        println!("        $__prompt = \"\\\\u@\\h|\\\\w\\\\$ \"");
         println!();
         println!("SPECIAL VARIABLES");
         println!("    Redirect stdout: $__stdout");
@@ -173,6 +189,10 @@ impl Help {
 }
 
 impl Exec for Help {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;

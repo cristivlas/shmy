@@ -1,6 +1,8 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Interp, eval::Value, scope::Scope};
-use crate::{symlnk::SymLink, utils::format_error, utils::sync_env_vars};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
+use crate::{
+    eval::Interp, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
+    utils::sync_env_vars,
+};
 use colored::*;
 use std::fs::File;
 use std::io::Read;
@@ -13,8 +15,7 @@ struct Evaluate {
 
 impl Evaluate {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('x', "export", "Export variables to environment");
         flags.add_flag('s', "source", "Treat the arguments as file paths");
 
@@ -23,6 +24,10 @@ impl Evaluate {
 }
 
 impl Exec for Evaluate {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let eval_args = flags.parse(scope, args)?;
@@ -46,7 +51,7 @@ impl Exec for Evaluate {
                 // Treat arg as the name of a source file.
                 // Resolve symbolic links (including WSL).
                 let path = Path::new(&arg)
-                    .resolve()
+                    .dereference()
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
                 let mut file = File::open(&path).map_err(|e| format_error(scope, arg, &args, e))?;

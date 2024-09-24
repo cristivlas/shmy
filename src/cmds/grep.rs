@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand, Flag};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use colored::*;
 use regex::Regex;
@@ -15,8 +15,7 @@ struct Grep {
 
 impl Grep {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_follow_links();
         flags.add_flag(
             'i',
             "ignore-case",
@@ -43,7 +42,6 @@ impl Grep {
             "Include hyperlinks to files and lines in the output",
         );
         flags.add_flag('r', "recursive", "Recursively search subdirectories");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
         flags.add_flag(
             'v',
             "invert-match",
@@ -60,7 +58,7 @@ impl Grep {
         paths: &[String],
         follow: bool,
         recursive: bool,
-        visited: &mut HashSet<PathBuf>,
+        visited: &mut HashSet<String>,
     ) -> Vec<PathBuf> {
         // Files to processs
         let mut files = Vec::new();
@@ -70,43 +68,15 @@ impl Grep {
                 return files;
             }
 
-            let path = PathBuf::from(p);
+            let path = Path::new(p);
 
-            if !visited.insert(path.clone()) {
-                continue;
-            }
-
-            if path.is_dir() {
-                if recursive {
-                    files.extend(
-                        fs::read_dir(&path)
-                            .unwrap()
-                            .filter_map(Result::ok)
-                            .flat_map(|entry| {
-                                self.collect_files(
-                                    scope,
-                                    args,
-                                    &[entry.path().display().to_string()],
-                                    follow,
-                                    recursive,
-                                    visited,
-                                )
-                            }),
-                    );
-                } else {
-                    my_warning!(
-                        scope,
-                        "Omitting directory (-r/--recursive option not set): {}",
-                        scope.err_str(p)
-                    );
-                }
-            } else if path.is_symlink() {
+            if path.is_symlink() {
                 if follow {
-                    match path.resolve() {
+                    match path.dereference() {
                         Ok(path) => files.extend(self.collect_files(
                             scope,
                             args,
-                            &[path.display().to_string()],
+                            &[path.to_string_lossy().to_string()],
                             follow,
                             recursive,
                             visited,
@@ -123,7 +93,49 @@ impl Grep {
                     );
                 }
             } else if path.is_file() {
-                files.push(path);
+                files.push(path.to_path_buf());
+            } else if path.is_dir() {
+                if recursive {
+                    match path.dereference() {
+                        Ok(path) => {
+                            if !visited.insert(path.to_string_lossy().to_string()) {
+                                continue;
+                            }
+                        }
+                        Err(e) => {
+                            my_warning!(scope, "Could not dereference {}: {}", scope.err_str(p), e);
+                            continue;
+                        }
+                    }
+
+                    files.extend(
+                        fs::read_dir(&path)
+                            .unwrap()
+                            .filter_map(Result::ok)
+                            .flat_map(|entry| {
+                                // TODO: flag to allow hidden dirs and files
+                                // TODO: flag for exclusion patterns
+                                if entry.file_name().to_string_lossy().starts_with(".") {
+                                    vec![]
+                                } else {
+                                    self.collect_files(
+                                        scope,
+                                        args,
+                                        &[entry.path().to_string_lossy().to_string()],
+                                        follow,
+                                        recursive,
+                                        visited,
+                                    )
+                                }
+                            }),
+                    );
+                } else {
+                    my_warning!(
+                        scope,
+                        "Omitting directory (-r/--recursive option not set): {}",
+                        scope.err_str(p)
+                    );
+                }
             }
         }
         files
@@ -169,7 +181,11 @@ impl Grep {
             } else {
                 if show_filename {
                     if let Some(name) = filename {
-                        output.push_str(&format!("{}:", name.display()));
+                        if use_color {
+                            output.push_str(&format!("{}:", name.to_string_lossy().magenta()));
+                        } else {
+                            output.push_str(&format!("{}:", name.to_string_lossy().normal()));
+                        }
                     }
                 }
                 if line_number_flag {
@@ -192,6 +208,10 @@ impl Grep {
 }
 
 impl Exec for Grep {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+    
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let grep_args = flags.parse(scope, args)?;
@@ -282,7 +302,9 @@ impl Exec for Grep {
                             );
                         }
                     }
-                    Err(e) => my_warning!(scope, "Could not read {}: {}", scope.err_path(path), e),
+                    //TODO: use logging instead
+                    //Err(e) => my_warning!(scope, "Could not read {}: {}", scope.err_path(path), e),
+                    Err(_) => {}
                 }
             }
         }

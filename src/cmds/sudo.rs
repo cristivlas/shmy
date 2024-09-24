@@ -20,9 +20,8 @@ struct Sudo {
 
 impl Sudo {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        flags.add_option('-', "args", "Pass all remaining arguments to COMMAND");
+        let mut flags = CommandFlags::with_help();
+        flags.add_value('-', "args", "Pass all remaining arguments to COMMAND");
         Self { flags }
     }
 
@@ -75,7 +74,7 @@ impl Sudo {
 impl Exec for Sudo {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let mut command_args = flags.parse_all(scope, args);
+        let mut command_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: sudo [OPTIONS] COMMAND [ARGS]...");
@@ -99,7 +98,7 @@ impl Exec for Sudo {
 
         let cmd_name = command_args.remove(0);
 
-        if let Some(additional_args) = flags.option("args") {
+        if let Some(additional_args) = flags.value("args") {
             command_args.extend(additional_args.split_whitespace().map(String::from));
         }
 

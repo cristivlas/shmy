@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::fs;
 use std::path::Path;
@@ -10,8 +10,7 @@ struct Chmod {
 
 impl Chmod {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('r', "recursive", "Change permissions recursively");
         flags.add_flag('v', "verbose", "Report diagnostic for every file processed");
 
@@ -191,9 +190,13 @@ impl Chmod {
 }
 
 impl Exec for Chmod {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let paths = flags.parse_all(scope, args);
+        let paths = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("{}", "Usage: chmod [OPTIONS] MODE FILE...");

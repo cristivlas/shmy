@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{
     eval::Value,
     scope::Scope,
@@ -761,8 +761,7 @@ struct ProcStatus {
 
 impl ProcStatus {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'a',
             "all",
@@ -770,19 +769,23 @@ impl ProcStatus {
         );
         flags.add_flag('l', "long", "Long format");
         flags.add_flag('t', "tree", "Display processes in a hierarchical view");
-        flags.add_option('s', "sort", "Specify sorting order");
+        flags.add_value('s', "sort", "Specify sorting order");
 
         Self { flags }
     }
 }
 
 impl Exec for ProcStatus {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
 
         // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc
         // and to allow minus sign in sort specifiers.
-        let _ = flags.parse_all(scope, args);
+        let _ = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: ps [OPTIONS]");
@@ -814,7 +817,7 @@ impl Exec for ProcStatus {
             view.columns.push(View::cmd_column());
         }
 
-        if let Some(sort_spec) = flags.option("sort") {
+        if let Some(sort_spec) = flags.value("sort") {
             if tree_view {
                 my_warning!(scope, "Sort ignored due to --tree option");
             }

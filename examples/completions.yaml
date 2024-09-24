@@ -19,6 +19,7 @@ commands:
           - --jobs
       - name: test
         options:
+          - --
           - --release
           - --verbose
           - --no-default-features
@@ -27,6 +28,7 @@ commands:
           - --package
           - --workspace
           - --exclude
+          - --test-threads
       - name: clean
         options:
           - --target

@@ -139,4 +139,10 @@ mod tests {
     fn test_which_error() {
         assert_eval_err!("which if", "Expecting IF condition");
     }
+
+    #[test]
+    fn test_short_circuit() {
+        // Do not expect an invalid flag error.
+        assert_eval_ok!("0 && cp --bogus-flag", Value::from("0"));
+    }
 }

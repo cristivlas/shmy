@@ -1,7 +1,7 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use open;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 struct Open {
@@ -10,16 +10,18 @@ struct Open {
 
 impl Open {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('L', "follow-links", "Follow symbolic links");
-        flags.add_option('a', "application", "Application to open with");
+        let mut flags = CommandFlags::with_help();
+        flags.add_value('a', "application", "Application to open with");
 
         Self { flags }
     }
 }
 
 impl Exec for Open {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
@@ -36,16 +38,19 @@ impl Exec for Open {
             return Err("open: no file or URL specified".to_string());
         }
 
-        let application = flags.option("application");
-        let follow = flags.is_present("follow-links");
+        let application = flags.value("application");
 
         for arg in &args {
-            let mut path = PathBuf::from(arg);
-            if follow {
-                path = path
-                    .resolve()
-                    .map_err(|e| format_error(scope, arg, &args, e))?;
-            }
+            let path = Path::new(arg);
+            // Attempt to dereference 1st, to resolve WSL symbolic links, if any.
+            // Canonicalize the result, to make sure that the path exits; if the
+            // dereferenced path does not exist, default to the original user input.
+            let path = path
+                .dereference()
+                .and_then(|path| path.canonicalize())
+                .unwrap_or(path.to_path_buf())
+                .to_path_buf();
+
             let result = if let Some(app) = application {
                 open::with(path, app)
             } else {

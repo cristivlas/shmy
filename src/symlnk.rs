@@ -1,13 +1,20 @@
 use crate::utils::resolve_links;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::env;
-use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::{env, io};
 
-pub trait SymLink {
+pub trait SymLink: AsRef<Path> {
     fn is_wsl_link(&self) -> io::Result<bool>;
-    fn resolve(&self) -> io::Result<PathBuf>;
+    fn dereference(&self) -> io::Result<Cow<'_, Path>>;
+
+    fn resolve(&self, follow_links: bool) -> io::Result<Cow<'_, Path>> {
+        if follow_links {
+            self.dereference()
+        } else {
+            Ok(Cow::Borrowed(self.as_ref()))
+        }
+    }
 }
 
 /// Resolve symbolic links, including WSL links, which
@@ -76,10 +83,10 @@ impl SymLink for Path {
         }
     }
 
-    fn resolve(&self) -> io::Result<PathBuf> {
+    fn dereference(&self) -> io::Result<Cow<'_, Path>> {
         // map paths with possible symlink components to resolved
         let mut visited: HashMap<PathBuf, PathBuf> = HashMap::new();
-        resolve_path(self, &mut visited)
+        Ok(Cow::Owned(resolve_path(self, &mut visited)?))
     }
 }
 
@@ -88,7 +95,7 @@ impl SymLink for PathBuf {
         self.as_path().is_wsl_link()
     }
 
-    fn resolve(&self) -> io::Result<PathBuf> {
-        self.as_path().resolve()
+    fn dereference(&self) -> io::Result<Cow<'_, Path>> {
+        self.as_path().dereference()
     }
 }

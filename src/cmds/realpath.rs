@@ -1,5 +1,5 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use super::{flags::CommandFlags, register_command, Exec, ShellCommand, Flag};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,14 +9,16 @@ struct Realpath {
 
 impl Realpath {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-
+        let flags = CommandFlags::with_help();
         Self { flags }
     }
 }
 
 impl Exec for Realpath {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;
@@ -35,10 +37,10 @@ impl Exec for Realpath {
 
         for (i, arg) in args.iter().enumerate() {
             scope.set_err_arg(i);
-            let path = Path::new(arg);
-            let canonical_path = path
-                .canonicalize()
-                .map_err(|e| format!("{}: {}", scope.err_path(path), e))?;
+            let canonical_path = Path::new(arg)
+                .dereference()
+                .and_then(|p| p.canonicalize())
+                .map_err(|e| format!("{}: {}", scope.err_path_arg(arg, args), e))?;
 
             my_println!("{}", canonical_path.display())?;
         }

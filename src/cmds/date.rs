@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, utils::format_error};
 use chrono::prelude::*;
 use chrono::{DateTime, Local, Utc};
@@ -11,12 +11,11 @@ struct Date {
 
 impl Date {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag('u', "utc", "Display time in UTC instead of local time");
         flags.add_flag('r', "rfc2822", "Display date and time in RFC 2822 format");
         flags.add_flag('I', "iso8601", "Display date in ISO 8601 format");
-        flags.add_option(
+        flags.add_value(
             'z',
             "timezone",
             "Specify the zone (e.g., America/New_York) to display local time",
@@ -53,6 +52,10 @@ impl Date {
 }
 
 impl Exec for Date {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let _args = flags.parse(scope, args)?;
@@ -68,7 +71,7 @@ impl Exec for Date {
         let formatted_time = if flags.is_present("utc") {
             let utc_time = Utc::now();
             self.format_time(utc_time, &flags)
-        } else if let Some(tz) = flags.option("timezone") {
+        } else if let Some(tz) = flags.value("timezone") {
             let tz_time = self.get_time_in_timezone(scope, args, tz)?;
             self.format_time(tz_time, &flags)
         } else {

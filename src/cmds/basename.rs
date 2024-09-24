@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand};
+use super::{flags::CommandFlags, Flag, register_command, Exec, ShellCommand};
 use crate::{eval::Value, scope::Scope};
 use std::path::Path;
 use std::sync::Arc;
@@ -9,13 +9,16 @@ struct Basename {
 
 impl Basename {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
-        Basename { flags }
+        let flags = CommandFlags::with_help();
+        Self { flags }
     }
 }
 
 impl Exec for Basename {
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        Box::new(self.flags.iter())
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         flags.parse(scope, args)?;

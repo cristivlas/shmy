@@ -12,14 +12,12 @@ struct Touch {
 
 impl Touch {
     fn new() -> Self {
-        let mut flags = CommandFlags::new();
-        flags.add_flag('?', "help", "Display this help message");
+        let mut flags = CommandFlags::with_help();
         flags.add_flag(
             'c',
             "no-create",
             "Do not create the file if it does not exist",
         );
-        flags.add_flag('h', "no-dereference", "Do not follow symbolic links");
         Self { flags }
     }
 }
@@ -27,7 +25,7 @@ impl Touch {
 impl Exec for Touch {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let command_args = flags.parse_all(scope, args);
+        let command_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: touch [OPTIONS] FILE...");
@@ -42,15 +40,11 @@ impl Exec for Touch {
         }
 
         let no_create = flags.is_present("no-create");
-        let no_dereference = flags.is_present("no-dereference");
 
         for filename in command_args.iter() {
-            let path = Path::new(filename);
-
-            let target_path = if no_dereference {
-                path.to_path_buf()
-            } else {
-                path.resolve().map_err(|e| {
+            let target_path = Path::new(filename)
+                .dereference()
+                .map_err(|e| {
                     format_error(
                         scope,
                         filename,
@@ -58,7 +52,7 @@ impl Exec for Touch {
                         format!("Failed to resolve path: {}", e),
                     )
                 })?
-            };
+                .to_path_buf();
 
             if target_path.exists() {
                 // Update the last access and modification times
