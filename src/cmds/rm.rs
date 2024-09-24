@@ -43,8 +43,8 @@ struct Remove {
 impl Remove {
     fn new() -> Self {
         let mut flags = CommandFlags::with_follow_links();
-        flags.add_flag('f', "force", "Delete without prompting");
-        flags.add_flag('i', "interactive", "Prompt before deletion (default)");
+        flags.add_flag_enabled('i', "interactive", "Prompt before deletion");
+        flags.add_alias(Some('f'), "force", "no-interactive");
         flags.add_flag(
             'r',
             "recursive",
@@ -143,7 +143,7 @@ impl Exec for Remove {
         }
 
         let mut ctx = Context {
-            interactive: !flags.is_present("force") || flags.is_present("interactive"),
+            interactive: flags.is_present("interactive"),
             recursive: flags.is_present("recursive"),
             many: paths.len() > 1,
             quit: false,

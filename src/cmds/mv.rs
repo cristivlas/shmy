@@ -12,8 +12,8 @@ struct Mv {
 impl Mv {
     fn new() -> Self {
         let mut flags = CommandFlags::with_follow_links();
-        flags.add_flag('f', "force", "Do not prompt before overwriting");
-        flags.add_flag('i', "interactive", "Prompt before overwriting files");
+        flags.add_flag_enabled('i', "interactive", "Prompt before overwriting files");
+        flags.add_alias(Some('f'), "force", "no-interactive");
 
         Self { flags }
     }
@@ -114,7 +114,7 @@ impl Exec for Mv {
         }
 
         let follow = flags.is_present("follow-links");
-        let mut interactive = !flags.is_present("force") || flags.is_present("interactive");
+        let mut interactive = flags.is_present("interactive");
 
         let dest = Self::get_dest_path(scope, args.last().unwrap())?;
 
