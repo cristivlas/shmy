@@ -78,21 +78,33 @@ pub fn suggest(config: &Yaml, input: &str) -> Vec<String> {
                     }
                     break;
                 }
-                Some(part) => {
-                    for elem in elems {
-                        let elem_name = elem_to_str(elem);
-                        if *part == elem_name {
-                            prefix.push(*part);
-                            current = elem;
-                            break;
+                Some(mut part) => {
+                    for j in i + 1.. {
+                        for elem in elems {
+                            let elem_name = elem_to_str(elem);
+                            if *part == elem_name {
+                                prefix.push(*part);
+                                current = elem;
+                                break;
+                            }
+
+                            if elem_name.starts_with(part) {
+                                if prefix.is_empty() {
+                                    suggestions.push(elem_name.to_string());
+                                } else {
+                                    suggestions.push(format!("{} {}", prefix.join(" "), elem_name));
+                                };
+                            }
                         }
 
-                        if elem_name.starts_with(part) {
-                            if prefix.is_empty() {
-                                suggestions.push(elem_name.to_string());
-                            } else {
-                                suggestions.push(format!("{} {}", prefix.join(" "), elem_name));
-                            };
+                        // Match all remaining input parts against the last hierarchy level
+                        if j < LEVELS.len() {
+                            break; // Not last level
+                        }
+                        if let Some(next) = parts.get(j) {
+                            part = next;
+                        } else {
+                            break; // No more input parts
                         }
                     }
                 }
@@ -265,5 +277,28 @@ mod tests {
         // Test unknown command, should return an empty vector
         let suggestions = suggest(config, "unknown");
         assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_exhaust_options() {
+        let config_str = r#"
+        commands:
+          - name: git
+            subcommands:
+              - name: clone
+                options:
+                  - --verbose
+                  - --no-hard-links
+              - name: commit
+          - name: docker
+            subcommands:
+              - name: run
+              - name: build
+        "#;
+        let config = &YamlLoader::load_from_str(config_str).unwrap()[0];
+
+        // Test unknown command, should return an empty vector
+        let suggestions = suggest(config, "git clone --verbose --n");
+        assert_eq!(suggestions, vec!["git clone --verbose --no-hard-links"]);
     }
 }
