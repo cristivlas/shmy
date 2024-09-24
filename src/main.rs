@@ -93,7 +93,7 @@ impl CmdLineHelper {
             } else if input.starts_with(name) {
                 if let Some(delim_pos) = input.rfind(&['\t', ' '][..]) {
                     let arg = &input[&delim_pos + 1..];
-                    if arg.is_empty() {
+                    if !arg.starts_with("-") {
                         continue;
                     }
                     let cmd = get_command(name).unwrap();
@@ -113,6 +113,16 @@ impl CmdLineHelper {
                                 display: flag.clone(),
                                 replacement: flag,
                             })
+                        }
+                        if !f.takes_value && arg.starts_with("--no-") && !f.long.starts_with("no-")
+                        {
+                            if f.long.starts_with(&arg[5..]) {
+                                let flag = format!("--no-{}", f.long);
+                                candidates.push(completion::Pair {
+                                    display: flag.clone(),
+                                    replacement: flag,
+                                })
+                            }
                         }
                     }
                     if !candidates.is_empty() {
@@ -814,6 +824,17 @@ mod tests {
         let expected_completions = vec![("src\\main.rs".to_string(), "src\\main.rs".to_string())];
         #[cfg(not(windows))]
         let expected_completions = vec![("main.rs".to_string(), "src/main.rs".to_string())];
+        assert_eq!(actual_completions, expected_completions);
+    }
+
+    #[test]
+    fn test_complete_negated_flags() {
+        let helper = CmdLineHelper::new(Scope::new(), None);
+        let actual_completions = get_completions(&helper, "cat abc --no-", &MemHistory::new());
+        let expected_completions = vec![
+            ("--no-help".to_string(), "--no-help".to_string()),
+            ("--no-number".to_string(), "--no-number".to_string()),
+        ];
         assert_eq!(actual_completions, expected_completions);
     }
 }
