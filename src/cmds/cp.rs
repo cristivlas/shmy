@@ -105,7 +105,7 @@ impl<'a> FileCopier<'a> {
             // Command line flags
             debug: flags.is_present("debug"),
             ignore_links: flags.is_present("no-dereference"),
-            confirm_overwrite: !flags.is_present("force") || flags.is_present("interactive"),
+            confirm_overwrite: flags.is_present("interactive"),
             no_hidden: flags.is_present("no-hidden"),
             preserve_metadata: !flags.is_present("no-preserve"),
             recursive: flags.is_present("recursive"),
@@ -601,8 +601,8 @@ impl Cp {
         flags.add_flag('d', "debug", "Show debugging details");
         flags.add_flag('v', "progress", "Show progress bar");
         flags.add_flag('r', "recursive", "Copy directories recursively");
-        flags.add_flag('f', "force", "Overwrite without prompting");
-        flags.add_flag('i', "interactive", "Prompt before overwrite (default)");
+        flags.add_flag_enabled('i', "interactive", "Prompt to overwrite");
+        flags.add_alias(Some('f'), "force", "no-interactive");
         flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
         flags.add(None, "no-hidden", false, "Ignore hidden files");
         flags.add(

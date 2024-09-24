@@ -76,9 +76,9 @@ pub trait Exec {
 pub struct Flag {
     pub short: Option<char>,
     pub long: String,
-    help: String,
-    takes_value: bool,
-    default_value: Option<String>,
+    pub help: String,
+    pub takes_value: bool,
+    pub default_value: Option<String>,
 }
 
 #[derive(Clone)]
