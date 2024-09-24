@@ -47,7 +47,9 @@ impl Exec for CutCommand {
             println!("Usage: {} [OPTION]... [FILE]...", name);
             println!("{}", self.mode_specific_help());
             println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("{}", flags.help());
+            println!("Example: ps | cut -d\\s+ -f4,2");
+            println!("Split result of 'ps' commands using one or more spaces as delimiter, output colums 4 and 2");
             return Ok(Value::success());
         }
 
