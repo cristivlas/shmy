@@ -515,6 +515,7 @@ struct Parser<I: Iterator<Item = char>> {
     text: String,
     quoted: bool,
     raw: bool,
+    glob: bool,
 }
 
 impl<I: Iterator<Item = char>> HasLocation for Parser<I> {
@@ -595,6 +596,7 @@ where
             text: String::new(),
             quoted: false,
             raw: false,
+            glob: true,
         }
     }
 
@@ -634,7 +636,7 @@ where
         // This function should not be called if globbed_tokens are not depleted.
         assert!(self.globbed_tokens.is_empty());
 
-        if !self.quoted {
+        if self.glob && !self.quoted {
             let upper = self.text.to_uppercase();
             for &keyword in &KEYWORDS {
                 if keyword == upper {
@@ -2896,6 +2898,7 @@ impl Interp {
         let mut parser = Parser::new(input.chars(), &scope, None);
         let mut quit = false;
 
+        parser.glob = false;
         _ = parser.parse(&mut quit);
 
         let mut expr = &parser.current_expr;

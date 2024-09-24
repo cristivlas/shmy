@@ -159,18 +159,12 @@ impl CmdLineHelper {
     fn get_tail<'a>(&self, input: &'a str) -> (usize, &'a str) {
         if let Some((loc, tail)) = self.interp.parse_tail(input) {
             if loc.line == 1 {
-                // TODO: use the column from the Location. Right now the location
-                // is used primarily for error reporting and may have off-by-one
-                // bugs; when it is fixed it will save a reverse find here.
-                if let Some(pos) = input.rfind(&tail) {
-                    return (pos, &input[pos..]);
-                }
+                let pos = match input.rfind(&tail) {
+                    Some(pos) => pos,
+                    None => std::cmp::min(loc.col as usize, input.len()),
+                };
+                return (pos, &input[pos..]);
             }
-        }
-
-        if let Some(mut pos) = input.rfind(&['\t', ' '][..]) {
-            pos += 1;
-            return (pos, input[pos..].trim());
         }
 
         return (0, input);
