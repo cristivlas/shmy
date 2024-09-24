@@ -1,4 +1,4 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand, Flag};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use colored::*;
 use regex::Regex;
@@ -48,6 +48,13 @@ impl Grep {
             "Invert the sense of matching, showing non-matching lines",
         );
 
+        flags.add(
+            None,
+            "hidden",
+            false,
+            "Include hidden (starting with a dot) files and directories",
+        );
+
         Self { flags }
     }
 
@@ -57,6 +64,7 @@ impl Grep {
         args: &[String], // Original args, for finding bad arg index in case of error
         paths: &[String],
         follow: bool,
+        hidden: bool,
         recursive: bool,
         visited: &mut HashSet<String>,
     ) -> Vec<PathBuf> {
@@ -78,6 +86,7 @@ impl Grep {
                             args,
                             &[path.to_string_lossy().to_string()],
                             follow,
+                            hidden,
                             recursive,
                             visited,
                         )),
@@ -113,9 +122,7 @@ impl Grep {
                             .unwrap()
                             .filter_map(Result::ok)
                             .flat_map(|entry| {
-                                // TODO: flag to allow hidden dirs and files
-                                // TODO: flag for exclusion patterns
-                                if entry.file_name().to_string_lossy().starts_with(".") {
+                                if !hidden && entry.file_name().to_string_lossy().starts_with(".") {
                                     vec![]
                                 } else {
                                     self.collect_files(
@@ -123,6 +130,7 @@ impl Grep {
                                         args,
                                         &[entry.path().to_string_lossy().to_string()],
                                         follow,
+                                        hidden,
                                         recursive,
                                         visited,
                                     )
@@ -211,7 +219,7 @@ impl Exec for Grep {
     fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
         Box::new(self.flags.iter())
     }
-    
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let grep_args = flags.parse(scope, args)?;
@@ -232,6 +240,7 @@ impl Exec for Grep {
         let invert_match = flags.is_present("invert-match");
 
         let follow = flags.is_present("follow-links");
+        let hidden = flags.is_present("hidden");
         let ignore_case = flags.is_present("ignore-case");
         let line_number_flag = flags.is_present("line-number");
         let no_filename = flags.is_present("no-filename");
@@ -270,7 +279,7 @@ impl Exec for Grep {
         } else {
             let mut visited = HashSet::new();
             let files_to_process =
-                self.collect_files(scope, args, files, follow, recursive, &mut visited);
+                self.collect_files(scope, args, files, follow, hidden, recursive, &mut visited);
 
             let show_filename = if no_filename {
                 false

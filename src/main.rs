@@ -78,6 +78,7 @@ impl CmdLineHelper {
         }
     }
 
+    /// Complete arguments for builtin commands.
     fn complete_commands(
         &self,
         input: &str,

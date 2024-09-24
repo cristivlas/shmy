@@ -1,6 +1,6 @@
 [package]
 name = "shmy"
-version = "0.19.0"
+version = "0.19.1"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like commands, and WSL symbolic link support"
@@ -48,7 +48,6 @@ windows = { version = "0.58", features = [
     "Win32_System_IO",
     "Win32_System_Ioctl",
     "Win32_System_Registry",
-    "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
