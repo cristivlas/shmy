@@ -161,7 +161,7 @@ impl CmdLineHelper {
             if loc.line == 1 {
                 let pos = match input.rfind(&tail) {
                     Some(pos) => pos,
-                    None => std::cmp::min(loc.col as usize, input.len()),
+                    None => std::cmp::min(loc.col.saturating_sub(1) as usize, input.len()),
                 };
                 return (pos, &input[pos..]);
             }
@@ -824,7 +824,7 @@ mod tests {
     #[test]
     fn test_complete_negated_flags() {
         let helper = CmdLineHelper::new(Scope::new(), None);
-        let actual_completions = get_completions(&helper, "cat abc --no-", &MemHistory::new());
+        let actual_completions = get_completions(&helper, "cat  abc --no-", &MemHistory::new());
         let expected_completions = vec![
             ("--no-help".to_string(), "--no-help".to_string()),
             ("--no-number".to_string(), "--no-number".to_string()),
