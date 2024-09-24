@@ -1,0 +1,3 @@
+#Place this under ~\.shmy or $HOME/.shmy
+
+eval --export r"(__prompt = "\x1b[36m\\u@\\h|\x1b[32m\\w\x1b[0m\\$ ")"

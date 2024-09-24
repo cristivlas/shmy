@@ -49,9 +49,7 @@ impl Help {
         println!("        '||': or, '&&': and");
         println!();
         println!("COMMAND EXECUTION");
-        println!(
-            "    A command evaluates to true if it succeeds (exit code 0) and false otherwise."
-        );
+        println!("    A command evaluates to true if it succeeds (exit code 0) and false otherwise.");
         println!("    Errors from failed commands are stored in the special variable $__errors.");
         println!("    If a command fails and its status is not evaluated, execution stops.");
         println!();
@@ -64,6 +62,19 @@ impl Help {
         println!("        <expression> | <expression>");
         println!("    Example:");
         println!("        ls -al | (echo \"\\t\\tHEADER\"; cat; echo \"\\t\\tFOOTER\")");
+        println!();
+        println!("PROMPT CUSTOMIZATION");
+        println!("    The prompt can be customized using escape sequences prefixed with '\\'.");
+        println!("    Supported sequences:");
+        println!("        \\u  - Insert the current username");
+        println!("        \\H  - Insert the full hostname");
+        println!("        \\h  - Insert the short hostname (up to the first dot)");
+        println!("        \\w  - Insert the current working directory");
+        println!("        \\$  - Insert '#' if the user is root, otherwise '$'");
+        println!();
+        println!("    Examples:");
+        println!("        $__prompt = \\u@\\h:\\w\\_");
+        println!("        $__prompt = \"\\\\u@\\h|\\\\w\\\\$ \"");
         println!();
         println!("SPECIAL VARIABLES");
         println!("    Redirect stdout: $__stdout");
