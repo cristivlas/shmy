@@ -164,7 +164,7 @@ impl CmdLineHelper {
                     Some(pos) => pos,
                     None => std::cmp::min(loc.col.saturating_sub(1) as usize, input.len()),
                 };
-                return (pos, &input[pos..]);
+                return (pos, &input[pos..].trim());
             }
         }
 
