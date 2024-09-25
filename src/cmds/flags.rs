@@ -66,7 +66,7 @@ impl CommandFlags {
         self.add(short, alias, false, &help);
     }
 
-    fn add_with_default(
+    pub fn add_with_default(
         &mut self,
         short: Option<char>,
         long: &str,
@@ -634,5 +634,18 @@ mod tests {
         assert!(result.is_ok());
         assert!(!flags.is_present("follow"));
         assert!(!flags.is_present("deref"));
+    }
+
+    #[test]
+    fn test_negate() {
+        let mut flags = CommandFlags::new();
+        flags.add_with_default(Some('m'), "messages", false, "", Some("true"));
+        flags.add_alias(Some('s'), "silent", "no-messages");
+
+        let result = flags.parse(&Scope::new(), &vec!["-s".to_string()]);
+
+        assert!(result.is_ok());
+        assert!(!flags.is_present("messages"));
+        assert!(!flags.is_present("silent"));
     }
 }

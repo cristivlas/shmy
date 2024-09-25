@@ -3,8 +3,8 @@ use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use colored::*;
 use regex::Regex;
 use std::collections::HashSet;
-use std::fs;
-use std::io::{self, BufRead, IsTerminal};
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
@@ -47,13 +47,14 @@ impl Grep {
             "invert-match",
             "Invert the sense of matching, showing non-matching lines",
         );
-
         flags.add(
             None,
             "hidden",
             false,
             "Include hidden (starting with a dot) files and directories",
         );
+        flags.add_with_default(None, "messages", false, "Show error messages", Some("true"));
+        flags.add_alias(Some('s'), "silent", "no-messages");
 
         Self { flags }
     }
@@ -66,6 +67,7 @@ impl Grep {
         follow: bool,
         hidden: bool,
         recursive: bool,
+        silent: bool,
         visited: &mut HashSet<String>,
     ) -> Vec<PathBuf> {
         // Files to processs
@@ -88,10 +90,13 @@ impl Grep {
                             follow,
                             hidden,
                             recursive,
+                            silent,
                             visited,
                         )),
                         Err(e) => {
-                            my_warning!(scope, "Could not resolve {}: {}", scope.err_str(p), e)
+                            if !silent {
+                                my_warning!(scope, "Could not resolve {}: {}", scope.err_str(p), e);
+                            }
                         }
                     }
                 } else {
@@ -112,16 +117,32 @@ impl Grep {
                             }
                         }
                         Err(e) => {
-                            my_warning!(scope, "Could not dereference {}: {}", scope.err_str(p), e);
+                            if !silent {
+                                my_warning!(
+                                    scope,
+                                    "Could not dereference {}: {}",
+                                    scope.err_str(p),
+                                    e
+                                );
+                            }
                             continue;
                         }
                     }
 
-                    files.extend(
-                        fs::read_dir(&path)
-                            .unwrap()
-                            .filter_map(Result::ok)
-                            .flat_map(|entry| {
+                    match fs::read_dir(path) {
+                        Err(e) => {
+                            if !silent {
+                                my_warning!(
+                                    scope,
+                                    "Could not read directory {}: {}",
+                                    scope.err_path(path),
+                                    e
+                                );
+                            }
+                            continue;
+                        }
+                        Ok(dir) => {
+                            files.extend(dir.filter_map(Result::ok).flat_map(|entry| {
                                 if !hidden && entry.file_name().to_string_lossy().starts_with(".") {
                                     vec![]
                                 } else {
@@ -132,11 +153,13 @@ impl Grep {
                                         follow,
                                         hidden,
                                         recursive,
+                                        silent,
                                         visited,
                                     )
                                 }
-                            }),
-                    );
+                            }));
+                        }
+                    }
                 } else {
                     my_warning!(
                         scope,
@@ -245,6 +268,7 @@ impl Exec for Grep {
         let line_number_flag = flags.is_present("line-number");
         let no_filename = flags.is_present("no-filename");
         let recursive = flags.is_present("recursive");
+        let silent = !flags.is_present("messages");
         let use_color = scope.lookup("NO_COLOR").is_none() && std::io::stdout().is_terminal();
         let use_filename = flags.is_present("with-filename");
         let use_hyperlink = flags.is_present("hyperlink");
@@ -262,6 +286,10 @@ impl Exec for Grep {
             scope.show_eof_hint();
             let reader = io::stdin().lock();
             for (line_number, line) in reader.lines().enumerate() {
+                if Scope::is_interrupted() {
+                    break;
+                }
+
                 let line = line.map_err(|e| e.to_string())?;
                 Self::process_line(
                     None,
@@ -278,8 +306,16 @@ impl Exec for Grep {
             }
         } else {
             let mut visited = HashSet::new();
-            let files_to_process =
-                self.collect_files(scope, args, files, follow, hidden, recursive, &mut visited);
+            let files_to_process = self.collect_files(
+                scope,
+                args,
+                files,
+                follow,
+                hidden,
+                recursive,
+                silent,
+                &mut visited,
+            );
 
             let show_filename = if no_filename {
                 false
@@ -293,27 +329,41 @@ impl Exec for Grep {
                 if Scope::is_interrupted() {
                     break;
                 }
+                match File::open(&path) {
+                    Ok(file) => {
+                        let reader = BufReader::new(file);
+                        for (line_number, line) in reader.lines().enumerate() {
+                            if Scope::is_interrupted() {
+                                break;
+                            }
 
-                match &fs::read_to_string(&path) {
-                    Ok(content) => {
-                        for (line_number, line) in content.lines().enumerate() {
-                            Self::process_line(
-                                Some(path),
-                                line_number,
-                                line,
-                                &regex,
-                                line_number_flag,
-                                ignore_case,
-                                show_filename,
-                                use_color,
-                                use_hyperlink,
-                                invert_match,
-                            );
+                            match line {
+                                Ok(line) => Self::process_line(
+                                    Some(path),
+                                    line_number,
+                                    &line,
+                                    &regex,
+                                    line_number_flag,
+                                    ignore_case,
+                                    show_filename,
+                                    use_color,
+                                    use_hyperlink,
+                                    invert_match,
+                                ),
+                                Err(e) => {
+                                    if !silent {
+                                        my_warning!(scope, "{}: {}", scope.err_path(path), e);
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     }
-                    //TODO: use logging instead
-                    //Err(e) => my_warning!(scope, "Could not read {}: {}", scope.err_path(path), e),
-                    Err(_) => {}
+                    Err(e) => {
+                        if !silent {
+                            my_warning!(scope, "Could not open {}: {}", scope.err_path(path), e);
+                        }
+                    }
                 }
             }
         }
