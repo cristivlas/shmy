@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -189,6 +189,32 @@ impl Chmod {
     }
 }
 
+#[cfg(unix)]
+fn help_details() {
+    println!("\nExamples:");
+    println!("  chmod 755 file     # Owner: rwx, Group: r-x, Others: r-x");
+    println!("  chmod u+rwx file   # Add read, write, and execute for owner");
+    println!("  chmod g+r file     # Add read permission for group");
+    println!("  chmod o+r file     # Add read permission for others");
+    println!("  chmod 644 file     # Owner: rw-, Group: r--, Others: r--");
+    println!("  chmod 400 file     # Owner: r--, Group: ---, Others: --- (read-only)");
+    println!("\nNote: Comma-separated mode lists are not supported.");
+}
+
+#[cfg(windows)]
+fn help_details() {
+    println!("\nExamples:");
+    println!("  chmod u+rw file        # User gets read and write permissions");
+    println!("  chmod -w file          # Make file read-only");
+
+    println!("\nLimitations:");
+    println!("  Windows does not support Unix-style group and others permissions.");
+    println!("  Permissions must be explicitly set for specific users or groups via ACLs.");
+    println!("       chmod g+r file     # No direct equivalent, need ACLs to modify group");
+    println!("       chmod o+r file     # No direct equivalent, need ACLs to modify others");
+    println!("  Future versions of this program may address these limitations.");
+}
+
 impl Exec for Chmod {
     fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
         Box::new(self.flags.iter())
@@ -202,7 +228,10 @@ impl Exec for Chmod {
             println!("{}", "Usage: chmod [OPTIONS] MODE FILE...");
             println!("Change the mode (permissions) of each FILE to MODE.");
             println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("{}", flags.help());
+            help_details();
+            println!();
+
             return Ok(Value::success());
         }
 
@@ -215,7 +244,11 @@ impl Exec for Chmod {
         let verbose = flags.is_present("verbose");
 
         for arg in &paths[1..] {
-            match Self::change_mode(Path::new(&arg), mode, recursive, verbose, scope) {
+            let path = Path::new(&arg)
+                .dereference()
+                .map_err(|e| format_error(scope, arg, &args, e))?;
+
+            match Self::change_mode(&path, mode, recursive, verbose, scope) {
                 Ok(_) => {}
                 Err(e) => {
                     return Err(format!("{}: {}", scope.err_path_arg(arg, args), e));
@@ -233,4 +266,249 @@ fn register() {
         name: "chmod".to_string(),
         inner: Arc::new(Chmod::new()),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Scope;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::MetadataExt;
+
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn test_chmod_unix_recursive() {
+        let scope = Scope::new();
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("testfile");
+        fs::write(&file_path, "test content").unwrap();
+
+        let result = Chmod::change_mode(&file_path, 0o644, false, false, &scope);
+        assert!(result.is_ok());
+
+        let permissions = fs::metadata(&file_path).unwrap().permissions();
+        assert_eq!(permissions.mode() & 0o777, 0o644);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_chmod_unix_recursive_directory() {
+        let scope = Scope::new();
+        let dir = tempdir().unwrap();
+        let sub_dir = dir.path().join("subdir");
+        let file_path = sub_dir.join("testfile");
+
+        fs::create_dir(&sub_dir).unwrap();
+        fs::write(&file_path, "test content").unwrap();
+
+        let result = Chmod::change_mode(&sub_dir, 0o755, true, false, &scope);
+        assert!(result.is_ok());
+
+        let permissions = fs::metadata(&sub_dir).unwrap().permissions();
+        assert_eq!(permissions.mode() & 0o777, 0o755);
+
+        let file_permissions = fs::metadata(&file_path).unwrap().permissions();
+        assert_eq!(file_permissions.mode() & 0o777, 0o755);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_chmod_windows_readonly() {
+        let scope = Scope::new();
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("testfile");
+        fs::write(&file_path, "test content").unwrap();
+
+        let result = Chmod::change_mode(&file_path, 0o444, false, false, &scope);
+        assert!(result.is_ok());
+
+        let metadata = fs::metadata(&file_path).unwrap();
+        let attributes = metadata.file_attributes();
+
+        // Readonly attribute should be set
+        use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_READONLY;
+        assert!(attributes & FILE_ATTRIBUTE_READONLY.0 != 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_chmod_windows_recursive() {
+        let scope = Scope::new();
+        let dir = tempdir().unwrap();
+        let sub_dir = dir.path().join("subdir");
+        let file_path = sub_dir.join("testfile");
+
+        fs::create_dir(&sub_dir).unwrap();
+        fs::write(&file_path, "test content").unwrap();
+
+        let result = Chmod::change_mode(&sub_dir, 0o444, true, false, &scope);
+        assert!(result.is_ok());
+
+        let metadata = fs::metadata(&sub_dir).unwrap();
+        let attributes = metadata.file_attributes();
+
+        use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_READONLY;
+        assert!(attributes & FILE_ATTRIBUTE_READONLY.0 != 0);
+
+        let file_metadata = fs::metadata(&file_path).unwrap();
+        let file_attributes = file_metadata.file_attributes();
+        assert!(file_attributes & FILE_ATTRIBUTE_READONLY.0 != 0);
+    }
+
+    #[test]
+    fn test_parse_mode() {
+        let mode = Chmod::parse_mode("755").unwrap();
+        assert_eq!(mode, 0o755);
+
+        let mode = Chmod::parse_mode("u+rwx").unwrap();
+        assert_eq!(mode, 0o700);
+
+        let mode = Chmod::parse_mode("g+r").unwrap();
+        assert_eq!(mode, 0o040);
+
+        let mode = Chmod::parse_mode("o+r").unwrap();
+        assert_eq!(mode, 0o004);
+    }
+
+    #[test]
+    fn test_invalid_mode() {
+        let result = Chmod::parse_mode("invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_mode_or_file() {
+        let scope = Scope::new();
+        let chmod = Chmod::new();
+        let result = chmod.exec("chmod", &vec![], &scope);
+        assert!(result.is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_readonly_mode() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("testfile.txt");
+        fs::File::create(&file_path).unwrap();
+
+        let scope = Scope::new();
+
+        // Test setting file as read-only (mode: 0o444)
+        Chmod::change_mode(&file_path, 0o444, false, false, &scope).unwrap();
+        let metadata = fs::metadata(&file_path).unwrap();
+        assert!(metadata.permissions().readonly());
+
+        // Test setting write permissions (mode: 0o222)
+        Chmod::change_mode(&file_path, 0o222, false, false, &scope).unwrap();
+        let metadata = fs::metadata(&file_path).unwrap();
+        assert!(!metadata.permissions().readonly()); // Should not be read-only anymore
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_symbolic_readonly_mode() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("testfile.txt");
+        fs::File::create(&file_path).unwrap();
+
+        let scope = Scope::new();
+
+        // Test setting file as read-only using symbolic mode (chmod u-w)
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("u+w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // Set to rw
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("u-w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // Set to r
+
+        let result = fs::write(&file_path, "test");
+        assert!(result.is_err()); // Expect it to fail since the file should be read-only.
+
+        // Now remove write permissions for group and others
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("g-w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // Remove write for group
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("o-w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // Remove write for others
+
+        let result = fs::write(&file_path, "test");
+        assert!(result.is_err()); // Expect it to fail since the file should be read-only.
+
+        // Confirm the file is still read-only
+        let metadata = fs::metadata(&file_path).unwrap();
+        assert!(metadata.permissions().readonly()); // Check if the file is read-only for all
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_symbolic_mode() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("testfile.txt");
+        fs::File::create(&file_path).unwrap();
+
+        let scope = Scope::new();
+
+        // Use symbolic notation to set read-only for user
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("u+r").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // User gets read
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("u+w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap(); // User gets write
+
+        let result = fs::write(&file_path, "test");
+        assert!(result.is_ok()); // Expect it to succeed since user has write permission.
+
+        // Now remove write permissions
+        Chmod::change_mode(
+            &file_path,
+            Chmod::parse_mode("-w").unwrap(),
+            false,
+            false,
+            &scope,
+        )
+        .unwrap();
+
+        let result = fs::write(&file_path, "test");
+        assert!(result.is_err()); // Expect it to fail
+
+        // Confirm the file is still read-only
+        let metadata = fs::metadata(&file_path).unwrap();
+        assert!(metadata.permissions().readonly()); // Check if the file is read-only
+    }
 }
