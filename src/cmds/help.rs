@@ -2,8 +2,11 @@ use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, Exec, Flag,
     ShellCommand,
 };
-use crate::utils::{self, executable};
-use crate::{eval::Value, scope::Scope};
+use crate::{
+    eval::Value,
+    scope::Scope,
+    utils::{self, executable},
+};
 use std::process::Command;
 use std::sync::Arc;
 
@@ -19,6 +22,7 @@ impl Help {
         Self { flags }
     }
 
+    #[rustfmt::skip]
     fn print_interpreter_help() {
         println!("NAME");
         println!("    shmy - Lightweight command line interpreter");
@@ -30,9 +34,7 @@ impl Help {
         println!("DESCRIPTION");
         println!("    shmy is a simple, lightweight command line interpreter with a few Unix-like built-in commands.");
         println!("    It supports variable assignment and evaluation; conditional statements; loops; arithmetic and");
-        println!(
-            "    logical operations; command execution evaluation; output redirection and pipes."
-        );
+        println!("    logical operations; command execution evaluation; output redirection and pipes.");
         println!();
         println!("EXPRESSIONS");
         println!("    Variable Assignment and Evaluation");
