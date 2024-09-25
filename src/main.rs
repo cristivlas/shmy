@@ -85,7 +85,7 @@ impl CmdLineHelper {
         pos: &mut usize,
         candidates: &mut Vec<completion::Pair>,
     ) {
-        for name in &registered_commands(false) {
+        for name in &registered_commands(true) {
             if name.starts_with(input) {
                 candidates.push(completion::Pair {
                     display: name.clone(),
