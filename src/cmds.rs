@@ -51,6 +51,8 @@ mod sudo;
 mod touch;
 mod vars;
 mod wc;
+#[cfg(windows)]
+mod whois;
 
 pub trait Exec {
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String>;
