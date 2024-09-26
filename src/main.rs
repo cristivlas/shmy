@@ -6,7 +6,7 @@ use prompt::PromptBuilder;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::MatchingBracketHighlighter;
-use rustyline::history::{DefaultHistory, SearchDirection};
+use rustyline::history::{DefaultHistory, History, SearchDirection};
 use rustyline::{highlight::Highlighter, Context, Editor, Helper, Hinter, Validator};
 use scope::Scope;
 use std::borrow::Cow;
@@ -496,6 +496,14 @@ impl Shell {
             rl.load_history(history_path).unwrap();
 
             self.source_profile()?; // source ~/.shmy/profile if found
+
+            // Read the max history file size (in entries) from the environment.
+            let hist_size = env::var("HISTFILESIZE")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1024);
+            // Adjust history file size
+            _ = rl.history_mut().set_max_len(hist_size);
 
             if !Term::stdout().features().colors_supported() {
                 self.interp

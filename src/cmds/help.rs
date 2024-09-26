@@ -65,6 +65,12 @@ impl Help {
         println!("    Example:");
         println!("        ls -al | (echo \"\\t\\tHEADER\"; cat; echo \"\\t\\tFOOTER\")");
         println!();
+        println!("COMMAND HISTORY");
+        println!("    The command history is saved in ~/.shmy/history.txt");
+        println!("    The maximum number of entries saved in the history is controlled by $HISTFILESIZE");
+        println!("    $HISTFILESIZE needs to be set in the environment before the shell starts.");
+        println!("    Modifying $HISTFILESIZE from a shell session has no effect (this behavior may change).");
+        println!();
         println!("PROMPT CUSTOMIZATION");
         println!("    The prompt can be customized using escape sequences prefixed with '\\'.");
         println!("    Supported sequences:");
