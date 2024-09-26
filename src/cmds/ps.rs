@@ -5,15 +5,21 @@ use crate::{
     utils::{format_error, MAX_USER_DISPLAY_LEN},
 };
 use colored::Colorize;
+use crossterm::{
+    execute,
+    terminal::{DisableLineWrap, EnableLineWrap},
+};
 use std::{
     any::Any,
     borrow::Cow,
     cmp::{Ord, Ordering, PartialOrd},
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ffi::{OsStr, OsString},
-    fmt, io,
+    fmt,
+    io::{self, IsTerminal},
     sync::Arc,
 };
+
 use sysinfo::{DiskUsage, Pid, Process, System, Uid};
 
 const MAX_STR_WIDTH: usize = 32;
@@ -157,7 +163,7 @@ impl<'a, T: fmt::Display> fmt::Display for Helper<'a, T> {
 
 fn truncate_and_pad(s: &str, width: usize) -> String {
     let truncated = if s.len() > width { &s[..width] } else { s };
-    format!("{:>width$}", truncated, width = width)
+    format!("{:<width$}", truncated, width = width)
 }
 
 /// Wrap f32 to define partial ordering for sorting by Cpu utilization,
@@ -580,8 +586,8 @@ impl View {
 
     fn cmd_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
-            "cmd",
-            "CMD",
+            "comm",
+            "COMMAND LINE",
             Box::new(|f, d| write!(f, "{:<}", d)),
             Box::new(|proc: &Process| cmd_string(proc)),
         ))
@@ -593,6 +599,23 @@ impl View {
             "DISK (MB)",
             Box::new(|f, d| write!(f, "{:>10}", d)),
             Box::new(|proc: &Process| DiskIO::new(&proc.disk_usage())),
+        ))
+    }
+
+    #[cfg(windows)]
+    fn file_description_column() -> Box<dyn ViewColumn> {
+        Box::new(Column::new(
+            "desc",
+            "DESCRIPTION",
+            Box::new(|f, d| write!(f, "{:<MAX_STR_WIDTH$}", d)),
+            Box::new(|proc: &Process| {
+                let cmd = proc.cmd();
+                if cmd.is_empty() {
+                    String::default()
+                } else {
+                    crate::utils::win::file_description(&cmd[0]).unwrap_or_default()
+                }
+            }),
         ))
     }
 
@@ -610,8 +633,8 @@ impl View {
         Box::new(Column::new(
             "name",
             "NAME",
-            Box::new(|f, d| write!(f, "{:>MAX_STR_WIDTH$}", d)),
-            Box::new(|p: &Process| p.name().to_string_lossy().to_string()),
+            Box::new(|f, d| write!(f, "{:<MAX_STR_WIDTH$}", d)),
+            Box::new(|p: &Process| p.name().to_string_lossy().trim().to_string()),
         ))
     }
 
@@ -646,7 +669,7 @@ impl View {
         Box::new(Column::new(
             "user",
             "USER",
-            Box::new(|f, d| write!(f, "{:>MAX_USER_DISPLAY_LEN$}", d)),
+            Box::new(|f, d| write!(f, "{:<MAX_USER_DISPLAY_LEN$}", d)),
             Box::new(|p: &Process| p.user_id().map(|u| u.clone())),
         ))
     }
@@ -809,11 +832,16 @@ impl Exec for ProcStatus {
         view.columns.push(View::pid_column());
         view.columns.push(View::parent_pid_column());
         view.columns.push(View::name_column());
+
         view.columns.push(View::cpu_usage_column());
         view.columns.push(View::disk_usage_column());
         view.columns.push(View::mem_usage_column());
         view.columns.push(View::run_time_column());
+
         if long_view {
+            #[cfg(windows)]
+            view.columns.push(View::file_description_column());
+
             view.columns.push(View::cmd_column());
         }
 
@@ -828,12 +856,19 @@ impl Exec for ProcStatus {
             view.filters.push(Box::new(UserProc::new(&view.system)));
         }
 
-        if tree_view {
-            view.process_tree(scope, long_view)?;
-        } else {
-            view.process_list(scope)?;
+        if io::stdout().is_terminal() {
+            _ = execute!(io::stdout(), DisableLineWrap);
         }
+        let result = if tree_view {
+            view.process_tree(scope, long_view)
+        } else {
+            view.process_list(scope)
+        };
 
+        if io::stdout().is_terminal() {
+            _ = execute!(io::stdout(), EnableLineWrap);
+        }
+        result?;
         Ok(Value::success())
     }
 }

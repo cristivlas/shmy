@@ -94,12 +94,14 @@ pub fn terminal_width() -> usize {
 
 ///
 /// Windows-specific helpers (read WSL symbolic link reparse points, detect elevated mode, etc.)
+/// TODO: Refactor to separate file.
 ///
 #[cfg(windows)]
 pub mod win {
     use super::MAX_USER_DISPLAY_LEN;
     use crate::symlnk::SymLink;
     use std::cmp::min;
+    use std::ffi::OsString;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::mem;
@@ -113,7 +115,9 @@ pub mod win {
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
     };
     use windows::Win32::Security::{LookupAccountSidW, PSID, SID_NAME_USE};
-    use windows::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
+    };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows::{
         Win32::Storage::FileSystem::{
@@ -367,6 +371,57 @@ pub mod win {
         } else {
             "-".to_string()
         }
+    }
+
+    /// Retrive the description of a program from the EXE path.
+    pub fn file_description(exe_path: &OsString) -> io::Result<String> {
+        let exe_path: Vec<u16> = exe_path.encode_wide().chain(Some(0)).collect();
+
+        unsafe {
+            // Get the size of version info
+            let size = GetFileVersionInfoSizeW(PCWSTR(exe_path.as_ptr()), None);
+            if size == 0 {
+                return Ok(String::default());
+            }
+
+            // Buffer to store version info
+            let mut buffer = vec![0u8; size as usize];
+
+            // Get the version info
+            GetFileVersionInfoW(
+                PCWSTR(exe_path.as_ptr()),
+                0,
+                size,
+                buffer.as_mut_ptr().cast(),
+            )
+            .map_err(|_| io::Error::last_os_error())?;
+
+            // Query for the file description
+            let mut lp_buffer: *mut u16 = std::ptr::null_mut();
+            let mut size: u32 = 0;
+
+            let sub_block: Vec<u16> = OsString::from("\\StringFileInfo\\040904b0\\FileDescription")
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+
+            if VerQueryValueW(
+                buffer.as_mut_ptr().cast(),
+                PCWSTR(sub_block.as_ptr()),
+                &mut lp_buffer as *mut _ as *mut _,
+                &mut size,
+            )
+            .as_bool()
+            {
+                let description = OsString::from_wide(std::slice::from_raw_parts(
+                    lp_buffer,
+                    size.saturating_sub(1) as usize,
+                ));
+                return Ok(description.to_string_lossy().trim().to_string());
+            }
+        }
+
+        return Ok(String::default());
     }
 }
 
