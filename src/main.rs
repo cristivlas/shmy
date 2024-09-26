@@ -16,7 +16,7 @@ use std::io::{self, BufRead, BufReader, Cursor};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
-    Arc,
+    Arc, LazyLock, Mutex,
 };
 use std::{env, usize};
 use yaml_rust::Yaml;
@@ -379,7 +379,9 @@ impl Shell {
         #[cfg(not(test))]
         {
             ctrlc::set_handler(|| {
-                INTERRUPT.store(true, SeqCst);
+                _ = INTERRUPT_EVENT
+                    .try_lock()
+                    .and_then(|mut event| Ok(event.set()))
             })
             .expect("Error setting Ctrl+C handler");
         }
@@ -626,7 +628,11 @@ impl Shell {
     }
 
     fn eval(&mut self, input: &String) {
-        INTERRUPT.store(false, SeqCst);
+        INTERRUPT_EVENT
+            .try_lock()
+            .and_then(|mut event| Ok(event.clear()))
+            .expect("Could not reset interrupt event");
+
         let scope = self.new_top_scope();
 
         match &self.interp.eval(input, Some(Arc::clone(&scope))) {
@@ -704,7 +710,41 @@ fn parse_cmd_line() -> Result<Shell, String> {
     Ok(shell)
 }
 
-static INTERRUPT: AtomicBool = AtomicBool::new(false);
+pub struct InterruptEvent {
+    flag: AtomicBool,
+
+    #[cfg(windows)]
+    pub event: utils::win::SafeHandle,
+}
+
+impl InterruptEvent {
+    fn new() -> io::Result<Self> {
+        Ok(Self {
+            flag: AtomicBool::new(false),
+
+            #[cfg(windows)]
+            event: utils::win::create_auto_reset_event()?,
+        })
+    }
+
+    pub fn clear(&mut self) {
+        self.flag.store(false, SeqCst);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.flag.load(SeqCst)
+    }
+
+    pub fn set(&mut self) {
+        self.flag.store(true, SeqCst);
+
+        #[cfg(windows)]
+        utils::win::set_event(&self.event);
+    }
+}
+
+pub static INTERRUPT_EVENT: LazyLock<Mutex<InterruptEvent>> =
+    LazyLock::new(|| Mutex::new(InterruptEvent::new().expect("Failed to create InterruptEvent")));
 
 fn main() -> Result<(), ()> {
     match &mut parse_cmd_line() {

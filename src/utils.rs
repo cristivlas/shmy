@@ -108,8 +108,7 @@ pub mod win {
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::Authorization::ConvertStringSidToSidW;
     use windows::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
@@ -118,7 +117,9 @@ pub mod win {
     use windows::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
     };
-    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::System::Threading::{
+        CreateEventW, GetCurrentProcess, OpenProcessToken, SetEvent,
+    };
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -286,6 +287,9 @@ pub mod win {
         }
     }
 
+    ///
+    /// Detect if current process is running in elevated mode.
+    ///
     pub fn is_elevated() -> io::Result<bool> {
         unsafe {
             // Open the process token
@@ -318,7 +322,9 @@ pub mod win {
         }
     }
 
+    ///
     /// Convert the SID string to an account name.
+    ///
     pub fn name_from_sid(opt_sid: Option<String>) -> String {
         if let Some(sid) = opt_sid {
             unsafe {
@@ -373,7 +379,9 @@ pub mod win {
         }
     }
 
+    ///
     /// Retrive the description of a program from the EXE path.
+    ///
     pub fn file_description(exe_path: &OsString) -> io::Result<String> {
         let exe_path: Vec<u16> = exe_path.encode_wide().chain(Some(0)).collect();
 
@@ -422,6 +430,24 @@ pub mod win {
         }
 
         return Ok(String::default());
+    }
+
+    pub struct SafeHandle(pub HANDLE);
+
+    unsafe impl Send for SafeHandle {}
+    unsafe impl Sync for SafeHandle {}
+
+    pub fn create_auto_reset_event() -> io::Result<SafeHandle> {
+        let manual_reset = false;
+        let initial_state = false;
+        Ok(SafeHandle(
+            unsafe { CreateEventW(None, manual_reset, initial_state, None) }
+                .map_err(|_| io::Error::last_os_error())?,
+        ))
+    }
+
+    pub fn set_event(event: &SafeHandle) {
+        unsafe { _ = SetEvent(event.0) }
     }
 }
 

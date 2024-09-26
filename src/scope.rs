@@ -8,7 +8,7 @@ use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::io::IsTerminal;
 use std::path::Path;
-use std::sync::{atomic::Ordering::SeqCst, Arc};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Variable {
@@ -238,7 +238,10 @@ impl Scope {
     }
 
     pub fn is_interrupted() -> bool {
-        crate::INTERRUPT.load(SeqCst)
+        crate::INTERRUPT_EVENT
+            .try_lock()
+            .and_then(|guard| Ok(guard.is_set()))
+            .unwrap_or(false)
     }
 
     pub fn clear(&self) {

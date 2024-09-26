@@ -1,12 +1,13 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, Flag, ShellCommand};
-use crate::utils::executable;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::executable, INTERRUPT_EVENT};
 use std::ffi::OsStr;
 use std::io::{Error, IsTerminal};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Arc;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HINSTANCE, HWND};
+use windows::Win32::Foundation::{
+    CloseHandle, HANDLE, HINSTANCE, HWND, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
+};
 use windows::Win32::System::Registry::HKEY;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Shell::{
@@ -54,12 +55,36 @@ impl Sudo {
             } else if sei.hProcess.is_invalid() {
                 return Err(format!("{} {}: {}", exe, args, Error::last_os_error()));
             } else {
-                WaitForSingleObject(sei.hProcess, INFINITE);
+                // Wait for either process exit or the interrupt event
+                let handles = [
+                    sei.hProcess,
+                    INTERRUPT_EVENT
+                        .lock()
+                        .map_err(|e| format!("Failed to take interrupt lock: {}", e))?
+                        .event
+                        .0,
+                ];
+
                 let mut exit_code = 0;
-                let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
+                let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
 
-                CloseHandle(sei.hProcess).map_err(|e| e.to_string())?;
+                let result = if wait_result == WAIT_OBJECT_0 {
+                    // Process finished
+                    let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
+                    CloseHandle(sei.hProcess).and_then(|_| result)
+                } else {
+                    debug_assert!(wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1));
 
+                    // INTERRUPT_EVENT was set, terminate the process
+                    let result = TerminateProcess(sei.hProcess, 1);
+                    if WaitForSingleObject(sei.hProcess, INFINITE) == WAIT_FAILED {
+                        eprintln!(
+                            "Failed to wait for process: {}",
+                            Error::last_os_error().to_string()
+                        );
+                    }
+                    CloseHandle(sei.hProcess).and_then(|_| result)
+                };
                 result.map_err(|e| e.to_string())?;
 
                 if exit_code != 0 {
