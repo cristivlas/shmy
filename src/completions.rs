@@ -1,5 +1,5 @@
 /// Custom (user-defined) completions.
-///
+/// Used by CmdLineHelper.
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;

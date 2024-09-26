@@ -590,6 +590,8 @@ impl Shell {
         self.interp.set_var("HOME", home_dir);
     }
 
+    /// Display evaluation result in user-friendly form.
+    /// Provide hints if string evaluation could be result of typo (user wanted to execute command).
     fn show_result(&self, scope: &Arc<Scope>, input: &str, value: &eval::Value) {
         use strsim::levenshtein;
 
@@ -720,6 +722,7 @@ fn parse_cmd_line() -> Result<Shell, String> {
     Ok(shell)
 }
 
+/// Ctrl+C state. See ctrlc::set_handler
 pub struct InterruptEvent {
     flag: AtomicBool,
 

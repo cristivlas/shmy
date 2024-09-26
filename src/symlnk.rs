@@ -17,8 +17,8 @@ pub trait SymLink: AsRef<Path> {
     }
 }
 
-/// Resolve symbolic links, including WSL links, which
-/// are not handled by fs::canonicalize on Windows.
+/// Resolve symbolic links, including WSL links (which
+/// are not handled by fs::canonicalize on Windows).
 fn resolve_path(sym_path: &Path, visited: &mut HashMap<PathBuf, PathBuf>) -> io::Result<PathBuf> {
     let mut path = if sym_path.is_absolute() {
         PathBuf::new()
