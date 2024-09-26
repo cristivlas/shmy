@@ -4,10 +4,13 @@ use crossterm::{
     execute,
     terminal::{DisableLineWrap, EnableLineWrap},
 };
-use std::io::{stdout, BufReader, Read, Write};
-use std::net::{IpAddr, TcpStream};
+use std::io::{stdout, BufRead, BufReader, Write};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{
+    io,
+    net::{IpAddr, TcpStream},
+};
 
 struct Whois {
     flags: CommandFlags,
@@ -27,7 +30,7 @@ impl Whois {
         .to_string()
     }
 
-    fn query_whois(server: &str, ip: &str) -> std::io::Result<String> {
+    fn query_whois(server: &str, ip: &str) -> io::Result<io::Lines<BufReader<TcpStream>>> {
         let mut stream = TcpStream::connect((server, 43))?;
         stream.set_read_timeout(Some(Duration::new(10, 0)))?;
         stream.set_write_timeout(Some(Duration::new(10, 0)))?;
@@ -35,11 +38,8 @@ impl Whois {
         let query = format!("{}\r\n", ip);
         stream.write_all(query.as_bytes())?;
 
-        let mut reader = BufReader::new(stream);
-        let mut response = String::new();
-        reader.read_to_string(&mut response)?;
-
-        Ok(response)
+        let reader = BufReader::new(stream);
+        Ok(reader.lines())
     }
 
     fn whois(scope: &Arc<Scope>, args: &[String]) -> Result<Value, String> {
@@ -47,16 +47,11 @@ impl Whois {
         match ip_str.parse::<IpAddr>() {
             Ok(ip) => {
                 let whois_server = Whois::get_whois_server(&ip);
-                let response = Whois::query_whois(&whois_server, ip_str)
+                let lines = Whois::query_whois(&whois_server, ip_str)
                     .map_err(|e| format_error(scope, ip_str, &args, e))?;
 
-                for line in response.lines() {
-                    if let Some(index) = line.find(':') {
-                        let (key, value) = line.split_at(index);
-                        let key = key.trim().to_string() + ":";
-                        let value = value[1..].trim();
-                        my_println!("{:16} {}", key, value)?;
-                    }
+                for line in lines {
+                    my_println!("{}", line.map_err(|e| e.to_string())?)?;
                 }
                 Ok(Value::success())
             }
