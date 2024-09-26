@@ -1,8 +1,8 @@
 use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink, utils::format_error};
 use std::collections::HashSet;
-use std::fs;
-use std::io::{self, BufRead};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -99,15 +99,24 @@ impl Exec for Sort {
                     .map_err(|e| format_error(scope, file_path, &args, e))?;
 
                 if path.is_file() {
-                    match fs::read_to_string(&path) {
-                        Ok(content) => {
-                            if Scope::is_interrupted() {
-                                break;
+                    match File::open(&path) {
+                        Ok(file) => {
+                            let reader = BufReader::new(file);
+                            for line in reader.lines() {
+                                if Scope::is_interrupted() {
+                                    break;
+                                }
+                                match line {
+                                    Ok(line) => lines.push(line),
+                                    Err(e) => {
+                                        my_warning!(scope, "{}: {}", scope.err_path(&path), e);
+                                        break; // The file may not contain valid UTF-8, bail
+                                    }
+                                }
                             }
-                            lines.extend(content.lines().map(String::from));
                         }
                         Err(e) => {
-                            my_warning!(scope, "Cannot read {}: {}", scope.err_path(&path), e)
+                            my_warning!(scope, "Cannot open {}: {}", scope.err_path(&path), e);
                         }
                     }
                 } else if path.is_dir() {

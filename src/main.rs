@@ -85,7 +85,9 @@ impl CmdLineHelper {
         pos: &mut usize,
         candidates: &mut Vec<completion::Pair>,
     ) {
-        for name in &registered_commands(true) {
+        // Get registered commands. Pass false to internal_only,
+        // to include cached, previously used external commands
+        for name in &registered_commands(false) {
             if name.starts_with(input) {
                 candidates.push(completion::Pair {
                     display: name.clone(),
@@ -93,6 +95,7 @@ impl CmdLineHelper {
                 })
             } else if input.starts_with(name) {
                 if let Some(delim_pos) = input.rfind(&['\t', ' '][..]) {
+                    // Complete command line flags and options for internal cmds.
                     let arg = &input[&delim_pos + 1..];
                     if !arg.starts_with("-") {
                         continue;
@@ -532,7 +535,7 @@ impl Shell {
                                 // Evaluate the line from history
                                 self.eval(&history_entry);
                             } else {
-                                println!("No match.");
+                                eprintln!("No match.");
                             }
                         } else {
                             rl.add_history_entry(line.as_str())
