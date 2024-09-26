@@ -604,11 +604,11 @@ impl Cp {
         flags.add_flag_enabled('i', "interactive", "Prompt to overwrite");
         flags.add_alias(Some('f'), "force", "no-interactive");
         flags.add_flag('P', "no-dereference", "Ignore symbolic links in SOURCE");
-        flags.add(None, "no-hidden", false, "Ignore hidden files");
+        flags.add(None, "no-hidden", None, "Ignore hidden files");
         flags.add(
             None,
             "no-preserve",
-            false,
+            None,
             "Do not preserve permissions and time stamps",
         );
         Cp { flags }

@@ -586,7 +586,7 @@ impl View {
 
     fn cmd_column() -> Box<dyn ViewColumn> {
         Box::new(Column::new(
-            "comm",
+            "cmd",
             "COMMAND LINE",
             Box::new(|f, d| write!(f, "{:<}", d)),
             Box::new(|proc: &Process| cmd_string(proc)),
@@ -792,7 +792,7 @@ impl ProcStatus {
         );
         flags.add_flag('l', "long", "Long format");
         flags.add_flag('t', "tree", "Display processes in a hierarchical view");
-        flags.add_value('s', "sort", "Specify sorting order");
+        flags.add_value('s', "sort", "sort spec", "Specify sorting order");
 
         Self { flags }
     }
@@ -809,19 +809,6 @@ impl Exec for ProcStatus {
         // Use forgiving, non-error checking parsing here, for compat with ps -efl, ps -afx etc
         // and to allow minus sign in sort specifiers.
         let _ = flags.parse_relaxed(scope, args);
-
-        if flags.is_present("help") {
-            println!("Usage: ps [OPTIONS]");
-            println!("List currently running processes and their details.");
-            println!("\nOptions:");
-            println!("{}", flags.help());
-            println!("The \"long\" view shows the command that started the process");
-            println!("The sort spec is a comma-separated list of column names, optionally prefixed by a + or - sign.");
-            println!("The PLUS sign specifies increasing sorting order (the default), and MINUS specifies decreasing order.");
-            println!("Examples:\n\tps --sort name,-mem\n\tps -s \"+cpu,-mem,user\"\n");
-            println!("\nNOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less\n");
-            return Ok(Value::success());
-        }
 
         let tree_view = flags.is_present("tree");
         let long_view = flags.is_present("long");
@@ -843,6 +830,24 @@ impl Exec for ProcStatus {
             view.columns.push(View::file_description_column());
 
             view.columns.push(View::cmd_column());
+        }
+
+        if flags.is_present("help") {
+            let sort_keys: Vec<_> = view.columns.iter().map(|c| c.name()).collect();
+
+            println!("Usage: ps [OPTIONS]");
+            println!("List currently running processes and their details.");
+            println!("\nOptions:");
+            println!("{}", flags.help());
+            println!("The \"long\" view shows the command that started the process.");
+            println!("The sort specification is a comma-separated list of column names, optionally prefixed by a + or - sign.");
+            println!("The PLUS sign specifies increasing sorting order (the default), and MINUS specifies decreasing order.");
+            println!();
+            println!("Available columns for sorting: {}.", sort_keys.join(", "));
+            println!();
+            println!("Examples:\n\tps --sort name,-mem\n\tps -s \"+cpu,-mem,user\"\n");
+            println!("\nNOTE: It is recommended to use the --long option in conjunction with the 'less' pager, e.g.: ps -al | less\n");
+            return Ok(Value::success());
         }
 
         if let Some(sort_spec) = flags.value("sort") {

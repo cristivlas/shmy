@@ -15,10 +15,16 @@ impl Run {
             "raw",
             "Arguments are passed as a raw string that needs to be tokenized",
         );
-        flags.add_value('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_value(
+            '-',
+            "args",
+            "arg list",
+            "Pass all remaining arguments to COMMAND",
+        );
         flags.add_value(
             'd',
             "delimiter",
+            "regex",
             "Specify custom delimiters for tokenizing when '--raw' is specified (default: whitespace)",
         );
         Self { flags }

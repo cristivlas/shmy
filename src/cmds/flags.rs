@@ -36,7 +36,13 @@ impl CommandFlags {
         flags
     }
 
-    pub fn add(&mut self, short: Option<char>, long: &str, takes_value: bool, help: &str) {
+    pub fn add(
+        &mut self,
+        short: Option<char>,
+        long: &str,
+        takes_value: Option<String>,
+        help: &str,
+    ) {
         self.add_with_default(short, long, takes_value, help, None)
     }
 
@@ -48,7 +54,7 @@ impl CommandFlags {
             (other, false)
         };
         let flag = self.flags.get(base_name).expect("flag does not exist");
-        if flag.takes_value {
+        if flag.takes_value.is_some() {
             panic!("Aliasing not supported for value flags");
         }
         if self
@@ -63,14 +69,14 @@ impl CommandFlags {
         } else {
             flag.help.clone()
         };
-        self.add(short, alias, false, &help);
+        self.add(short, alias, None, &help);
     }
 
     pub fn add_with_default(
         &mut self,
         short: Option<char>,
         long: &str,
-        takes_value: bool,
+        takes_value: Option<String>,
         help: &str,
         default_value: Option<&str>,
     ) {
@@ -95,16 +101,16 @@ impl CommandFlags {
 
     /// Add boolean flag
     pub fn add_flag(&mut self, short: char, long: &str, help: &str) {
-        self.add(Some(short), long, false, help);
+        self.add(Some(short), long, None, help);
     }
 
     pub fn add_flag_enabled(&mut self, short: char, long: &str, help: &str) {
-        self.add_with_default(Some(short), long, false, help, Some("true"));
+        self.add_with_default(Some(short), long, None, help, Some("true"));
     }
 
     /// Add flag that takes a value
-    pub fn add_value(&mut self, short: char, long: &str, help: &str) {
-        self.add(Some(short), long, true, help);
+    pub fn add_value(&mut self, short: char, long: &str, name: &str, help: &str) {
+        self.add(Some(short), long, Some(name.to_string()), help);
     }
 
     /// Parse command-line arguments and categorize them into flags and non-flag arguments.
@@ -202,7 +208,7 @@ impl CommandFlags {
         args_iter: &mut ArgsIter,
     ) -> Result<(), String> {
         if let Some((flag, is_negation)) = self.resolve_name(&arg[2..]) {
-            if flag.takes_value {
+            if flag.takes_value.is_some() {
                 if is_negation {
                     scope.set_err_arg(self.index);
                     return Err(format!(
@@ -243,7 +249,7 @@ impl CommandFlags {
                 let (flag, is_negation) =
                     self.resolve_name(&flag.long).expect("unknown short flag");
 
-                if flag.takes_value {
+                if flag.takes_value.is_some() {
                     let value = if i + 1 < chars.len() {
                         // Case: -d2
                         chars[i + 1..].iter().collect::<String>()
@@ -316,9 +322,15 @@ impl CommandFlags {
             } else {
                 String::new()
             };
+
+            let long_text = match &flag.takes_value {
+                Some(name) => format!("{} <{}>", flag.long, name),
+                None => flag.long.to_string(),
+            };
+
             help_text.push_str(&format!(
                 "{:4}--{:20} {}{}\n",
-                short_flag_help, flag.long, flag.help, default_value_help
+                short_flag_help, long_text, flag.help, default_value_help
             ));
         }
         help_text
@@ -333,8 +345,14 @@ mod tests {
     fn create_test_flags() -> CommandFlags {
         let mut flags = CommandFlags::new();
         flags.add_flag('v', "verbose", "Enable verbose output");
-        flags.add_value('o', "output", "Specify output file");
-        flags.add_with_default(Some('d'), "debug", true, "Set debug level", Some("0"));
+        flags.add_value('o', "output", "file", "Specify output file");
+        flags.add_with_default(
+            Some('d'),
+            "debug",
+            Some("level".to_string()),
+            "Set debug level",
+            Some("0"),
+        );
         flags
     }
 
@@ -463,7 +481,7 @@ mod tests {
         let scope = Arc::new(Scope::new());
 
         // Adding flags for the test
-        flags.add_value('d', "debug", "Set debug level");
+        flags.add_value('d', "debug", "level", "Set debug level");
 
         // Test input: '-d' followed by '2' as a separate argument
         let args = vec!["-d".to_string(), "2".to_string()];
@@ -481,7 +499,7 @@ mod tests {
         let scope = Arc::new(Scope::new());
 
         // Adding flags for the test
-        flags.add_value('d', "debug", "Set debug level");
+        flags.add_value('d', "debug", "level", "Set debug level");
 
         // Test input: '-d2', where '2' is concatenated with the flag '-d'
         let args = vec!["-d2".to_string()];
@@ -639,7 +657,7 @@ mod tests {
     #[test]
     fn test_negate() {
         let mut flags = CommandFlags::new();
-        flags.add_with_default(Some('m'), "messages", false, "", Some("true"));
+        flags.add_with_default(Some('m'), "messages", None, "", Some("true"));
         flags.add_alias(Some('s'), "silent", "no-messages");
 
         let result = flags.parse(&Scope::new(), &vec!["-s".to_string()]);

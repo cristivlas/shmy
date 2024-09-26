@@ -118,7 +118,9 @@ impl CmdLineHelper {
                                 replacement: flag,
                             })
                         }
-                        if !f.takes_value && arg.starts_with("--no-") && !f.long.starts_with("no-")
+                        if !f.takes_value.is_some()
+                            && arg.starts_with("--no-")
+                            && !f.long.starts_with("no-")
                         {
                             if f.long.starts_with(&arg[5..]) {
                                 let flag = format!("--no-{}", f.long);

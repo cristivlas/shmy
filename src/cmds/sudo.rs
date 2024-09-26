@@ -22,7 +22,7 @@ struct Sudo {
 impl Sudo {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
-        flags.add_value('-', "args", "Pass all remaining arguments to COMMAND");
+        flags.add_value('-', "args", "arg list", "Pass all remaining arguments to COMMAND");
         Self { flags }
     }
 

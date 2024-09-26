@@ -79,7 +79,7 @@ pub struct Flag {
     pub short: Option<char>,
     pub long: String,
     pub help: String,
-    pub takes_value: bool,
+    pub takes_value: Option<String>,
     pub default_value: Option<String>,
 }
 

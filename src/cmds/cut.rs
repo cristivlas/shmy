@@ -18,11 +18,13 @@ impl CutCommand {
         flags.add_value(
             'd',
             "delimiter",
+            "regex",
             "Specify the regex delimiter (default: tab)",
         );
         flags.add_value(
             'f',
             "fields",
+            "list",
             "Specify the fields to extract (comma-separated list)",
         );
 

@@ -50,10 +50,10 @@ impl Grep {
         flags.add(
             None,
             "hidden",
-            false,
+            None,
             "Include hidden (starting with a dot) files and directories",
         );
-        flags.add_with_default(None, "messages", false, "Show error messages", Some("true"));
+        flags.add_with_default(None, "messages", None, "Show error messages", Some("true"));
         flags.add_alias(Some('s'), "silent", "no-messages");
 
         Self { flags }

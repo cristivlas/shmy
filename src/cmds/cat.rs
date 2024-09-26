@@ -26,7 +26,7 @@ impl CatHeadTail {
         flags.add_flag('n', "number", "Number output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
-            flags.add_value('l', "lines", "Specify the number of lines to output");
+            flags.add_value('l', "lines", "number", "Specify the number of lines to output");
         }
         CatHeadTail { flags, mode }
     }

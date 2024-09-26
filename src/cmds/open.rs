@@ -11,7 +11,7 @@ struct Open {
 impl Open {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
-        flags.add_value('a', "application", "Application to open with");
+        flags.add_value('a', "application", "name", "Application to open with");
 
         Self { flags }
     }

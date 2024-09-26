@@ -90,12 +90,13 @@ impl DiskUtilization {
         flags.add_value(
             'd',
             "max-depth",
+            "depth",
             "Print the total for a directory only if below the specified depth",
         );
         flags.add(
             None,
             "apparent",
-            false,
+            None,
             "Print apparent sizes, rather than disk usage",
         );
 

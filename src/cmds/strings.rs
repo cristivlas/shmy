@@ -17,6 +17,7 @@ impl StringsCommand {
         flags.add_value(
             'n',
             "min-length",
+            "length",
             "Specify the minimum length of strings to output",
         );
         StringsCommand { flags }

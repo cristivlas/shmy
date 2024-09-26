@@ -18,6 +18,7 @@ impl Date {
         flags.add_value(
             'z',
             "timezone",
+            "zone",
             "Specify the zone (e.g., America/New_York) to display local time",
         );
 
