@@ -1,5 +1,6 @@
-use super::{flags::CommandFlags, register_command, Exec, ShellCommand, Flag};
+use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Ident, scope::Scope, scope::Variable};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::env;
 use std::sync::Arc;
@@ -12,8 +13,14 @@ impl Vars {
     fn new() -> Self {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
-        flags.add_flag('l', "local", "Display inner, local scope variables only");
-        Vars { flags }
+        flags.add_flag('l', "local", "Display local scope variables only");
+        flags.add_flag(
+            'q',
+            "quote",
+            "Escape variable values and surround with double quotes",
+        );
+
+        Self { flags }
     }
 
     fn collect_vars(scope: &Arc<Scope>, local_only: bool) -> BTreeMap<Ident, Variable> {
@@ -36,6 +43,20 @@ impl Vars {
     }
 }
 
+trait Escape {
+    fn escape(&self, quote: bool) -> Cow<str>;
+}
+
+impl Escape for str {
+    fn escape(&self, quote: bool) -> Cow<str> {
+        if quote {
+            Cow::Owned(format!("\"{}\"", self.escape_default()))
+        } else {
+            Cow::Borrowed(self)
+        }
+    }
+}
+
 impl Exec for Vars {
     fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
         Box::new(self.flags.iter())
@@ -46,13 +67,14 @@ impl Exec for Vars {
         flags.parse(scope, args)?;
 
         if flags.is_present("help") {
-            println!("Usage: vars [-l]");
+            println!("Usage: vars [OPTIONS]");
             println!("Display variables visible in the current scope.");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
         }
 
+        let quote = flags.is_present("quote");
         let local_only = flags.is_present("local");
 
         if !local_only && name == "env" {
@@ -60,12 +82,16 @@ impl Exec for Vars {
             let vars: Vec<String> = env::vars().map(|(key, _)| key).collect();
 
             for key in vars {
-                my_println!("{}={}", key, env::var(&key).map_err(|e| e.to_string())?)?;
+                my_println!(
+                    "{}={}",
+                    key,
+                    env::var(&key).map_err(|e| e.to_string())?.escape(quote)
+                )?;
             }
         } else {
             let vars = Self::collect_vars(scope, local_only);
             for (key, var) in vars {
-                my_println!("{}={}", key, var)?;
+                my_println!("{}={}", key, var.value().as_str().escape(quote))?;
             }
         }
         Ok(Value::success())
