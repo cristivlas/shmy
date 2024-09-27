@@ -1,9 +1,12 @@
+use colored::Colorize;
+
 use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, unregister_command,
     Exec, Flag, ShellCommand,
 };
 use crate::{eval::Value, scope::Scope, utils::format_error};
 use std::any::Any;
+use std::io;
 use std::sync::Arc;
 
 pub struct AliasRunner {
@@ -62,8 +65,7 @@ impl Alias {
     }
 
     fn list(&self) {
-        println!("Registered Aliases");
-        println!("------------------");
+        let mut count = 0;
 
         for name in registered_commands(true) {
             let cmd = get_command(&name).unwrap();
@@ -76,9 +78,13 @@ impl Alias {
             {
                 None => {}
                 Some(runner) => {
+                    count += 1;
                     println!("{}: {}", name, runner.args.join(" "));
                 }
             }
+        }
+        if count == 0 {
+            println!("No aliases found.");
         }
     }
 
@@ -128,7 +134,19 @@ impl Exec for Alias {
         }
 
         if flags.is_present("list") {
-            self.list();
+            if parsed_args.is_empty() {
+                self.list();
+            } else {
+                eprintln!("--list (or -l) was specified but other arguments were present.");
+                let guess = format!("alias {} \"{}\"", args[0], args[1..].join(" "));
+                let guess = if scope.use_colors(&io::stderr()) {
+                    guess.bright_cyan()
+                } else {
+                    guess.normal()
+                };
+
+                eprintln!("Did you mean: {}?", guess);
+            }
             return Ok(Value::success());
         }
 
