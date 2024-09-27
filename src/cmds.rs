@@ -64,10 +64,6 @@ pub trait Exec {
 
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String>;
 
-    fn is_external(&self) -> bool {
-        false
-    }
-
     /// Return true if command needs a shell to launch.
     #[allow(dead_code)]
     fn is_script(&self) -> bool {
@@ -102,6 +98,22 @@ impl ShellCommand {
     pub fn name(&self) -> &String {
         &self.name
     }
+
+    fn is_alias(&self) -> bool {
+        self.inner
+            .as_ref()
+            .as_any()
+            .and_then(|any| any.downcast_ref::<alias::AliasRunner>())
+            .is_some()
+    }
+
+    fn is_external(&self) -> bool {
+        self.inner
+            .as_ref()
+            .as_any()
+            .and_then(|any| any.downcast_ref::<External>())
+            .is_some()
+    }
 }
 
 impl Debug for ShellCommand {
@@ -121,10 +133,6 @@ impl Exec for ShellCommand {
 
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         self.inner.exec(name, args, scope)
-    }
-
-    fn is_external(&self) -> bool {
-        self.inner.is_external()
     }
 
     fn is_script(&self) -> bool {
@@ -269,6 +277,10 @@ impl External {
 }
 
 impl Exec for External {
+    fn as_any(&self) -> Option<&dyn Any> {
+        Some(self)
+    }
+
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut command = self.prepare_command(args);
         copy_vars_to_command_env(&mut command, &scope);
@@ -310,10 +322,6 @@ impl Exec for External {
         false
     }
 
-    fn is_external(&self) -> bool {
-        true
-    }
-
     fn path(&self) -> Cow<'_, Path> {
         self.which_path()
     }
@@ -353,10 +361,16 @@ impl Exec for Which {
             return Err("which: missing command name".to_string());
         }
 
+        let extern_only = flags.is_present("external");
+
         for command in args {
             if let Some(cmd) = get_command(command) {
-                if !cmd.is_external() && !flags.is_present("external") {
-                    my_println!("{}: built-in", command)?;
+                if !extern_only && !cmd.is_external() {
+                    if cmd.is_alias() {
+                        my_println!("{}: alias", command)?;
+                    } else {
+                        my_println!("{}: built-in", command)?;
+                    }
                 }
             }
             if let Some(path) = which_executable(command) {

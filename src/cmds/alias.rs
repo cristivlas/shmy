@@ -8,7 +8,7 @@ use crate::{eval::Value, scope::Scope};
 use std::any::Any;
 use std::sync::Arc;
 
-struct AliasRunner {
+pub struct AliasRunner {
     args: Vec<String>,
 }
 
@@ -64,6 +64,9 @@ impl Alias {
     }
 
     fn list(&self) {
+        println!("Registered Aliases");
+        println!("------------------");
+
         for name in registered_commands(true) {
             let cmd = get_command(&name).unwrap();
 
@@ -116,9 +119,13 @@ impl Exec for Alias {
             println!("Register or deregister alias commands.");
             println!("\nOptions:");
             println!("{}", flags.help());
+            println!();
             println!("Examples:");
             println!("    alias la ls -al");
             println!("    alias --remove la");
+            println!("    alias unalias \"alias --remove\"");
+            println!();
+            println!("Using quotes is recommended when registering aliases.");
             return Ok(Value::success());
         }
 

@@ -18,16 +18,16 @@ struct Whois {
 
 impl Whois {
     fn new() -> Self {
-        let flags = CommandFlags::with_help();
+        let mut flags = CommandFlags::with_help();
+        flags.add_value('h', "host", "server", "whois server");
         Self { flags }
     }
 
-    fn get_whois_server(ip: &IpAddr) -> String {
+    fn get_whois_server(ip: &IpAddr) -> &str {
         match ip {
             IpAddr::V4(_) => "whois.arin.net",
             IpAddr::V6(_) => "whois.ripe.net",
         }
-        .to_string()
     }
 
     fn query_whois(server: &str, ip: &str) -> io::Result<io::Lines<BufReader<TcpStream>>> {
@@ -42,13 +42,12 @@ impl Whois {
         Ok(reader.lines())
     }
 
-    fn whois(scope: &Arc<Scope>, args: &[String]) -> Result<Value, String> {
+    fn whois(args: &[String], server: Option<&str>) -> Result<Value, String> {
         let ip_str = &args[0];
         match ip_str.parse::<IpAddr>() {
             Ok(ip) => {
-                let whois_server = Whois::get_whois_server(&ip);
-                let lines = Whois::query_whois(&whois_server, ip_str)
-                    .map_err(|e| format_error(scope, ip_str, &args, e))?;
+                let whois_server = server.unwrap_or(Whois::get_whois_server(&ip));
+                let lines = Whois::query_whois(&whois_server, ip_str).map_err(|e| e.to_string())?;
 
                 for line in lines {
                     my_println!("{}", line.map_err(|e| e.to_string())?)?;
@@ -67,7 +66,8 @@ impl Exec for Whois {
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let args = flags.parse(scope, args)?;
+        let whois_args = flags.parse(scope, args)?;
+
         if flags.is_present("help") {
             println!("Usage: whois <IP address>");
             println!("Query WHOIS information for the specified IP address.");
@@ -76,15 +76,15 @@ impl Exec for Whois {
             return Ok(Value::success());
         }
 
-        if args.is_empty() {
+        if whois_args.is_empty() {
             return Err("Missing IP address".to_string());
         }
 
         _ = execute!(stdout(), DisableLineWrap);
-        let result = Self::whois(scope, &args);
+        let result = Self::whois(&whois_args, flags.value("host"));
         _ = execute!(stdout(), EnableLineWrap);
 
-        result
+        Ok(result.map_err(|e| format_error(scope, &whois_args[0], &args, e))?)
     }
 }
 
