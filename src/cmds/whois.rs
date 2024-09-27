@@ -23,11 +23,12 @@ impl Whois {
         Self { flags }
     }
 
-    fn get_whois_server(ip: &IpAddr) -> &str {
-        match ip {
-            IpAddr::V4(_) => "whois.arin.net",
-            IpAddr::V6(_) => "whois.ripe.net",
-        }
+    fn get_whois_server(_ip: &IpAddr) -> &str {
+        // match _ip {
+        //     IpAddr::V4(_) => "whois.arin.net",
+        //     IpAddr::V6(_) => "whois.ripe.net",
+        // }
+        "whois.ripe.net"
     }
 
     fn query_whois(server: &str, ip: &str) -> io::Result<io::Lines<BufReader<TcpStream>>> {
