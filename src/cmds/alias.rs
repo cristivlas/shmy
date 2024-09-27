@@ -1,10 +1,8 @@
-use super::unregister_command;
 use super::{
-    flags::CommandFlags, get_command, register_command, registered_commands, Exec, Flag,
-    ShellCommand,
+    flags::CommandFlags, get_command, register_command, registered_commands, unregister_command,
+    Exec, Flag, ShellCommand,
 };
-use crate::utils::format_error;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::format_error};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -23,7 +21,7 @@ impl Exec for AliasRunner {
         Some(self)
     }
 
-    /// Execute alias command via the "eval" command.
+    /// Execute alias via the "eval" command.
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let eval = get_command("eval").expect("eval command not registered");
         let combined_args: String = self

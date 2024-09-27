@@ -15,8 +15,7 @@ use std::{
     cmp::{Ord, Ordering, PartialOrd},
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ffi::{OsStr, OsString},
-    fmt,
-    io::{self, IsTerminal},
+    fmt, io,
     sync::Arc,
 };
 
@@ -861,18 +860,14 @@ impl Exec for ProcStatus {
             view.filters.push(Box::new(UserProc::new(&view.system)));
         }
 
-        if io::stdout().is_terminal() {
-            _ = execute!(io::stdout(), DisableLineWrap);
-        }
+        _ = execute!(io::stdout(), DisableLineWrap);
         let result = if tree_view {
             view.process_tree(scope, long_view)
         } else {
             view.process_list(scope)
         };
+        _ = execute!(io::stdout(), EnableLineWrap);
 
-        if io::stdout().is_terminal() {
-            _ = execute!(io::stdout(), EnableLineWrap);
-        }
         result?;
         Ok(Value::success())
     }
