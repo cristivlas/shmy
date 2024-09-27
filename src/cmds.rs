@@ -1,5 +1,6 @@
 use crate::utils::copy_vars_to_command_env;
 use crate::{eval::Value, scope::Scope};
+use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -9,9 +10,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock, Mutex};
 use which::which;
+
 mod flags;
 use flags::CommandFlags;
 // Built-in commands
+mod alias;
 mod basename;
 mod cat;
 mod cd;
@@ -55,6 +58,10 @@ mod wc;
 mod whois;
 
 pub trait Exec {
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
+    }
+
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String>;
 
     fn is_external(&self) -> bool {
@@ -104,6 +111,10 @@ impl Debug for ShellCommand {
 }
 
 impl Exec for ShellCommand {
+    fn as_any(&self) -> Option<&dyn Any> {
+        Some(self)
+    }
+
     fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
         self.inner.cli_flags()
     }
@@ -127,14 +138,18 @@ impl Exec for ShellCommand {
 
 unsafe impl Send for ShellCommand {}
 
-pub static COMMAND_REGISTRY: LazyLock<Mutex<HashMap<String, ShellCommand>>> =
+static COMMAND_REGISTRY: LazyLock<Mutex<HashMap<String, ShellCommand>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub fn register_command(command: ShellCommand) {
+pub fn register_command(command: ShellCommand) -> Option<ShellCommand> {
     COMMAND_REGISTRY
         .lock()
         .unwrap()
-        .insert(command.name.clone(), command);
+        .insert(command.name.clone(), command)
+}
+
+pub fn unregister_command(name: &str) {
+    COMMAND_REGISTRY.lock().unwrap().remove(name);
 }
 
 pub fn get_command(name: &str) -> Option<ShellCommand> {

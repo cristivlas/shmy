@@ -127,17 +127,24 @@ impl Help {
             }
             _ => match get_command(command) {
                 Some(cmd) => {
-                    let mut std_cmd = Command::new(executable()?);
-                    let child = std_cmd
-                        .arg("-c")
-                        .arg(cmd.name())
-                        .arg("-?")
-                        .stdout(std::process::Stdio::piped())
-                        .spawn()
-                        .map_err(|e| e.to_string())?;
+                    if cmd.is_external() {
+                        println!(
+                            "{} is an external program, try: {} --help",
+                            command, command
+                        );
+                    } else {
+                        let mut std_cmd = Command::new(executable()?);
+                        let child = std_cmd
+                            .arg("-c")
+                            .arg(cmd.name())
+                            .arg("-?")
+                            .stdout(std::process::Stdio::piped())
+                            .spawn()
+                            .map_err(|e| e.to_string())?;
 
-                    let output = child.wait_with_output().map_err(|e| e.to_string())?;
-                    Self::print_help_output(command, &String::from_utf8_lossy(&output.stdout));
+                        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+                        Self::print_help_output(command, &String::from_utf8_lossy(&output.stdout));
+                    }
                 }
                 None => return Err(format!("Unknown command: {}", command)),
             },
@@ -148,21 +155,23 @@ impl Help {
     fn print_help_output(name: &str, output: &str) {
         let mut lines: Vec<&str> = output.lines().collect();
 
-        // Print the name and synopsis
-        println!("NAME");
-        println!("    {}", name);
-        println!();
-        println!("SYNOPSIS");
-        println!("    {}", lines.remove(0));
-        println!();
+        if !lines.is_empty() {
+            // Print the name and synopsis
+            println!("NAME");
+            println!("    {}", name);
+            println!();
+            println!("SYNOPSIS");
+            println!("    {}", lines.remove(0));
+            println!();
 
-        // Print the description
-        println!("DESCRIPTION");
-        for line in lines {
-            if line.trim() == "Options:" {
-                println!("OPTIONS");
-            } else {
-                println!("    {}", line);
+            // Print the description
+            println!("DESCRIPTION");
+            for line in lines {
+                if line.trim() == "Options:" {
+                    println!("OPTIONS");
+                } else {
+                    println!("    {}", line);
+                }
             }
         }
     }
