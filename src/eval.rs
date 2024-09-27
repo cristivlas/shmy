@@ -2466,8 +2466,9 @@ impl Eval for Command {
 
 impl ExprNode for Command {
     fn add_child(&mut self, child: &Rc<Expression>) -> EvalResult {
-        assert!(child.is_args());
-        assert!(self.args.is_empty());
+        if !child.is_args() {
+            return Err(EvalError::new(child.loc(), "Expecting argument list"));
+        }
         self.args = Rc::clone(&child);
         Ok(())
     }
