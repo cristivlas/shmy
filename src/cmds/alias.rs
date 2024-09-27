@@ -11,17 +11,26 @@ use std::sync::Arc;
 
 pub struct AliasRunner {
     args: Vec<String>,
+    cmd: Option<ShellCommand>,
 }
 
 impl AliasRunner {
     fn new(args: Vec<String>) -> Self {
-        Self { args }
+        let cmd = get_command(&args[0]);
+        Self { args, cmd }
     }
 }
 
 impl Exec for AliasRunner {
     fn as_any(&self) -> Option<&dyn Any> {
         Some(self)
+    }
+
+    fn cli_flags(&self) -> Box<dyn Iterator<Item = &Flag> + '_> {
+        if let Some(cmd) = &self.cmd {
+            return cmd.cli_flags();
+        }
+        Box::new(std::iter::empty())
     }
 
     /// Execute alias via the "eval" command.
@@ -55,11 +64,12 @@ impl Alias {
         if get_command(&name).is_some() {
             Err(format!("{} already exists", name))
         } else {
-            let runner = AliasRunner::new(args);
+            assert!(!args.is_empty());
             register_command(ShellCommand {
                 name,
-                inner: Arc::new(runner),
+                inner: Arc::new(AliasRunner::new(args)),
             });
+
             Ok(Value::success())
         }
     }
@@ -119,8 +129,8 @@ impl Exec for Alias {
         let mut parsed_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
-            println!("Usage: alias [NAME COMMAND [ARG...]] [OPTIONS]");
-            println!("Register or deregister alias commands.");
+            println!("Usage: alias [NAME EXPRESSION] [OPTIONS]");
+            println!("Register or deregister aliases (expression shortcuts).");
             println!("\nOptions:");
             println!("{}", flags.help());
             println!();
@@ -164,7 +174,7 @@ impl Exec for Alias {
         }
 
         if parsed_args.len() < 2 {
-            return Err("COMMAND not specified".to_string());
+            return Err("EXPRESSION not specified".to_string());
         }
 
         let name = parsed_args.remove(0);
