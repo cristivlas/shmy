@@ -569,6 +569,11 @@ macro_rules! token {
     }};
 }
 
+/// Quote globbed result in case it contains spaces
+fn globbed_token(value: String) -> Token {
+    Token::Literal(Text::new(value, true, false))
+}
+
 impl<T> Parser<T>
 where
     T: Iterator<Item = char>,
@@ -658,7 +663,8 @@ where
                         .collect();
 
                     if !self.globbed_tokens.is_empty() {
-                        return Ok(Token::from(self.globbed_tokens.remove(0)));
+                        let value = self.globbed_tokens.remove(0);
+                        return Ok(globbed_token(value));
                     }
                 }
                 Err(_) => {} // Ignore glob errors and treat as literal
@@ -728,7 +734,8 @@ where
     pub fn next_token(&mut self) -> EvalResult<Token> {
 
         if !self.globbed_tokens.is_empty() {
-            return Ok(Token::from(self.globbed_tokens.remove(0)));
+            let value = self.globbed_tokens.remove(0);
+            return Ok(globbed_token(value));
         }
 
         let mut tok = Token::End;
