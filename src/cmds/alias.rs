@@ -4,7 +4,7 @@ use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, unregister_command,
     Exec, Flag, ShellCommand,
 };
-use crate::{eval::Value, scope::Scope, utils::format_error};
+use crate::{eval::Value, prompt::confirm, prompt::Answer, scope::Scope, utils::format_error};
 use std::any::Any;
 use std::io;
 use std::sync::Arc;
@@ -109,7 +109,10 @@ impl Alias {
                     .and_then(|any| any.downcast_ref::<AliasRunner>())
                     .is_some()
                 {
-                    unregister_command(name);
+                    let prompt = format!("Remove '{}'", name);
+                    if confirm(prompt, &scope, false).ok() == Some(Answer::Yes) {
+                        unregister_command(name);
+                    }
                     Ok(Value::success())
                 } else {
                     Err(format_error(scope, name, args, "not an alias"))
