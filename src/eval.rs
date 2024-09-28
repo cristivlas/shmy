@@ -569,9 +569,8 @@ macro_rules! token {
     }};
 }
 
-/// Quote globbed result in case it contains spaces
 fn globbed_token(value: String) -> Token {
-    Token::Literal(Text::new(value, true, false))
+    Token::Literal(Text::new(value, false, true))
 }
 
 impl<T> Parser<T>
@@ -1504,7 +1503,6 @@ impl Expression {
                 for expr in &args.borrow().content {
                     let quoted = if let Expression::Leaf(lit) = &**expr {
                         if lit.text.raw {
-                            assert!(lit.text.quoted);
                             tokens.push(lit.text.value());
                             continue;
                         }

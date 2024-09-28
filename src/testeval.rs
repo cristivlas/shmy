@@ -342,7 +342,7 @@ pub mod tests {
     fn test_logical_or_error() {
         assert_eval_ok!(
             "(basename . || echo $__errors) | x; $x",
-            Value::from("basename \".\": Failed to get file name")
+            Value::from("basename .: Failed to get file name")
         );
     }
 
