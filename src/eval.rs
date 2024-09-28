@@ -2645,8 +2645,17 @@ macro_rules! eval_iteration {
             break;
         }
 
-        // Evaluate the loop body, checking for command status
-        $result = Status::check_result($self.body.eval(), false);
+        // Evaluate the loop body
+        $result = $self.body.eval();
+
+        // Check for command status, break out of loop on error
+        if let Ok(Value::Stat(status)) = &$result {
+            let temp = status.borrow().result.clone();
+            if temp.is_err() {
+                $result = temp;
+                break;
+            }
+        }
 
         // Check for break and continue
         if let Err(e) = &$result {

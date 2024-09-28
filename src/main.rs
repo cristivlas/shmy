@@ -609,7 +609,7 @@ impl Shell {
                         .map(|item| (item, levenshtein(item, s)))
                         .min_by_key(|&(_, distance)| distance)
                     {
-                        if distance < std::cmp::max(near.len(), input.len()) {
+                        if distance < std::cmp::min(near.len(), input.len()) {
                             eprintln!(
                                 "{} was evaluated as a string. Did you mean '{}'?",
                                 scope.err_str(input),
