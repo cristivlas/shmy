@@ -90,6 +90,9 @@ This shell provides autocompletion when the `TAB` key is pressed.
 
 ## Expression Evaluation and Language Features
 
+### Note
+Statements must end with a semicolon -- except for the last statement in a block (scope) where it is optional.
+
 ### 1. Variable Assignment and Evaluation
 
 Variables can be assigned and utilized within commands:

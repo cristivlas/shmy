@@ -2490,9 +2490,10 @@ impl Eval for Command {
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.err_loc(), e));
 
-        if Scope::is_interrupted() {
-            eprintln!("^C");
-        }
+        // if Scope::is_interrupted() {
+        //     eprintln!("^C");
+        // }
+
         Ok(Value::Stat(Status::new(
             self.to_string(),
             result,
