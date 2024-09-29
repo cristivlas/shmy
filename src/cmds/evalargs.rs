@@ -85,8 +85,8 @@ impl Exec for Evaluate {
                     let mut command = false;
                     // Did the expression eval result in running a command? Check for errors.
                     if let Value::Stat(status) = &value {
-                        if let Err(e) = &status.borrow().result {
-                            return Err(e.to_string());
+                        if status.is_err() {
+                            return Err(status.to_string())
                         }
                         command = true;
                     }

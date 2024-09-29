@@ -31,3 +31,8 @@ find src .*rs | rs_files; i = 1; for f in $rs_files; (echo $i $f; $i = $i + 1) =
 # Achieve similar report as above, but this time using the 'cat' command with the line numbering option.
 
 find src .*rs | cat --number => report.txt;
+
+# Example 5.
+#------------
+
+for file in *; (echo "===== $file ====="; ls -al "$file" || echo $file);

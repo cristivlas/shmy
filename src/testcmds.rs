@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::assert_eval_err;
-    use crate::assert_eval_ok;
     use crate::eval::*;
     use crate::testeval::tests::*;
+    use crate::{assert_eval_cmd_ok, assert_eval_err, assert_eval_ok};
     use std::fs::File;
     use std::io::{Read, Write};
     use tempfile::TempDir;
@@ -54,7 +53,7 @@ mod tests {
 
         // Execute the cp command
         let cmd = format!("cp {} {}", source_path.display(), dest_path.display());
-        assert_eval_ok!(&cmd, Value::success());
+        assert_eval_cmd_ok!(&cmd);
 
         // Verify that the destination file exists
         assert!(dest_path.exists(), "Destination file was not created");

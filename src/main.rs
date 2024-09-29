@@ -647,11 +647,11 @@ impl Shell {
 
         let scope = self.new_top_scope();
 
-        match &self.interp.eval(input, Some(Arc::clone(&scope))) {
+        match self.interp.eval(input, Some(Arc::clone(&scope))) {
             Ok(value) => {
                 // Did the expression eval result in running a command? Check for errors.
-                if let Value::Stat(status) = &value {
-                    if let Err(e) = &status.borrow().result {
+                if let Value::Stat(mut status) = value {
+                    if let Some(e) = status.err() {
                         e.show(&scope, input);
                     }
                 } else if self.interactive {

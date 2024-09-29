@@ -244,69 +244,65 @@ macro_rules! derive_has_location {
     };
 }
 
-/// Wrap the status (result) of a command execution.
-/// The idea is to delay dealing with errors: if the status is checked (by
-/// being evaluated as bool), then the error (if any) is treated as handled.
-/// If the Status object is never checked, the error is returned by the eval
-/// of the group containing the command expression.
-#[derive(Debug, PartialEq)]
+/// Status of command execution.
+///
+/// The idea is to not fail immediatelly, but propagate to either an IF expression
+/// that checks and handles the error or bubble it all the way up to top level.
+///
+#[derive(Clone, Debug, PartialEq)]
 pub struct Status {
-    checked: bool,
     cmd: String,
-    negated: bool,
-    pub result: EvalResult<Value>,
+    neg: bool,
     loc: Location,
+    err: Option<EvalError>,
 }
 
 derive_has_location!(Status);
 
 impl Status {
-    fn new(cmd: String, result: &EvalResult<Value>, loc: &Location) -> Arc<RefCell<Self>> {
-        Arc::new(RefCell::new(Self {
-            checked: false,
+    fn new(cmd: String, result: EvalResult<Value>, loc: &Location) -> Box<Self> {
+        Box::new(Self {
             cmd,
-            negated: false,
-            result: result.clone(),
+            neg: false,
             loc: loc.clone(),
-        }))
+            err: result.err(),
+        })
     }
 
-    fn as_bool(&mut self, scope: &Arc<Scope>) -> bool {
-        if let Err(e) = &self.result {
+    fn as_bool(&self, scope: &Arc<Scope>) -> bool {
+        let mut result = true;
+        if let Some(e) = &self.err {
             Self::append_line_to(scope, "__errors", format!("{}: {}", self.cmd, &e.message));
+            result = false;
         }
 
-        self.checked = true;
-
-        if self.negated {
-            self.result.is_err()
-        } else {
-            self.result.is_ok()
+        if self.neg {
+            result = !result
         }
+        result
     }
 
     fn check_result(result: EvalResult<Value>, as_arg: bool) -> EvalResult<Value> {
         match &result {
             Ok(Value::Stat(status)) => {
-                if as_arg && status.borrow().result.is_ok() {
+                if as_arg && !status.is_err() {
                     // Take a page from Rust's nanny philosophy, and do not let the user do what *we*
                     // think is bad for them; this is consistent with not allowing assigning the cmd
                     // status to a variable. The command status is supposed to be checked in IF exprs.,
                     // but passing "0" to other commands or FOR expressions can result in confusion given
                     // the reversed boolean logic (0 means success).
                     // If status.result.is_err() then the error propagates normally.
-                    return error(&*status.borrow(), "Command status argument is not allowed");
+                    return error(&**status, "Command status argument is not allowed");
                 }
 
-                if !status.borrow().checked {
-                    status.borrow_mut().checked = true;
-                    return status.borrow().result.clone();
+                if let Some(e) = &status.err {
+                    return Err(e.clone());
+                } else {
+                    result
                 }
             }
-            _ => {} // Propagate the error
+            _ => result,
         }
-
-        result
     }
 
     fn append_line_to(scope: &Arc<Scope>, var_name: &str, info: String) {
@@ -319,11 +315,19 @@ impl Status {
             }
         }
     }
+
+    pub fn err(&mut self) -> Option<EvalError> {
+        self.err.take()
+    }
+
+    pub fn is_err(&self) -> bool {
+        self.err.is_some()
+    }
 }
 
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "result: {:?} checked: {}", &self.result, self.checked)
+        write!(f, "result: {:?}", &self)
     }
 }
 
@@ -332,7 +336,7 @@ pub enum Value {
     Int(i64),
     Real(f64),
     Str(Arc<String>),
-    Stat(Arc<RefCell<Status>>),
+    Stat(Box<Status>),
 }
 
 impl Default for Value {
@@ -354,7 +358,7 @@ impl fmt::Display for Value {
                 write!(f, "{}", s)
             }
             Value::Stat(s) => {
-                write!(f, "{}", s.borrow())
+                write!(f, "{}", s)
             }
         }
     }
@@ -1659,8 +1663,8 @@ impl BinExpr {
         let lhs_val = self.lhs.eval()?;
         if let Value::Stat(s) = &lhs_val {
             status = true;
-            if s.borrow().result.is_err() {
-                return Ok(lhs_val); // Return unchecked Status
+            if s.err.is_some() {
+                return Ok(lhs_val);
             }
         }
         let mut all = value_as_bool(&*self.lhs, &lhs_val, &self.scope)?;
@@ -1669,8 +1673,8 @@ impl BinExpr {
             let rhs_val = self.rhs.eval()?;
             if let Value::Stat(s) = &rhs_val {
                 status &= true;
-                if s.borrow().result.is_err() {
-                    return Ok(rhs_val); // Return unchecked Status
+                if s.err.is_some() {
+                    return Ok(rhs_val);
                 }
             } else {
                 status = false;
@@ -1687,7 +1691,7 @@ impl BinExpr {
         if status {
             Ok(Value::Stat(Status::new(
                 String::default(),
-                &result,
+                result,
                 &self.loc,
             )))
         } else {
@@ -1719,7 +1723,7 @@ impl BinExpr {
             // Wrap the result in a Status, see eval_and above.
             Ok(Value::Stat(Status::new(
                 String::default(),
-                &result,
+                result,
                 &self.loc,
             )))
         } else {
@@ -1735,7 +1739,7 @@ impl BinExpr {
                 let lhs = self.lhs.to_string();
                 return error(
                     self,
-                    &format!("{} {} | {};", ASSIGN_STATUS_ERROR, stat.borrow().cmd, lhs),
+                    &format!("{} {} | {};", ASSIGN_STATUS_ERROR, stat.cmd, lhs),
                 );
             }
             let var_name = &lit.text.value;
@@ -1899,7 +1903,7 @@ impl BinExpr {
             ))
         };
 
-        Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
+        Ok(Value::Stat(Status::new(cmd, result, &self.loc)))
     }
 
     /// Evaluate piping an expression into a variable (assign the output of an expression to a var.)
@@ -2250,7 +2254,32 @@ impl Eval for GroupExpr {
                         });
                         break;
                     }
+                } else if let Err(err) = temp {
+                    match &err.jump {
+                        // Update evals "captured" by Break and Continue
+                        Some(Jump::Break(_)) => {
+                            result = Err(EvalError {
+                                loc: e.loc(),
+                                message: err.message,
+                                jump: Some(Jump::Break(result.unwrap())),
+                            });
+                            break;
+                        }
+                        Some(Jump::Continue(_)) => {
+                            result = Err(EvalError {
+                                loc: e.loc(),
+                                message: err.message,
+                                jump: Some(Jump::Continue(result.unwrap())),
+                            });
+                            continue;
+                        }
+                        None => {
+                            result = Err(err);
+                            break;
+                        }
+                    }
                 }
+
                 result = temp;
             }
         }
@@ -2464,8 +2493,11 @@ impl Eval for Command {
         if Scope::is_interrupted() {
             eprintln!("^C");
         }
-        let cmd = self.to_string();
-        Ok(Value::Stat(Status::new(cmd, &result, &self.loc)))
+        Ok(Value::Stat(Status::new(
+            self.to_string(),
+            result,
+            &self.loc,
+        )))
     }
 }
 
@@ -2531,7 +2563,7 @@ fn value_as_bool<L: HasLocation>(loc: &L, val: &Value, scope: &Arc<Scope>) -> Ev
                 format!("Cannot evaluate string '{}' as boolean", scope.err_str(s)),
             ));
         }
-        Value::Stat(s) => s.borrow_mut().as_bool(&scope),
+        Value::Stat(stat) => stat.as_bool(&scope),
     };
 
     hoist(scope, "__errors");
@@ -2646,16 +2678,7 @@ macro_rules! eval_iteration {
         }
 
         // Evaluate the loop body
-        $result = $self.body.eval();
-
-        // Check for command status, break out of loop on error
-        if let Ok(Value::Stat(status)) = &$result {
-            let temp = status.borrow().result.clone();
-            if temp.is_err() {
-                $result = temp;
-                break;
-            }
-        }
+        $result = Status::check_result($self.body.eval(), false);
 
         // Check for break and continue
         if let Err(e) = &$result {
@@ -2798,10 +2821,10 @@ fn eval_unary<T: HasLocation>(
             Value::Stat(_) => error(loc, "Unary minus not supported for command status"),
         },
         Op::Not => {
-            if let Value::Stat(s) = &val {
+            if let Value::Stat(mut s) = val {
                 hoist(&scope, "__errors");
-                s.borrow_mut().negated = true;
-                Ok(val)
+                s.neg = true;
+                Ok(Value::Stat(s))
             } else {
                 Ok(Value::Int(!value_as_bool(loc, &val, &scope)? as _))
             }

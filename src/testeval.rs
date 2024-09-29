@@ -31,6 +31,17 @@ pub mod tests {
     }
 
     #[macro_export]
+    macro_rules! assert_eval_cmd_ok {
+        ($expr:expr) => {{
+            let result = eval($expr);
+            assert!(matches!(result, Ok(Value::Stat(_))));
+            if let Ok(Value::Stat(stat)) = result {
+                assert!(!stat.is_err());
+            }
+        }};
+    }
+
+    #[macro_export]
     macro_rules! assert_eval_ok {
         ($expr:expr, $val:expr) => {{
             assert!(matches!(eval($expr), Ok(ref v) if *v == $val));
@@ -190,6 +201,19 @@ pub mod tests {
     }
 
     #[test]
+    fn test_break() {
+        assert_eval_ok!(
+            "i = 0; while ($i < 10) ($i = $i + 1; if ($i >= 5) (break))",
+            Value::Int(5)
+        );
+    }
+
+    #[test]
+    fn test_continue() {
+        assert_eval_ok!("i = 0; j = 0; while ($i < 10) ($i = $i + 1; if ($i > 5) (continue); $j = $j + 1); $i - $j", Value::Int(5));
+    }
+
+    #[test]
     fn test_while() {
         assert_eval_ok!(
             "i = 3; j = 0; while ($i > 0) ($i = $i - 1; $j = $j + 1)",
@@ -288,7 +312,7 @@ pub mod tests {
             "Missing source and destination"
         );
         assert_eval_ok!("if (cp)() else (fail)", Value::from("fail"));
-        assert_eval_ok!("for i in (if(cp)(); foo); (echo $i)", Value::Int(0));
+        assert_eval_cmd_ok!("for i in (if(cp)(); foo); (echo $i)");
         assert_eval_err!("while (1) (cp x; break)", "Missing destination");
         assert_eval_ok!("while (1) (if (cp)() else (-1); break)", Value::Int(-1));
     }
