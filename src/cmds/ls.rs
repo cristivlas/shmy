@@ -102,7 +102,7 @@ struct Options {
 impl Dir {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
-        flags.add_flag('a', "all", "Do not ignore entries starting with .");
+        flags.add_flag('a', "all", "Include hidden files");
         flags.add_flag('l', "long", "Use a long listing format");
         flags.add_flag(
             'h',
@@ -164,7 +164,7 @@ impl Exec for Dir {
 mod win {
     use super::*;
     use crate::utils::win::name_from_sid;
-    use std::fs::{self, OpenOptions};
+    use std::fs::OpenOptions;
     use std::os::windows::prelude::*;
     use windows::core::PWSTR;
     use windows::Win32::Foundation::HANDLE;
@@ -234,12 +234,12 @@ mod win {
         }
     }
 
-    pub fn get_owner_and_group(path: &Path, _: &fs::Metadata) -> (String, String) {
+    pub fn get_owner_and_group(path: &Path, _: &Metadata) -> (String, String) {
         let (owner_sid, group_sid) = get_owner_and_group_sids(path);
         (name_from_sid(owner_sid), name_from_sid(group_sid))
     }
 
-    pub fn get_permissions(metadata: &fs::Metadata) -> String {
+    pub fn get_permissions(metadata: &Metadata) -> String {
         use std::os::windows::fs::MetadataExt;
 
         let attrs = metadata.file_attributes();
@@ -254,6 +254,10 @@ mod win {
         perms.push(if attrs & 0x100 != 0 { 't' } else { '-' }); // Temporary
 
         perms
+    }
+
+    pub fn is_hidden(metadata: &Metadata) -> bool {
+        metadata.file_attributes() & 0x2 != 0
     }
 }
 
@@ -312,7 +316,12 @@ fn get_owner_and_group(_: &Path, _: &fs::Metadata) -> (String, String) {
 }
 
 #[cfg(windows)]
-use win::{get_owner_and_group, get_permissions};
+use win::{get_owner_and_group, get_permissions, is_hidden};
+
+#[cfg(unix)]
+fn is_hidden(_: &Metadata) -> bool {
+    false
+}
 
 fn list_entries(
     scope: &Arc<Scope>,
@@ -368,7 +377,7 @@ fn print_dir(scope: &Arc<Scope>, path: &Path, args: &Options) -> Result<(), Stri
 fn print_file(path: &Path, metadata: &Metadata, args: &Options) -> Result<(), String> {
     if args.show_details {
         print_details(&PathBuf::from(path), metadata, args)?;
-    } else if args.all_files || !path.starts_with(".") {
+    } else if args.all_files || (!is_hidden(metadata) && !path.starts_with(".")) {
         let name = path.canonicalize().map_err(|e| e.to_string())?;
         my_println!(
             "{}",
@@ -386,7 +395,6 @@ fn print_simple_entries(
 ) -> Result<(), String> {
     let max_width = entries
         .iter()
-        .filter(|e| args.all_files || !e.file_name().to_string_lossy().starts_with('.'))
         .map(|e| e.file_name().to_string_lossy().len())
         .max()
         .unwrap_or(0);
@@ -409,7 +417,12 @@ fn print_simple_entries(
         }
 
         let file_name = match entry.metadata() {
-            Ok(metadata) => args.colors.render_file_name(&file_name, &metadata),
+            Ok(metadata) => {
+                if !args.all_files && is_hidden(&metadata) {
+                    continue;
+                }
+                args.colors.render_file_name(&file_name, &metadata)
+            }
             Err(_) => args.colors.render_error_path(&entry.path()),
         };
 
@@ -489,7 +502,7 @@ fn print_details(path: &Path, metadata: &Metadata, opts: &Options) -> Result<(),
         )
     };
 
-    if opts.all_files || !file_name.starts_with(".") {
+    if opts.all_files || (!is_hidden(metadata) && !file_name.starts_with(".")) {
         let file_name = if metadata.is_symlink() {
             let link_path = &real_path;
             format!("{} -> {}", file_name, link_path.display())
