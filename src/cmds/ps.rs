@@ -267,6 +267,11 @@ impl Field for RunTime {
     fn to_string(&self, fmt: &Fmt) -> String {
         let duration = std::time::Duration::from_secs(self.0);
         let days = duration.as_secs() / 86400;
+
+        // Workaround sysinfo reporting bogus runtime if failed to get process time
+        if days > 10000 {
+            return Helper::new("-", fmt).to_string();
+        }
         let hours = (duration.as_secs() % 86400) / 3600;
         let minutes = (duration.as_secs() % 3600) / 60;
         let seconds = duration.as_secs() % 60;
