@@ -1,6 +1,6 @@
 [package]
 name = "shmy"
-version = "0.19.3"
+version = "0.19.4"
 edition = "2021"
 authors = ["Cristian Vlasceanu"]
 description = "Command line interpreter with builtin, Unix-like commands, and WSL symbolic link support"
@@ -32,7 +32,7 @@ strsim = "0.11"
 sysinfo = "0.31"
 tempfile = "3.2"
 url = "2.2"
-yaml-rust = { version = "0.8", package = "yaml-rust2" }
+yaml-rust = { version = "0.9", package = "yaml-rust2" }
 which = "6.0"
 
 [target.'cfg(unix)'.dependencies]

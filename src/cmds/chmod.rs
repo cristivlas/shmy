@@ -100,6 +100,9 @@ impl Chmod {
                     error
                 )
             })? {
+                if Scope::is_interrupted() {
+                    break;
+                }
                 let entry = entry.map_err(|error| {
                     format!(
                         "Failed to read directory entry in {}: {}",
