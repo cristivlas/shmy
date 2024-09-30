@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 use super::{
     flags::CommandFlags, get_command, register_command, registered_commands, Exec, Flag,
     ShellCommand,
@@ -7,8 +9,8 @@ use crate::{
     scope::Scope,
     utils::{self, executable},
 };
-use std::process::Command;
 use std::sync::Arc;
+use std::{io, process::Command};
 
 struct Help {
     flags: CommandFlags,
@@ -103,7 +105,7 @@ impl Help {
         println!();
     }
 
-    fn print_command_help(command: &str, _scope: &Arc<Scope>) -> Result<(), String> {
+    fn print_command_help(command: &str, scope: &Arc<Scope>) -> Result<(), String> {
         match command {
             "exit" => {
                 println!("NAME");
@@ -128,9 +130,18 @@ impl Help {
             _ => match get_command(command) {
                 Some(cmd) => {
                     if cmd.is_external() {
-                        println!(
-                            "{} is an external program, try: {} --help",
-                            command, command
+                        #[cfg(windows)]
+                        let help = "/? (or -h, --help)";
+                        #[cfg(not(windows))]
+                        let help = "-h (or --help)";
+                        let highlited_cmd = if scope.use_colors(&io::stderr()) {
+                            command.bright_cyan()
+                        } else {
+                            command.normal()
+                        };
+                        eprintln!(
+                            "{} is an external program, try: {} {}",
+                            highlited_cmd, command, help
                         );
                     } else {
                         let mut std_cmd = Command::new(executable()?);
