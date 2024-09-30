@@ -260,6 +260,12 @@ sudo $SHELL
 ```
 Then evaluate any expression, including pipes, in the elevated shell window.
 
+Other workarounds, using the eval command and a combo of raw string and quotes:
+```
+sudo eval r"(\"ls -al | less\")"
+sudo eval r"(\"ls -al | cat\")"
+```
+
 ### 5. Special Variables
 
 The interpreter provides special variables for output redirection:
