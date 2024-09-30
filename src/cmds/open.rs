@@ -12,6 +12,7 @@ impl Open {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
         flags.add_value('a', "application", "name", "Application to open with");
+        flags.add_flag('d', "detached", "Open using a detached process");
 
         Self { flags }
     }
@@ -28,7 +29,7 @@ impl Exec for Open {
 
         if flags.is_present("help") {
             println!("Usage: open [OPTIONS] FILE...");
-            println!("Open one or more files or URLs with the default application.");
+            println!("Open one or more files or URLs with the default or specified application.");
             println!("\nOptions:");
             print!("{}", flags.help());
             return Ok(Value::success());
@@ -39,6 +40,7 @@ impl Exec for Open {
         }
 
         let application = flags.value("application");
+        let detached = flags.is_present("detached");
 
         for arg in &args {
             let path = Path::new(arg);
@@ -52,9 +54,17 @@ impl Exec for Open {
                 .to_path_buf();
 
             let result = if let Some(app) = application {
-                open::with(path, app)
+                if detached {
+                    open::with_detached(path, app)
+                } else {
+                    open::with(path, app)
+                }
             } else {
-                open::that(path)
+                if detached {
+                    open::that_detached(path)
+                } else {
+                    open::that(path)
+                }
             };
 
             result.map_err(|e| format_error(scope, arg, &args, e))?;
