@@ -4,6 +4,7 @@ use crate::{
     prompt::{confirm, Answer},
     scope::Scope,
     symlnk::SymLink,
+    utils::format_error,
 };
 use filetime::FileTime;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -156,22 +157,14 @@ impl<'a> FileCopier<'a> {
         Ok(())
     }
 
-    fn check_dir_dest(&mut self, top: &'a str, parent: &Path) -> io::Result<()> {
+    fn check_dir_dest(&mut self) -> io::Result<()> {
         if self.dest.exists() {
             // Copying multiple files over a regular file?
             if !self.dest.is_dir() && !self.work.is_empty() {
-                return Err(self.error(
-                    &top,
-                    parent,
-                    "Copying multiple sources over single destination",
-                ));
+                return Err(self.dest_error("Copying multiple sources into single destination"));
             }
         } else if !self.work.is_empty() {
-            return Err(self.error(
-                &top,
-                parent,
-                "Copying multiple sources to non-existing directory",
-            ));
+            return Err(self.dest_error("Copying multiple sources to non-existing directory"));
         }
         Ok(())
     }
@@ -180,7 +173,7 @@ impl<'a> FileCopier<'a> {
     fn add_copy(&mut self, top: &'a str, parent: &Path, src: &Path) -> io::Result<()> {
         assert!(!src.is_dir());
 
-        self.check_dir_dest(top, parent)?;
+        self.check_dir_dest()?;
         let dest = self.resolve_dest(top, parent, src)?;
 
         if dest.exists() && dest.canonicalize()? == src.canonicalize()? {
@@ -328,6 +321,20 @@ impl<'a> FileCopier<'a> {
             pb.finish_with_message("Collected source file(s)");
         }
         Ok(true)
+    }
+
+    fn dest_error(&self, msg: &str) -> io::Error {
+        let dest = self
+            .dest
+            .file_name()
+            .unwrap_or(self.dest.as_os_str())
+            .to_str()
+            .unwrap_or_default();
+
+        io::Error::new(
+            io::ErrorKind::Other,
+            format_error(&self.scope, dest, self.args, msg),
+        )
     }
 
     /// Construct io::Error with given path and message.
