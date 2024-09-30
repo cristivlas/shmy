@@ -60,7 +60,7 @@ An expression such as:
 ```
 command_1 && command_2 && command_3
 ```
-return the status of the 1st command that failed, or success if all commands completed with no errors.
+returns the status of the 1st command that failed, or success if all commands completed with no errors.
 Examples:
 ```
 ls .. && ls bogus && ls c:\\
