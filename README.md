@@ -24,6 +24,58 @@ The interpreter operates in both interactive mode and script execution mode, wit
 The implementation of the built-in commands aims to be neither complete nor POSIX-compatible.
 The intent is to provide common functionality that *nix users are familiar with out of the box.
 
+## Philosophy
+The output of a command and the status (result of execution) of a command are different things.
+The status of a command cannot be assigned to a variable, nor used in non-boolean expressions.
+
+For example:
+```
+x = ls;
+ls + 5;
+```
+do not work;
+```
+if (ls) (echo Ok)
+if (!(cp ... )) (echo Fail)
+```
+work.
+
+The *output* of a command can be captured using pipe syntax:
+```
+ls | x; echo $x
+```
+
+The "regular" variable types are: string, integer and real. The variable type is inferred automatically.
+A command status is a special, "hidden" type that cannot participate in expressions other than for the purpose of checking if a command succeeded or failed. 
+
+If a command failed and the status has not been checked the error is "bubbled up".
+
+Command statuses can be used in boolean expressions such as:
+```
+command_1 || command_2
+```
+The expression returns the status of command_1 if successful, or the status of command_2 if command_1 failed.
+
+An expression such as:
+```
+command_1 && command_2 && command_3
+```
+return the status of the 1st command that failed, or success if all commands completed with no errors.
+Examples:
+```
+ls .. && ls bogus && ls c:\\
+Cargo.lock     Cargo.toml    LICENSE       README.md     examples      src           target
+1:12 bogus: The system cannot find the file specified. (os error 2)
+ls .. && ls bogus && ls c:\\
+-----------^
+```
+```
+if (ls bogus || ls .) (ok)
+cmds               cmds.rs           completions.rs    eval.rs           macros.rs         main.rs           prompt.rs         scope.rs          symlnk.rs         testcmds.rs
+testeval.rs        utils.rs
+ok
+```
+
 ## Command-Line Autocompletion Notes
 
 This shell provides autocompletion when the `TAB` key is pressed.
