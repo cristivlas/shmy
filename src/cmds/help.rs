@@ -165,12 +165,20 @@ impl Help {
             println!();
 
             // Print the description
+            let mut indent = true;
             println!("DESCRIPTION");
             for line in lines {
+                if line.is_empty() {
+                    indent = false;
+                }
+
                 if line.trim() == "Options:" {
                     println!("OPTIONS");
-                } else {
+                    indent = true;
+                } else if indent {
                     println!("    {}", line);
+                } else {
+                    println!("{}", line);
                 }
             }
         }

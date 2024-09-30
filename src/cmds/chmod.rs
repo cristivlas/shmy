@@ -213,8 +213,8 @@ fn help_details() {
     println!("\nLimitations:");
     println!("  Windows does not support Unix-style group and others permissions.");
     println!("  Permissions must be explicitly set for specific users or groups via ACLs.");
-    println!("       chmod g+r file     # No direct equivalent, need ACLs to modify group");
-    println!("       chmod o+r file     # No direct equivalent, need ACLs to modify others");
+    println!("       chmod g+r file    # No direct equivalent, need ACLs to modify group");
+    println!("       chmod o+r file    # No direct equivalent, need ACLs to modify others");
     println!("  Future versions of this program may address these limitations.");
 }
 
