@@ -2,7 +2,6 @@ use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, utils::format_error};
 use chrono::prelude::*;
 use chrono::{DateTime, Local, Utc};
-use chrono_tz::Tz;
 use std::sync::Arc;
 
 struct Date {
@@ -30,12 +29,26 @@ impl Date {
         scope: &Arc<Scope>,
         args: &[String],
         zone: &str,
-    ) -> Result<DateTime<Tz>, String> {
-        let tz: Tz = zone
-            .parse()
-            .map_err(|error| format_error(scope, zone, args, error))?;
+    ) -> Result<DateTime<FixedOffset>, String> {
+        match tzdb::tz_by_name(zone) {
+            Some(tz) => {
+                let local_time = Local::now().timestamp();
+                let local_time_type = tz
+                    .find_local_time_type(local_time)
+                    .map_err(|e| format_error(scope, zone, args, e))?;
 
-        Ok(Utc::now().with_timezone(&tz))
+                match chrono::FixedOffset::east_opt(local_time_type.ut_offset()) {
+                    Some(offset) => Ok(Utc::now().with_timezone(&offset)),
+                    None => Err(format_error(
+                        scope,
+                        zone,
+                        args,
+                        "Could not get fixed offset",
+                    )),
+                }
+            }
+            None => Err(format_error(scope, zone, args, "Failed to parse timezone")),
+        }
     }
 
     fn format_time<Tz: TimeZone>(&self, time: DateTime<Tz>, flags: &CommandFlags) -> String

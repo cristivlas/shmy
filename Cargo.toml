@@ -12,7 +12,6 @@ categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
 chrono = "0.4"
-chrono-tz = "0.10"
 crossterm = "0.28"
 colored = "2.1.0"
 console = "0.15"
@@ -31,6 +30,7 @@ rustyline = { version = "14.0", features = ["derive"] }
 strsim = "0.11"
 sysinfo = "0.31"
 tempfile = "3.2"
+tzdb = "0.7"
 url = "2.2"
 yaml-rust = { version = "0.9", package = "yaml-rust2" }
 which = "6.0"
