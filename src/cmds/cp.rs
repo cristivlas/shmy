@@ -660,3 +660,166 @@ fn register() {
         inner: Arc::new(Cp::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_temp_file(dir: &Path, name: &str, content: &str) -> io::Result<PathBuf> {
+        let file_path = dir.join(name);
+        let mut file = File::create(&file_path)?;
+        write!(file, "{}", content)?;
+        Ok(file_path)
+    }
+
+    #[test]
+    fn test_new_file_copier() {
+        let scope = Scope::new();
+        let paths = vec!["src1".to_string(), "src2".to_string(), "dest".to_string()];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            "src1".to_string(),
+            "src2".to_string(),
+            "dest".to_string(),
+        ];
+
+        let copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        assert_eq!(copier.dest, PathBuf::from("dest"));
+        assert_eq!(copier.srcs, &["src1", "src2"]);
+        assert_eq!(copier.args, &args);
+    }
+
+    #[test]
+    fn test_add_copy() -> io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let src_file = create_temp_file(temp_dir.path(), "source.txt", "Hello, world!")?;
+
+        let scope = Scope::new();
+        let paths = vec![src_file.to_str().unwrap().to_string(), "dest".to_string()];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            src_file.to_str().unwrap().to_string(),
+            "dest".to_string(),
+        ];
+
+        let mut copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        copier.add_copy(src_file.to_str().unwrap(), temp_dir.path(), &src_file)?;
+
+        assert_eq!(copier.work.len(), 1);
+        assert!(copier.work.values().next().unwrap().act == Action::Copy);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_create_dir() -> io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let src_dir = temp_dir.path().join("source_dir");
+        fs::create_dir(&src_dir)?;
+
+        let scope = Scope::new();
+        let paths = vec![src_dir.to_str().unwrap().to_string(), "dest".to_string()];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            src_dir.to_str().unwrap().to_string(),
+            "dest".to_string(),
+        ];
+
+        let mut copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        copier.add_create_dir(src_dir.to_str().unwrap(), temp_dir.path(), &src_dir)?;
+
+        assert_eq!(copier.work.len(), 1);
+        assert!(copier.work.values().next().unwrap().act == Action::CreateDir);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_collect_path_info() -> io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let src_file = create_temp_file(temp_dir.path(), "source.txt", "Hello, world!")?;
+
+        let scope = Scope::new();
+        let paths = vec![src_file.to_str().unwrap().to_string(), "dest".to_string()];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            src_file.to_str().unwrap().to_string(),
+            "dest".to_string(),
+        ];
+
+        let mut copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        let result =
+            copier.collect_path_info(src_file.to_str().unwrap(), temp_dir.path(), &src_file)?;
+
+        assert!(result);
+        assert_eq!(copier.work.len(), 1);
+        assert_eq!(copier.total_size, 13); // "Hello, world!" is 13 bytes
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_copy_file() -> io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let src_file = create_temp_file(temp_dir.path(), "source.txt", "Hello, world!")?;
+        let dest_file = temp_dir.path().join("dest.txt");
+
+        let scope = Scope::new();
+        let paths = vec![
+            src_file.to_str().unwrap().to_string(),
+            dest_file.to_str().unwrap().to_string(),
+        ];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            src_file.to_str().unwrap().to_string(),
+            dest_file.to_str().unwrap().to_string(),
+        ];
+
+        let mut copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        let result = copier.copy_file(src_file.to_str().unwrap(), &src_file, &dest_file)?;
+
+        assert!(result);
+        assert!(dest_file.exists());
+
+        let contents = fs::read_to_string(dest_file)?;
+        assert_eq!(contents, "Hello, world!");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_handling() {
+        let temp_dir = TempDir::new().unwrap();
+        let nonexistent = temp_dir.path().join("nonexistent");
+        let dest = temp_dir.path().join("dest");
+
+        let scope = Scope::new();
+        let paths = vec![
+            nonexistent.to_str().unwrap().to_string(),
+            dest.to_str().unwrap().to_string(),
+        ];
+        let flags = CommandFlags::new();
+        let args = vec![
+            "cp".to_string(),
+            nonexistent.to_str().unwrap().to_string(),
+            dest.to_str().unwrap().to_string(),
+        ];
+
+        let mut copier = FileCopier::new(&paths, &flags, &scope, &args);
+
+        let result = copier.collect_src_info();
+        assert!(result.is_err());
+    }
+}
