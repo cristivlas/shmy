@@ -16,7 +16,8 @@ pub struct AliasRunner {
 
 impl AliasRunner {
     fn new(args: Vec<String>) -> Self {
-        let cmd = get_command(&args[0]);
+        let arg = args[0].split_ascii_whitespace().collect::<Vec<_>>()[0];
+        let cmd = get_command(arg);
         Self { args, cmd }
     }
 }
@@ -120,6 +121,15 @@ impl Alias {
             }
         }
     }
+
+    #[cfg(test)]
+    fn remove_all(&self, scope: &Arc<Scope>, args: &[String]) -> Result<Value, String> {
+        for name in registered_commands(true) {
+            _ = self.remove(&name, scope, args);
+        }
+
+        Ok(Value::success())
+    }
 }
 
 impl Exec for Alias {
@@ -191,4 +201,96 @@ fn register() {
         name: "alias".to_string(),
         inner: Arc::new(Alias::new()),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn setup() -> (Arc<Scope>, Alias) {
+        let scope = Scope::new();
+        let alias = Alias::new();
+
+        scope.insert("NO_COLOR".to_string(), Value::Int(1));
+        scope.insert("NO_CONFIRM".to_string(), Value::Int(1));
+
+        alias.remove_all(&scope, &vec![]).unwrap();
+
+        (scope, alias)
+    }
+
+    #[test]
+    fn test_add_alias() {
+        let (_scope, alias) = setup();
+        let name = "la".to_string();
+        let args = vec!["ls".to_string(), "-al".to_string()];
+
+        let result = alias.add(name.clone(), args);
+        assert!(result.is_ok());
+        assert!(get_command(&name).is_some());
+    }
+
+    #[test]
+    fn test_add_existing_alias() {
+        let (_scope, alias) = setup();
+        let name = "la".to_string();
+        let args = vec!["ls".to_string(), "-al".to_string()];
+
+        // First add the alias
+        alias.add(name.clone(), args).unwrap();
+
+        // Try adding it again
+        let result = alias.add(name.clone(), vec!["another_cmd".to_string()]);
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap(), format!("{} already exists", name));
+    }
+
+    #[test]
+    fn test_remove_alias() {
+        let (scope, alias) = setup();
+        let name = "la".to_string();
+        let args = vec!["ls".to_string(), "-al".to_string()];
+
+        alias.add(name.clone(), args).unwrap();
+        let result = alias.remove(&name, &scope, &vec![]);
+
+        assert!(result.is_ok());
+        assert!(get_command(&name).is_none());
+    }
+
+    #[test]
+    fn test_remove_non_existent_alias() {
+        let (scope, alias) = setup();
+        let name = "non_existent".to_string();
+
+        let result = alias.remove(&name, &scope, &vec![]);
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap(), name + ": alias not found");
+    }
+
+    #[test]
+    fn test_remove_with_confirmation() {
+        let (scope, alias) = setup();
+        let name = "la".to_string();
+        let args = vec!["ls".to_string(), "-al".to_string()];
+
+        alias.add(name.clone(), args).unwrap();
+
+        let result = alias.remove(&name, &scope, &vec![]);
+        assert!(result.is_ok());
+        assert!(get_command(&name).is_none());
+    }
+
+    #[test]
+    fn test_exec_with_list_flag() {
+        let (scope, alias) = setup();
+        let name = "la".to_string();
+        let args = vec!["ls".to_string(), "-al".to_string()];
+
+        alias.add(name.clone(), args).unwrap();
+
+        let result = alias.exec("alias", &vec!["--list".to_string()], &scope);
+        assert!(result.is_ok());
+    }
 }

@@ -379,3 +379,121 @@ fn register() {
         inner: Arc::new(Grep::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn setup_test_file(content: &str) -> PathBuf {
+        let path = PathBuf::from("test_file.txt");
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "{}", content).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_grep_basic_functionality() {
+        let grep = Grep::new();
+        let scope = Scope::new();
+        let test_file = setup_test_file("Hello World\nThis is a test\nGoodbye World");
+
+        let args = vec![
+            "grep".to_string(),
+            "test".to_string(),
+            test_file.to_string_lossy().to_string(),
+        ];
+        let result = grep.exec("grep", &args, &scope);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ignore_case_flag() {
+        let grep = Grep::new();
+        let scope = Scope::new();
+        let test_file = setup_test_file("hello World\nTHIS IS A TEST\nGoodbye World");
+
+        let args = vec![
+            "grep".to_string(),
+            "-i".to_string(),
+            "hello".to_string(),
+            test_file.to_string_lossy().to_string(),
+        ];
+        let result = grep.exec("grep", &args, &scope);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_line_number_flag() {
+        let grep = Grep::new();
+        let scope = Scope::new();
+        let test_file = setup_test_file("Line 1\nLine 2\nLine 3");
+
+        let args = vec![
+            "grep".to_string(),
+            "-n".to_string(),
+            "Line".to_string(),
+            test_file.to_string_lossy().to_string(),
+        ];
+        let result = grep.exec("grep", &args, &scope);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_recursive_directory_search() {
+        let grep = Grep::new();
+        let scope = Scope::new();
+
+        // Create a temporary directory with nested files for testing
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sub_dir = temp_dir.path().join("subdir");
+        fs::create_dir(&sub_dir).unwrap();
+
+        // Create a test file in the main directory
+        let main_file_path = temp_dir.path().join("test_file.txt");
+        let mut main_file = File::create(&main_file_path).unwrap();
+        writeln!(main_file, "Hello World").unwrap();
+
+        // Create a test file in the subdirectory
+        let sub_file_path = sub_dir.join("nested_test_file.txt");
+        let mut sub_file = File::create(&sub_file_path).unwrap();
+        writeln!(sub_file, "Nested Hello").unwrap();
+
+        // Execute the grep command on the temporary directory
+        let args = vec![
+            "grep".to_string(),
+            "Hello".to_string(),
+            temp_dir.path().to_string_lossy().to_string(),
+        ];
+        let result = grep.exec("grep", &args, &scope);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_silent_mode() {
+        let grep = Grep::new();
+        let scope = Scope::new();
+        let test_file = setup_test_file("Test file\nAnother line");
+
+        let args = vec![
+            "grep".to_string(),
+            "-s".to_string(),
+            "missing".to_string(),
+            test_file.to_string_lossy().to_string(),
+        ];
+        let result = grep.exec("grep", &args, &scope);
+
+        assert!(result.is_ok());
+    }
+
+    // Clean up test files after tests
+    #[test]
+    fn cleanup() {
+        let _ = fs::remove_file("test_file.txt");
+    }
+}

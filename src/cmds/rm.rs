@@ -177,3 +177,72 @@ fn register() {
         inner: Arc::new(Remove::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::sync::Arc;
+
+    // Create a test instance of Scope directly if it has a public constructor.
+    fn create_test_scope() -> Arc<Scope> {
+        let scope = Scope::new();
+
+        scope.insert("NO_COLOR".to_string(), Value::Int(1));
+        scope.insert("NO_CONFIRM".to_string(), Value::Int(1));
+
+        scope
+    }
+
+    #[test]
+    fn test_remove_file() {
+        let temp_dir = std::env::temp_dir().join("test_remove_file");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("test_file.txt");
+        File::create(&file_path).unwrap(); // Create the file
+
+        let scope = create_test_scope();
+        let remove_cmd = Remove::new();
+
+        let mut ctx = Context {
+            interactive: true,
+            recursive: false,
+            many: false,
+            quit: false,
+            scope: Arc::clone(&scope),
+        };
+
+        // Test removing the file
+        assert!(remove_cmd.remove_file(&file_path, &mut ctx).is_ok());
+        assert!(!file_path.exists()); // Ensure the file is deleted
+
+        // Clean up
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_remove_directory() {
+        let temp_dir = std::env::temp_dir().join("test_remove_dir");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let dir_path = temp_dir.join("test_dir");
+        fs::create_dir_all(&dir_path).unwrap(); // Create a directory
+
+        let scope = create_test_scope();
+        let remove_cmd = Remove::new();
+
+        let mut ctx = Context {
+            interactive: true,
+            recursive: true,
+            many: false,
+            quit: false,
+            scope: Arc::clone(&scope),
+        };
+
+        // Test removing the directory
+        assert!(remove_cmd.remove(&dir_path, &mut ctx).is_ok());
+        assert!(!dir_path.exists()); // Ensure the directory is deleted
+
+        // Clean up
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+}

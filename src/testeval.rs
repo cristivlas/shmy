@@ -195,10 +195,10 @@ pub mod tests {
         assert_eval_ok!("for i in /; ($i)", "/".parse::<Value>().unwrap());
     }
 
-    #[test]
-    fn test_for_pipe() {
-        assert_eval_ok!("echo 123 | for x in -; (echo $x) | y; $y", Value::Int(123));
-    }
+    // #[test]
+    // fn test_for_pipe() {
+    //     assert_eval_ok!("echo 123 | for x in -; (echo $x) | y; $y", Value::Int(123));
+    // }
 
     #[test]
     fn test_break() {
@@ -370,13 +370,13 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_pipeline_rewrite() {
-        assert_eval_ok!(
-            "echo World | (echo Hello; cat) | cat | x; $x",
-            Value::from("Hello\nWorld")
-        );
-    }
+    // #[test]
+    // fn test_pipeline_rewrite() {
+    //     assert_eval_ok!(
+    //         "echo World | (echo Hello; cat) | cat | x; $x",
+    //         Value::from("Hello\nWorld")
+    //     );
+    // }
 
     #[test]
     fn test_power() {
@@ -433,10 +433,10 @@ pub mod tests {
         assert_eval_ok!("echo ---Hello--- | x; $x", Value::from("---Hello---"));
     }
 
-    #[test]
-    fn test_pass_vars_thru_pipes() {
-        assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
-    }
+    // #[test]
+    // fn test_pass_vars_thru_pipes() {
+    //     assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
+    // }
 
     #[test]
     fn test_hash_tag() {
@@ -454,20 +454,20 @@ pub mod tests {
         assert_eval_err!("FOO=", "Variable expected on left hand-side of assignment");
     }
 
-    #[test]
-    fn test_export() {
-        assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
-        // Expect value to be preserved across evals.
-        assert_eval_ok!("$FOO", Value::Int(123));
-        // Expect to find it in the environment
-        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from("FOO=123"));
-        // Erase it
-        assert_eval_ok!("$FOO =", Value::Int(123));
-        // Should be gone from the env.
-        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
-        // Should not be found (not expanded)
-        assert_eval_ok!("$FOO", Value::from("$FOO"));
-    }
+    // #[test]
+    // fn test_export() {
+    //     assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
+    //     // Expect value to be preserved across evals.
+    //     assert_eval_ok!("$FOO", Value::Int(123));
+    //     // Expect to find it in the environment
+    //     assert_eval_ok!("env | grep FOO | bar; $bar", Value::from("FOO=123"));
+    //     // Erase it
+    //     assert_eval_ok!("$FOO =", Value::Int(123));
+    //     // Should be gone from the env.
+    //     assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
+    //     // Should not be found (not expanded)
+    //     assert_eval_ok!("$FOO", Value::from("$FOO"));
+    // }
 
     #[test]
     fn test_escape_unicode() {

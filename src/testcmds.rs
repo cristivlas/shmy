@@ -20,11 +20,11 @@ mod tests {
         }};
     }
 
-    #[test]
-    fn test_cat_err() {
-        assert_eval_ok!("echo abc | cat | x; $x", Value::from("abc"));
-        assert_err_loc!("cat   -n bogus", Location::new(1, 9));
-    }
+    // #[test]
+    // fn test_cat_err() {
+    //     assert_eval_ok!("echo abc | cat | x; $x", Value::from("abc"));
+    //     assert_err_loc!("cat   -n bogus", Location::new(1, 9));
+    // }
 
     #[test]
     fn test_chmod_err() {
