@@ -382,23 +382,33 @@ fn register() {
 
 #[cfg(test)]
 mod tests {
+    ///
+    /// must be run with --test-threads 1
+    ///
     use super::*;
     use std::fs::{self, File};
     use std::io::Write;
     use std::path::PathBuf;
 
-    fn setup_test_file(content: &str) -> PathBuf {
+    struct Cleanup;
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            _ = fs::remove_file("test_file.txt");
+        }
+    }
+    fn setup_test_file(content: &str) -> (Cleanup, PathBuf) {
         let path = PathBuf::from("test_file.txt");
         let mut file = File::create(&path).unwrap();
         writeln!(file, "{}", content).unwrap();
-        path
+        (Cleanup {}, path)
     }
 
     #[test]
     fn test_grep_basic_functionality() {
         let grep = Grep::new();
         let scope = Scope::new();
-        let test_file = setup_test_file("Hello World\nThis is a test\nGoodbye World");
+        let (_cleanup, test_file) = setup_test_file("Hello World\nThis is a test\nGoodbye World");
 
         let args = vec![
             "grep".to_string(),
@@ -414,7 +424,8 @@ mod tests {
     fn test_ignore_case_flag() {
         let grep = Grep::new();
         let scope = Scope::new();
-        let test_file = setup_test_file("hello World\nTHIS IS A TEST\nGoodbye World");
+
+        let (_cleanup, test_file) = setup_test_file("hello World\nTHIS IS A TEST\nGoodbye World");
 
         let args = vec![
             "grep".to_string(),
@@ -430,7 +441,8 @@ mod tests {
     fn test_line_number_flag() {
         let grep = Grep::new();
         let scope = Scope::new();
-        let test_file = setup_test_file("Line 1\nLine 2\nLine 3");
+
+        let (_cleanup, test_file) = setup_test_file("Line 1\nLine 2\nLine 3");
 
         let args = vec![
             "grep".to_string(),
@@ -478,7 +490,8 @@ mod tests {
     fn test_silent_mode() {
         let grep = Grep::new();
         let scope = Scope::new();
-        let test_file = setup_test_file("Test file\nAnother line");
+
+        let (_cleanup, test_file) = setup_test_file("Test file\nAnother line");
 
         let args = vec![
             "grep".to_string(),
@@ -489,11 +502,5 @@ mod tests {
         let result = grep.exec("grep", &args, &scope);
 
         assert!(result.is_ok());
-    }
-
-    // Clean up test files after tests
-    #[test]
-    fn cleanup() {
-        let _ = fs::remove_file("test_file.txt");
     }
 }
