@@ -186,3 +186,47 @@ fn register() {
         inner: Arc::new(WordCount::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    // RAII struct for managing the lifecycle of a test file.
+    struct TestFile {
+        path: PathBuf,
+    }
+
+    impl TestFile {
+        fn new(content: &str) -> Self {
+            let path = PathBuf::from("test_file.txt");
+            let mut file = File::create(&path).expect("Failed to create test file");
+            file.write_all(content.as_bytes())
+                .expect("Failed to write to test file");
+            TestFile { path }
+        }
+
+        fn path(&self) -> &PathBuf {
+            &self.path
+        }
+    }
+
+    impl Drop for TestFile {
+        fn drop(&mut self) {
+            // Automatically clean up the file when the struct goes out of scope.
+            std::fs::remove_file(&self.path).expect("Failed to remove test file");
+        }
+    }
+
+    #[test]
+    fn test_count_file() {
+        let test_file = TestFile::new("Hello world\nThis is a test\n");
+        let result = WordCount::count_file(test_file.path()).unwrap();
+        assert_eq!(result.lines, 2);
+        assert_eq!(result.words, 6);
+        assert_eq!(result.chars, 25);
+        assert_eq!(result.bytes, 27); // Assuming UTF-8 encoding, include newlines
+    }
+}
