@@ -145,3 +145,100 @@ fn register() {
         inner: Arc::new(Mv::new()),
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Scope;
+    use std::fs::{self, File};
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_move_file_success() {
+        let temp_dir = tempdir().unwrap();
+        let src_file = temp_dir.path().join("source.txt");
+        let dest_dir = temp_dir.path().join("dest");
+
+        // Create a source file
+        File::create(&src_file).unwrap();
+        fs::create_dir(&dest_dir).unwrap(); // Create destination directory
+
+        let scope = Scope::new();
+        let mut interactive = false;
+
+        // Move file
+        let result = Mv::move_file(&src_file, &dest_dir, &mut interactive, false, &scope);
+        assert!(result.is_ok());
+
+        // Check that the file was moved
+        let final_dest = dest_dir.join("source.txt");
+        assert!(final_dest.exists());
+        assert!(!src_file.exists()); // Source should no longer exist
+    }
+
+    #[test]
+    fn test_move_file_same_source_and_dest() {
+        let temp_dir = tempdir().unwrap();
+        let src_file = temp_dir.path().join("source.txt");
+
+        // Create a source file
+        File::create(&src_file).unwrap();
+
+        let scope = Scope::new();
+        let mut interactive = false;
+
+        // Attempt to move file to the same location
+        let result = Mv::move_file(&src_file, &src_file, &mut interactive, false, &scope);
+        assert!(result.is_err());
+        assert_eq!(
+            result.err().unwrap(),
+            format!(
+                "{}: Source and destination are the same",
+                scope.err_path(&src_file)
+            )
+        );
+    }
+
+    #[test]
+    fn test_move_file_to_subdirectory_of_itself() {
+        let temp_dir = tempdir().unwrap();
+        let src_dir = temp_dir.path().join("source_dir");
+        let dest_subdir = src_dir.join("sub_dir");
+
+        // Create source directory and subdirectory
+        fs::create_dir_all(&src_dir).unwrap();
+        fs::create_dir_all(&dest_subdir).unwrap();
+
+        let scope = Scope::new();
+        let mut interactive = false;
+
+        // Try to move the directory into its own subdirectory
+        let result = Mv::move_file(&src_dir, &dest_subdir, &mut interactive, false, &scope);
+        assert!(result.is_err());
+        assert_eq!(
+            result.err().unwrap(),
+            format!(
+                "Cannot move {} to a subdirectory of itself",
+                scope.err_path(&src_dir)
+            )
+        );
+    }
+
+    #[test]
+    fn test_exec_missing_args() {
+        let mv = Mv::new();
+        let scope = Scope::new();
+
+        // Test missing source and destination
+        let args = vec![];
+        let result = mv.exec("mv", &args, &scope);
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap(), "Missing source and destination");
+
+        // Test missing destination
+        let args = vec!["source.txt".to_string()];
+        let result = mv.exec("mv", &args, &scope);
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap(), "Missing destination");
+    }
+}

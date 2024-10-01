@@ -2252,7 +2252,7 @@ impl Eval for GroupExpr {
                             message: "CONTINUE outside loop".to_string(),
                             jump: Some(Jump::Continue(result.unwrap())),
                         });
-                        break;
+                        continue;
                     }
                 } else if let Err(err) = temp {
                     match &err.jump {

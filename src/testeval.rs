@@ -201,7 +201,23 @@ pub mod tests {
     // }
 
     #[test]
-    fn test_break() {
+    fn test_break_for() {
+        assert_eval_ok!(
+            "for i in 0 1 2 3 4 5 6 8 9; ($i; if ($i >= 5) (break))",
+            Value::Int(5)
+        );
+    }
+
+    #[test]
+    fn test_continue_for() {
+        assert_eval_ok!(
+            "for i in 0 1 2 3 4 5 6 8 9; (echo $i; if ($i < 5) (continue); $i)",
+            Value::Int(9)
+        );
+    }
+
+    #[test]
+    fn test_break_while() {
         assert_eval_ok!(
             "i = 0; while ($i < 10) ($i = $i + 1; if ($i >= 5) (break))",
             Value::Int(5)
@@ -209,7 +225,7 @@ pub mod tests {
     }
 
     #[test]
-    fn test_continue() {
+    fn test_continue_while() {
         assert_eval_ok!("i = 0; j = 0; while ($i < 10) ($i = $i + 1; if ($i > 5) (continue); $j = $j + 1); $i - $j", Value::Int(5));
     }
 
