@@ -4,6 +4,10 @@ use crate::{eval::Value, scope::Scope, symlnk::SymLink};
 use chrono::{DateTime, Local, Utc};
 use colored::*;
 use core::fmt;
+use crossterm::{
+    execute,
+    terminal::{DisableLineWrap, EnableLineWrap},
+};
 use std::fs::{self, DirEntry, Metadata};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -156,7 +160,11 @@ impl Exec for Dir {
             return Ok(Value::success());
         }
 
-        list_entries(scope, &mut opts, &args)
+        _ = execute!(std::io::stdout(), DisableLineWrap);
+        let result = list_entries(scope, &mut opts, &args);
+
+        _ = execute!(std::io::stdout(), EnableLineWrap);
+        result
     }
 }
 
