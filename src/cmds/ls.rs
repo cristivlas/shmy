@@ -65,8 +65,14 @@ impl ColorScheme {
         }
     }
 
-    fn render_size(&self, is_wsl_link: bool, size: String) -> ColoredString {
-        let size = if is_wsl_link { "wsl" } else { &size };
+    fn render_size(&self, is_wsl_link: bool, is_symlink: bool, size: String) -> ColoredString {
+        let size = if is_wsl_link {
+            "wsl"
+        } else if is_symlink {
+            ""
+        } else {
+            &size
+        };
 
         if self.use_colors {
             if is_wsl_link {
@@ -527,7 +533,8 @@ fn print_details(path: &Path, metadata: &Metadata, opts: &Options) -> Result<(),
             opts.colors.render_permissions(get_permissions(&metadata)),
             owner,
             group,
-            opts.colors.render_size(is_wsl, file_size(&metadata, opts)),
+            opts.colors
+                .render_size(is_wsl, metadata.is_symlink(), file_size(&metadata, opts)),
             opts.colors.render_mod_time(modified_time),
             opts.colors.render_file_name(&file_name, metadata)
         )?;
