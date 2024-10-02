@@ -76,7 +76,7 @@ impl Sudo {
                     debug_assert!(wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1));
 
                     // INTERRUPT_EVENT was set, terminate the process
-                    let result = TerminateProcess(sei.hProcess, 1);
+                    let result = TerminateProcess(sei.hProcess, 2);
                     if WaitForSingleObject(sei.hProcess, INFINITE) == WAIT_FAILED {
                         eprintln!(
                             "Failed to wait for process: {}",

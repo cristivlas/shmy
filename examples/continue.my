@@ -1,0 +1,14 @@
+i = 0;
+j = 1;
+
+while ($i < 5) (
+    $i = $i + 1;
+    echo "i = $i";
+    if ($i > 2) (
+        continue
+    );
+    $j = $j * 2;
+    echo "j = $j";
+);
+
+echo $i, $j;

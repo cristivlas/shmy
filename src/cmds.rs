@@ -1,4 +1,4 @@
-use crate::utils::copy_vars_to_command_env;
+use crate::utils::{copy_vars_to_command_env, wait_child};
 use crate::{eval::Value, scope::Scope};
 use std::any::Any;
 use std::borrow::Cow;
@@ -285,7 +285,7 @@ impl Exec for External {
         copy_vars_to_command_env(&mut command, &scope);
 
         match command.spawn() {
-            Ok(mut child) => match &child.wait() {
+            Ok(mut child) => match &wait_child(&mut child) {
                 Ok(status) => {
                     if let Some(code) = status.code() {
                         if code != 0 {
@@ -305,13 +305,14 @@ impl Exec for External {
     /// in the registry.
     #[cfg(windows)]
     fn is_script(&self) -> bool {
-        let path = self.which_path();
-        let ext = path
+        let ext = self
+            .which_path()
             .extension()
             .and_then(std::ffi::OsStr::to_str)
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .to_owned();
 
-        !matches!(ext, "exe")
+        !matches!(ext.as_str(), "exe")
     }
 
     /// Looks like (at least on Linux) the shebang just works

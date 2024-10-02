@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::{Child, ExitStatus};
 use std::sync::Arc;
 
 // Maximum length for displaying user account name (ls, ps)
@@ -490,4 +491,47 @@ pub fn format_error<E: std::fmt::Display>(
     error: E,
 ) -> String {
     format!("{}: {}", scope.err_path_arg(value, args), error)
+}
+
+#[cfg(not(windows))]
+pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
+    child.wait()
+}
+
+///
+/// Wait for child process, observing Ctrl+C event.
+///
+#[cfg(windows)]
+pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
+    use crate::INTERRUPT_EVENT;
+    use std::{
+        borrow::BorrowMut,
+        os::windows::io::{AsHandle, AsRawHandle},
+    };
+    use windows::Win32::Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::*;
+
+    let process_handle = HANDLE(child.as_handle().borrow_mut().as_raw_handle());
+
+    let handles = [
+        process_handle,
+        INTERRUPT_EVENT
+            .lock()
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to take interrupt lock: {}", e),
+                )
+            })?
+            .event
+            .0,
+    ];
+
+    unsafe {
+        let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
+        if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+            _ = TerminateProcess(process_handle, 2);
+        }
+    }
+    child.wait()
 }
