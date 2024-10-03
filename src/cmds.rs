@@ -250,6 +250,9 @@ impl External {
     }
 }
 
+///
+/// Cosntruct std::process::Command and set up arguments.
+///
 #[cfg(unix)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
@@ -306,7 +309,19 @@ impl Exec for External {
                 }
                 Err(e) => Err(format!("Failed to wait on child process: {}", e)),
             },
-            Err(e) => Err(format!("Failed to execute command: {}", e)),
+            Err(error) => {
+                let cmd = std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .map(|a| a.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                if matches!(error.raw_os_error(), Some(740)) {
+                    Err(format!("{}\nTry:\nsudo {}", error, cmd))
+                } else {
+                    Err(format!("{}: {}", cmd, error))
+                }
+            }
         }
     }
 

@@ -215,18 +215,29 @@ impl Location {
         self.col = 0;
     }
 
-    /// Format error message with this location.
+    /// Format error message with location.
     pub fn error<T: IsTerminal>(&self, scope: &Arc<Scope>, message: &str, output: &T) -> String {
         if scope.use_colors(output) {
+            let msgs: Vec<&str> = message.split('\n').collect();
+            let mut err_msg = String::new();
+
+            if let Some(first_line) = msgs.first() {
+                err_msg.push_str(&format!("{}\n", first_line.bright_red()));
+            }
+
+            for line in &msgs[1..] {
+                err_msg.push_str(&format!("{}\n", line));
+            }
+
             match &self.file {
                 Some(file) => format!(
                     "{}:{}:{} {}",
                     scope.err_str(file),
                     self.line,
                     self.col,
-                    message.bright_red()
+                    err_msg
                 ),
-                None => format!("{} {}", self, message.bright_red()),
+                None => format!("{} {}", self, err_msg),
             }
         } else {
             format!("{} {}", self, message)

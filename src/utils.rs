@@ -1,3 +1,4 @@
+/// Misc. collection of helper routines used by core interpreter and built-in cmds.
 use crate::scope::Scope;
 use std::env;
 use std::fs;
