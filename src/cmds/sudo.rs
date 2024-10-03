@@ -1,7 +1,7 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, utils::executable, INTERRUPT_EVENT};
 use std::ffi::OsStr;
-use std::io::{Error, IsTerminal};
+use std::io::{self, Error, IsTerminal};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Arc;
 use windows::core::PCWSTR;
@@ -22,7 +22,12 @@ struct Sudo {
 impl Sudo {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
-        flags.add_value('-', "args", "arg list", "Pass all remaining arguments to COMMAND");
+        flags.add_value(
+            '-',
+            "args",
+            "arg list",
+            "Pass all remaining arguments to COMMAND",
+        );
         Self { flags }
     }
 
@@ -65,27 +70,22 @@ impl Sudo {
                         .0,
                 ];
 
-                let mut exit_code = 0;
                 let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
 
-                let result = if wait_result == WAIT_OBJECT_0 {
-                    // Process finished
-                    let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
-                    CloseHandle(sei.hProcess).and_then(|_| result)
-                } else {
-                    debug_assert!(wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1));
+                if wait_result == WAIT_FAILED {
+                    let wait_error = io::Error::last_os_error();
+                    _ = CloseHandle(sei.hProcess);
+                    return Err(wait_error.to_string());
+                } else if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                    _ = TerminateProcess(sei.hProcess, 2);
+                }
 
-                    // INTERRUPT_EVENT was set, terminate the process
-                    let result = TerminateProcess(sei.hProcess, 2);
-                    if WaitForSingleObject(sei.hProcess, INFINITE) == WAIT_FAILED {
-                        eprintln!(
-                            "Failed to wait for process: {}",
-                            Error::last_os_error().to_string()
-                        );
-                    }
-                    CloseHandle(sei.hProcess).and_then(|_| result)
-                };
-                result.map_err(|e| e.to_string())?;
+                let mut exit_code: u32 = 0;
+                let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
+
+                CloseHandle(sei.hProcess)
+                    .and_then(|_| result)
+                    .map_err(|e| e.to_string())?;
 
                 if exit_code != 0 {
                     return Err(format!("exit code: {:X}", exit_code));
@@ -117,12 +117,14 @@ impl Exec for Sudo {
             return Err("No command specified".to_string());
         }
 
-        if !std::io::stdin().is_terminal() {
-            return Err("Cannot pipe or redirect input to elevated command".to_string());
-        }
+        if cfg!(not(debug_assertions)) {
+            if !std::io::stdin().is_terminal() {
+                return Err("Cannot pipe or redirect input to elevated command".to_string());
+            }
 
-        if !std::io::stdout().is_terminal() || !std::io::stderr().is_terminal() {
-            return Err("Cannot pipe or redirect output from elevated command".to_string());
+            if !std::io::stdout().is_terminal() || !std::io::stderr().is_terminal() {
+                return Err("Cannot pipe or redirect output from elevated command".to_string());
+            }
         }
 
         let cmd_name = command_args.remove(0);

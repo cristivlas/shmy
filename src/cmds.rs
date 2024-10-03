@@ -262,8 +262,18 @@ impl External {
 #[cfg(windows)]
 impl External {
     fn prepare_command(&self, args: &Vec<String>) -> Command {
+        use crate::utils::win::associated_command;
+
         let path = self.which_path();
         if self.is_script() {
+            if let Ok(exe) = associated_command(path.as_os_str()) {
+                if !exe.is_empty() {
+                    let mut command = Command::new(exe);
+                    command.arg(path.as_os_str()).args(args);
+                    return command;
+                }
+            }
+
             let mut command = Command::new("cmd");
             command.arg("/C").arg(path.as_os_str()).args(args);
             command

@@ -102,25 +102,25 @@ pub mod win {
     use super::MAX_USER_DISPLAY_LEN;
     use crate::symlnk::SymLink;
     use std::cmp::min;
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::fs::{self, OpenOptions};
-    use std::io;
-    use std::mem;
+    use std::os::windows::ffi::OsStringExt;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
+    use std::{io, mem};
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::Security::Authorization::ConvertStringSidToSidW;
     use windows::Win32::Security::{
-        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+        Authorization::ConvertStringSidToSidW, GetTokenInformation, LookupAccountSidW,
+        TokenElevation, PSID, SID_NAME_USE, TOKEN_ELEVATION, TOKEN_QUERY,
     };
-    use windows::Win32::Security::{LookupAccountSidW, PSID, SID_NAME_USE};
     use windows::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
     };
     use windows::Win32::System::Threading::{
         CreateEventW, GetCurrentProcess, OpenProcessToken, SetEvent,
     };
+    use windows::Win32::UI::Shell::*;
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -130,6 +130,9 @@ pub mod win {
     };
     use windows_sys::Win32::Foundation::LocalFree;
 
+    ///
+    /// Reparse Data Types.
+    ///
     pub const IO_REPARSE_TAG_LX_SYMLINK: u32 = 0xA000001D;
     pub const MAX_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 
@@ -433,22 +436,60 @@ pub mod win {
         return Ok(String::default());
     }
 
-    pub struct SafeHandle(pub HANDLE);
+    /// Wrap Windows event handle.
+    /// Used with WaitForMultipleObjects when launching commands, sudo.
+    pub struct EventHandle(pub HANDLE);
 
-    unsafe impl Send for SafeHandle {}
-    unsafe impl Sync for SafeHandle {}
+    unsafe impl Send for EventHandle {}
+    unsafe impl Sync for EventHandle {}
+    impl Drop for EventHandle {
+        fn drop(&mut self) {
+            unsafe { _ = CloseHandle(self.0) }
+        }
+    }
 
-    pub fn create_auto_reset_event() -> io::Result<SafeHandle> {
+    pub fn create_auto_reset_event() -> io::Result<EventHandle> {
         let manual_reset = false;
         let initial_state = false;
-        Ok(SafeHandle(
+        Ok(EventHandle(
             unsafe { CreateEventW(None, manual_reset, initial_state, None) }
                 .map_err(|_| io::Error::last_os_error())?,
         ))
     }
 
-    pub fn set_event(event: &SafeHandle) {
+    pub fn set_event(event: &EventHandle) {
         unsafe { _ = SetEvent(event.0) }
+    }
+
+    pub fn associated_command(path: &OsStr) -> io::Result<String> {
+        let mut app_path: Vec<u16> = vec![0; 4096];
+        let mut app_path_length: u32 = app_path.len() as u32;
+
+        let wide_path: Vec<u16> = path.encode_wide().chain(Some(0)).collect();
+
+        let result = unsafe {
+            AssocQueryStringW(
+                ASSOCF_NOTRUNCATE | ASSOCF_REMAPRUNDLL,
+                ASSOCSTR_EXECUTABLE,
+                PCWSTR(wide_path.as_ptr()),
+                None,
+                PWSTR(app_path.as_mut_ptr()),
+                &mut app_path_length,
+            )
+        };
+
+        if result.is_ok() {
+            let executable = OsString::from_wide(&app_path[..app_path_length as usize - 1])
+                .to_string_lossy()
+                .into_owned();
+            if executable.starts_with("%") {
+                Ok(String::default())
+            } else {
+                Ok(executable)
+            }
+        } else {
+            Err(io::Error::last_os_error())
+        }
     }
 }
 

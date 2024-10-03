@@ -727,7 +727,7 @@ pub struct InterruptEvent {
     flag: AtomicBool,
 
     #[cfg(windows)]
-    pub event: utils::win::SafeHandle,
+    pub event: utils::win::EventHandle,
 }
 
 impl InterruptEvent {
