@@ -6,9 +6,10 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
+use std::os::windows::io::OwnedHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::{Arc, LazyLock, Mutex};
 use which::which;
 
@@ -252,21 +253,53 @@ impl External {
     }
 }
 
+struct ExternalCommand {
+    command: Command,
+    suspended: bool,
+    #[cfg(windows)]
+    job: Option<OwnedHandle>,
+}
+
+impl ExternalCommand {
+    fn new(command: Command, suspended: bool) -> Self {
+        Self {
+            command,
+            suspended,
+            #[cfg(windows)]
+            job: None,
+        }
+    }
+
+    fn spawn(&mut self) -> std::io::Result<Child> {
+        if self.suspended {
+            self.command.creation_flags(CREATE_SUSPENDED.0);
+        }
+
+        self.command.spawn().and_then(|child| {
+            #[cfg(windows)]
+            if self.suspended {
+                self.job = Some(crate::utils::win::add_process_to_job(child.id())?);
+            }
+            Ok(child)
+        })
+    }
+}
+
 ///
-/// Cosntruct std::process::Command and set up arguments.
+/// Construct std::process::Command and set up arguments.
 ///
 #[cfg(unix)]
 impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> Command {
+    fn prepare_command(&self, args: &Vec<String>) -> ExternalCommand {
         let mut command = Command::new(self.path().as_os_str());
         command.args(args);
-        command
+        ExternalCommand::new(command, false)
     }
 }
 
 #[cfg(windows)]
 impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> Command {
+    fn prepare_command(&self, args: &Vec<String>) -> ExternalCommand {
         use crate::utils::win::associated_command;
 
         let path = self.which_path();
@@ -275,17 +308,17 @@ impl External {
                 if !exe.is_empty() {
                     let mut command = Command::new(exe);
                     command.arg(path.as_os_str()).args(args);
-                    return command;
+                    return ExternalCommand::new(command, true);
                 }
             }
 
             let mut command = Command::new("cmd");
             command.arg("/C").arg(path.as_os_str()).args(args);
-            command
+            ExternalCommand::new(command, true)
         } else {
             let mut command = Command::new(path.as_os_str());
             command.args(args);
-            command
+            ExternalCommand::new(command, false)
         }
     }
 }
@@ -296,34 +329,24 @@ impl Exec for External {
     }
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
-        let mut command = self.prepare_command(args);
+        let mut c = self.prepare_command(args);
+        copy_vars_to_command_env(&mut c.command, &scope);
 
-        #[cfg(windows)]
-        command.creation_flags(CREATE_SUSPENDED.0);
-
-        copy_vars_to_command_env(&mut command, &scope);
-
-        match command.spawn() {
-            Ok(mut child) => {
-                #[cfg(windows)]
-                let _job = crate::utils::win::add_process_to_job(child.id())
-                    .map_err(|e| format!("Could not add process to job: {}", e))?;
-
-                match &wait_child(&mut child) {
-                    Ok(status) => {
-                        if let Some(code) = status.code() {
-                            if code != 0 {
-                                return Err(format!("exit code: {}", code));
-                            }
+        match c.spawn() {
+            Ok(mut child) => match &wait_child(&mut child) {
+                Ok(status) => {
+                    if let Some(code) = status.code() {
+                        if code != 0 {
+                            return Err(format!("exit code: {}", code));
                         }
-                        return Ok(Value::success());
                     }
-                    Err(e) => Err(format!("Failed to wait on child process: {}", e)),
+                    return Ok(Value::success());
                 }
-            }
+                Err(e) => Err(format!("Failed to wait on child process: {}", e)),
+            },
             Err(error) => {
-                let cmd = std::iter::once(command.get_program())
-                    .chain(command.get_args())
+                let cmd = std::iter::once(c.command.get_program())
+                    .chain(c.command.get_args())
                     .map(|a| a.to_string_lossy().to_string())
                     .collect::<Vec<_>>()
                     .join(" ");

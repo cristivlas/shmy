@@ -566,6 +566,9 @@ pub mod win {
         }
     }
 
+    /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
+    /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
+    /// The end goal is to have Ctrl+C kill all child processes the given proc. may have created.
     pub fn add_process_to_job(pid: u32) -> io::Result<OwnedHandle> {
         use windows::Win32::System::JobObjects::*;
 
@@ -584,6 +587,7 @@ pub mod win {
             let proc = to_owned(OpenProcess(PROCESS_ALL_ACCESS, false, pid)?);
             AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(proc.as_raw_handle()))?;
 
+            // Retrieve the main thread from the process and resume it.
             let thread = main_thread_handle(pid)?;
             ResumeThread(HANDLE(thread.as_raw_handle()));
         }
