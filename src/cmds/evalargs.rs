@@ -36,7 +36,10 @@ impl Exec for Evaluate {
             println!("Usage: eval EXPR...");
             println!("Evaluate each argument as an expression, stopping at the first error.");
             println!("\nOptions:");
-            print!("{}", flags.help());
+            println!("{}", flags.help());
+            println!("NOTE: Each expression to be evaluated must to be surrounded by quotes if non-trivial, e.g.");
+            println!("    eval --export \"x = 100\"");
+            println!("    eval \"x = 1\" \"y = 2\"");
             return Ok(Value::success());
         }
 

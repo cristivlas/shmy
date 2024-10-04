@@ -37,14 +37,8 @@ impl Exec for AliasRunner {
     /// Execute alias via the "eval" command.
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let eval = get_command("eval").expect("eval command not registered");
-        let combined_args: String = self
-            .args
-            .iter()
-            .chain(args.iter())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ");
-        eval.exec(name, &vec![combined_args], scope)
+        let expr = format!("{} \"{}\"", self.args.join(" "), args.join(" "));
+        eval.exec(name, &vec![expr], scope)
     }
 }
 
@@ -73,6 +67,13 @@ impl Alias {
 
             Ok(Value::success())
         }
+    }
+
+    fn register(&self, name: &str, args: &[&str]) -> Result<Value, String> {
+        self.add(
+            name.to_string(),
+            args.iter().map(|s| s.to_string()).collect(),
+        )
     }
 
     fn list(&self) {
@@ -197,9 +198,14 @@ impl Exec for Alias {
 
 #[ctor::ctor]
 fn register() {
+    let alias = Alias::new();
+
+    _ = alias.register("export", &["eval", "--export"]);
+    _ = alias.register("source", &["eval", "--source"]);
+
     register_command(ShellCommand {
         name: "alias".to_string(),
-        inner: Arc::new(Alias::new()),
+        inner: Arc::new(alias),
     });
 }
 
