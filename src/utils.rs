@@ -100,7 +100,7 @@ pub fn terminal_width() -> usize {
 ///
 #[cfg(windows)]
 pub mod win {
-    use super::MAX_USER_DISPLAY_LEN;
+    use super::*;
     use crate::symlnk::SymLink;
     use std::cmp::min;
     use std::ffi::{OsStr, OsString};
@@ -110,7 +110,7 @@ pub mod win {
     use std::path::{Path, PathBuf};
     use std::{io, mem};
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
     use windows::Win32::Security::{
         Authorization::ConvertStringSidToSidW, GetTokenInformation, LookupAccountSidW,
         TokenElevation, PSID, SID_NAME_USE, TOKEN_ELEVATION, TOKEN_QUERY,
@@ -118,9 +118,7 @@ pub mod win {
     use windows::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
     };
-    use windows::Win32::System::Threading::{
-        CreateEventW, GetCurrentProcess, OpenProcessToken, SetEvent,
-    };
+    use windows::Win32::System::Threading::*;
     use windows::Win32::UI::Shell::*;
     use windows::{
         Win32::Storage::FileSystem::{
@@ -495,6 +493,102 @@ pub mod win {
             Err(io::Error::last_os_error())
         }
     }
+
+    ///
+    /// Wait for child process, observing Ctrl+C event.
+    ///
+    pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
+        use crate::INTERRUPT_EVENT;
+        use std::os::windows::io::AsRawHandle;
+
+        let process_handle = HANDLE(child.as_raw_handle());
+
+        let handles = [
+            process_handle,
+            INTERRUPT_EVENT
+                .lock()
+                .map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Failed to take interrupt lock: {}", e),
+                    )
+                })?
+                .event
+                .0,
+        ];
+
+        unsafe {
+            let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
+            if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                _ = TerminateProcess(process_handle, 2);
+            }
+        }
+        child.wait()
+    }
+
+    unsafe fn to_owned(handle: HANDLE) -> OwnedHandle {
+        OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
+    }
+
+    ///
+    /// Given a process id retrieve the handle of its main thread.
+    ///
+    fn main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
+        use windows::Win32::System::Diagnostics::ToolHelp::*;
+        unsafe {
+            // Take a snapshot of the system
+            let snapshot = to_owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)?);
+            let handle = HANDLE(snapshot.as_raw_handle());
+
+            let mut thread_entry = THREADENTRY32 {
+                dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+                ..Default::default()
+            };
+
+            // Get the first thread
+            if Thread32First(handle, &mut thread_entry).is_ok() {
+                loop {
+                    if thread_entry.th32OwnerProcessID == pid {
+                        // Found a thread belonging to our process
+                        let thread_handle =
+                            OpenThread(THREAD_ALL_ACCESS, false, thread_entry.th32ThreadID)?;
+                        return Ok(to_owned(thread_handle));
+                    }
+
+                    // Move to the next thread
+                    if Thread32Next(handle, &mut thread_entry).is_err() {
+                        break;
+                    }
+                }
+            }
+
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    pub fn add_process_to_job(pid: u32) -> io::Result<OwnedHandle> {
+        use windows::Win32::System::JobObjects::*;
+
+        let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
+        unsafe {
+            let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            SetInformationJobObject(
+                HANDLE(job.as_raw_handle()),
+                JobObjectExtendedLimitInformation,
+                &mut job_info as *mut _ as *mut _,
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )?;
+
+            let proc = to_owned(OpenProcess(PROCESS_ALL_ACCESS, false, pid)?);
+            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(proc.as_raw_handle()))?;
+
+            let thread = main_thread_handle(pid)?;
+            ResumeThread(HANDLE(thread.as_raw_handle()));
+        }
+        Ok(job)
+    }
 }
 
 /// Return the target of a symbolic link.
@@ -543,40 +637,7 @@ pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
     child.wait()
 }
 
-///
-/// Wait for child process, observing Ctrl+C event.
-///
 #[cfg(windows)]
 pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-    use crate::INTERRUPT_EVENT;
-    use std::{
-        borrow::BorrowMut,
-        os::windows::io::{AsHandle, AsRawHandle},
-    };
-    use windows::Win32::Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
-    use windows::Win32::System::Threading::*;
-
-    let process_handle = HANDLE(child.as_handle().borrow_mut().as_raw_handle());
-
-    let handles = [
-        process_handle,
-        INTERRUPT_EVENT
-            .lock()
-            .map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Failed to take interrupt lock: {}", e),
-                )
-            })?
-            .event
-            .0,
-    ];
-
-    unsafe {
-        let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
-        if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-            _ = TerminateProcess(process_handle, 2);
-        }
-    }
-    child.wait()
+    win::wait_child(child)
 }

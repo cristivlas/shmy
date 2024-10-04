@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -13,6 +14,7 @@ use which::which;
 
 mod flags;
 use flags::CommandFlags;
+use windows::Win32::System::Threading::CREATE_SUSPENDED;
 // Built-in commands
 mod alias;
 mod basename;
@@ -295,20 +297,30 @@ impl Exec for External {
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut command = self.prepare_command(args);
+
+        #[cfg(windows)]
+        command.creation_flags(CREATE_SUSPENDED.0);
+
         copy_vars_to_command_env(&mut command, &scope);
 
         match command.spawn() {
-            Ok(mut child) => match &wait_child(&mut child) {
-                Ok(status) => {
-                    if let Some(code) = status.code() {
-                        if code != 0 {
-                            return Err(format!("exit code: {}", code));
+            Ok(mut child) => {
+                #[cfg(windows)]
+                let _job = crate::utils::win::add_process_to_job(child.id())
+                    .map_err(|e| format!("Could not add process to job: {}", e))?;
+
+                match &wait_child(&mut child) {
+                    Ok(status) => {
+                        if let Some(code) = status.code() {
+                            if code != 0 {
+                                return Err(format!("exit code: {}", code));
+                            }
                         }
+                        return Ok(Value::success());
                     }
-                    return Ok(Value::success());
+                    Err(e) => Err(format!("Failed to wait on child process: {}", e)),
                 }
-                Err(e) => Err(format!("Failed to wait on child process: {}", e)),
-            },
+            }
             Err(error) => {
                 let cmd = std::iter::once(command.get_program())
                     .chain(command.get_args())
