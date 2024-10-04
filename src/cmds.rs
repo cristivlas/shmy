@@ -255,16 +255,16 @@ impl External {
 struct ExternalCommand {
     command: Command,
     #[allow(dead_code)]
-    suspended: bool,
+    use_job: bool,
     #[cfg(windows)]
     job: Option<OwnedHandle>,
 }
 
 impl ExternalCommand {
-    fn new(command: Command, suspended: bool) -> Self {
+    fn new(command: Command, use_job: bool) -> Self {
         Self {
             command,
-            suspended,
+            use_job,
             #[cfg(windows)]
             job: None,
         }
@@ -272,14 +272,14 @@ impl ExternalCommand {
 
     fn spawn(&mut self) -> std::io::Result<Child> {
         #[cfg(windows)]
-        if self.suspended {
+        if self.use_job {
             use windows::Win32::System::Threading::CREATE_SUSPENDED;
             self.command.creation_flags(CREATE_SUSPENDED.0);
         }
 
         self.command.spawn().and_then(|child| {
             #[cfg(windows)]
-            if self.suspended {
+            if self.use_job {
                 self.job = Some(crate::utils::win::add_process_to_job(child.id())?);
             }
             Ok(child)
