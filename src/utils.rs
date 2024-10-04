@@ -576,7 +576,6 @@ pub mod win {
         unsafe {
             let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
             job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
             SetInformationJobObject(
                 HANDLE(job.as_raw_handle()),
                 JobObjectExtendedLimitInformation,

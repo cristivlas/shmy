@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-use std::os::windows::io::OwnedHandle;
-use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::{io::OwnedHandle, process::CommandExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -15,7 +15,6 @@ use which::which;
 
 mod flags;
 use flags::CommandFlags;
-use windows::Win32::System::Threading::CREATE_SUSPENDED;
 // Built-in commands
 mod alias;
 mod basename;
@@ -255,6 +254,7 @@ impl External {
 
 struct ExternalCommand {
     command: Command,
+    #[allow(dead_code)]
     suspended: bool,
     #[cfg(windows)]
     job: Option<OwnedHandle>,
@@ -271,7 +271,9 @@ impl ExternalCommand {
     }
 
     fn spawn(&mut self) -> std::io::Result<Child> {
+        #[cfg(windows)]
         if self.suspended {
+            use windows::Win32::System::Threading::CREATE_SUSPENDED;
             self.command.creation_flags(CREATE_SUSPENDED.0);
         }
 
@@ -306,6 +308,7 @@ impl External {
         if self.is_script() {
             if let Ok(exe) = associated_command(path.as_os_str()) {
                 if !exe.is_empty() {
+                    eprintln!("{}", exe);
                     let mut command = Command::new(exe);
                     command.arg(path.as_os_str()).args(args);
                     return ExternalCommand::new(command, true);
