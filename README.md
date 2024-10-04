@@ -374,6 +374,9 @@ echo r"(This is a "raw string")"
 
 ### 9. Export and Source
 
+#### Note
+Starting with version 0.19.5, export and source are automatically defined as aliases for eval --export and eval --source, respectively.
+
 The interpreter implements rough equivalents of bash 'eval', 'export', and 'source' commands via the eval command,
 which supports --export and --source command line options.
 
@@ -420,7 +423,7 @@ if (defined __OLD_PATH) (
 );
 ```
 
-## Implementation Considerations and Potential Issues
+## Gotchas
 
 ### Variable Expansion in Arithmetic
 
@@ -429,5 +432,36 @@ The expression `2*3` evaluates to `6`, but `x=2; y=3; $x*$y` evaluates to `2*3`.
 ### Operation Precedence
 
 The expression ```echo 2 + 2``` is evaluated as ```(echo 2) + 2```, due to the low precedence of the addition operator. It is recommended to always use parentheses, as in ```echo (2 + 2)```, to ensure correct evaluation.
+
+### Semicolon in Environment Variables
+Under Windows, environment variables such as Path and PATHEXT contain semicolons, for example:
+```
+env | grep PATHEXT
+PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+```
+This needs to be taken into account when trying to evaluate expressions that use such variables, because semicolon is also the end of a statement in this shell.
+The following will not work as expected:
+```
+export "my_var = $PATHEXT;.CPL"
+```
+Instead of appending .CPL to PATHEXT and assigning the result to my_var, this will result in my_var being assigned ".COM".
+The correct expression is:
+```
+export "my_var = \"$PATHEXT;.CPL\""
+```
+We can test this in the shell:
+```
+which powercfg.cpl
+```
+returns nothing by default. After adding .CPL to PATHEXT the command panel commandlet will be found:
+```
+export "PATHEXT = \"$PATHEXT;.CPL\""
+which powercfg.cpl
+C:\WINDOWS\system32\powercfg.cpl
+```
+and typing ```powercfg.cpl``` brings up the Power Configuration panel (you still get an exit code 1 in the shell at the time of this writing, but it is a benign message).
+
+
+
 
 For more detailed information or specific use cases, refer to the source code and examples in the repo at: https://github.com/cristivlas/shmy
