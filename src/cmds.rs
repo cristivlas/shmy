@@ -361,7 +361,8 @@ impl Which {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('e', "external", "Show external commands only");
-        Which { flags }
+
+        Self { flags }
     }
 }
 

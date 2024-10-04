@@ -462,6 +462,9 @@ pub mod win {
         unsafe { _ = SetEvent(event.0) }
     }
 
+    ///
+    /// Get the executable associated with a file.
+    ///
     pub fn associated_command(path: &OsStr) -> io::Result<String> {
         let mut app_path: Vec<u16> = vec![0; 4096];
         let mut app_path_length: u32 = app_path.len() as u32;

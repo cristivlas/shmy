@@ -1,3 +1,7 @@
+///
+/// eval command
+/// Named to avoid conflict with the eval.rs file that contains the core expr. evaluation code.
+///
 use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{
     eval::Interp, eval::Value, scope::Scope, symlnk::SymLink, utils::format_error,
