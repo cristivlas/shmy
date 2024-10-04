@@ -2900,6 +2900,10 @@ impl Interp {
 
     /// Evaluate input in an optional scope that may be different from the interpreter's own scope.
     /// If no scope is specified, the interpreter scope is used.
+    ///
+    /// The main use case for using a specific scope during evaluation is the eval --export
+    /// command. It is easier to "harvest" variables from ```eval --export "x = 42; y = foo"```
+    /// and "hoist" them into the environment, than to chase around for them in the scope tree.
     pub fn eval(&mut self, input: &str, scope: Option<Arc<Scope>>) -> EvalResult<Value> {
         let ast = self.parse(input, scope)?;
 
