@@ -549,14 +549,11 @@ pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
 #[cfg(windows)]
 pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
     use crate::INTERRUPT_EVENT;
-    use std::{
-        borrow::BorrowMut,
-        os::windows::io::{AsHandle, AsRawHandle},
-    };
+    use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
     use windows::Win32::System::Threading::*;
 
-    let process_handle = HANDLE(child.as_handle().borrow_mut().as_raw_handle());
+    let process_handle = HANDLE(child.as_raw_handle());
 
     let handles = [
         process_handle,
