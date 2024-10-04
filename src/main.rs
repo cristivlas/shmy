@@ -709,9 +709,12 @@ fn parse_cmd_line() -> Result<Shell, String> {
             }
         } else {
             let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
+
             shell.source = Some(Box::new(BufReader::new(file)));
             shell.interactive = false;
             shell.interp.set_file(Some(Arc::new(arg.to_owned())));
+
+            break;
         }
     }
 

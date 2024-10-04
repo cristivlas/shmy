@@ -37,19 +37,27 @@ impl Exec for Evaluate {
             println!("Evaluate each argument as an expression, stopping at the first error.");
             println!("\nOptions:");
             println!("{}", flags.help());
-            println!("NOTE: Each expression to be evaluated must to be surrounded by quotes if non-trivial, e.g.");
+            println!("If --source is specified, the 1st argument after that is assumed to be the path to a");
+            println!("file containing script code, and the rest of the arguments are passed to the script.");
+            println!();
+            println!("Each expression to be evaluated must to be surrounded by quotes if non-trivial, e.g.");
             println!("    eval --export \"x = 100\"");
             println!("    eval \"x = 1\" \"y = 2\"");
+            println!();
+            println!("Without quotes, the intepreter evaluates the command line as one single expression.");
+            println!();
             return Ok(Value::success());
         }
 
         let export = flags.is_present("export");
         let source = flags.is_present("source");
 
-        let mut interp = Interp::with_env_vars();
-        let global_scope = scope.global();
+        let eval_scope = Scope::with_parent(Some(scope.clone()));
+        let mut interp = Interp::new(scope.clone());
 
-        for arg in &eval_args {
+        let mut args_iter = eval_args.iter();
+
+        while let Some(arg) = args_iter.next() {
             let input = if source {
                 // Treat arg as the name of a source file.
                 // Resolve symbolic links (including WSL).
@@ -59,21 +67,36 @@ impl Exec for Evaluate {
 
                 let mut file = File::open(&path).map_err(|e| format_error(scope, arg, &args, e))?;
 
-                let mut source = String::new(); // buffer for script source code
+                let mut script = String::new(); // buffer for script source code
 
-                file.read_to_string(&mut source)
+                file.read_to_string(&mut script)
                     .map_err(|e| format_error(scope, arg, &args, e))?;
 
                 interp.set_file(Some(Arc::new(path.to_string_lossy().to_string())));
 
-                source
+                // eval --source treats the 1st arg as a filename, and passes subsequent args to script.
+                // Populate $0, $1 etc.
+                let mut cmd_args = vec![arg.clone()];
+                scope.insert("0".to_string(), Value::from(arg.as_str()));
+
+                let mut n = 0;
+
+                while let Some(next_arg) = args_iter.next() {
+                    n += 1;
+                    scope.insert(format!("{}", n), Value::from(next_arg.as_str()));
+                    cmd_args.push(next_arg.clone());
+                }
+                scope.insert("#".to_string(), Value::Int(n));
+                scope.insert("@".to_string(), Value::from(cmd_args.join(" ").as_str()));
+
+                script
             } else {
                 interp.set_file(None);
 
                 arg.to_owned()
             };
 
-            match interp.eval(&input, Some(Arc::clone(&scope))) {
+            match interp.eval(&input, Some(eval_scope.clone())) {
                 Err(e) => {
                     e.show(scope, &input);
                     let err_expr = if scope.use_colors(&std::io::stderr()) {
@@ -89,14 +112,15 @@ impl Exec for Evaluate {
                     // Did the expression eval result in running a command? Check for errors.
                     if let Value::Stat(status) = &value {
                         if status.is_err() {
-                            return Err(status.to_string())
+                            return Err(status.clone().err().unwrap().to_string());
                         }
                         command = true;
                     }
 
                     if export {
+                        let global_scope = scope.global();
                         // Export variables from the eval scope to the global scope
-                        for (key, var) in scope.vars().iter() {
+                        for (key, var) in eval_scope.vars().iter() {
                             if !key.is_special_var() {
                                 global_scope.vars_mut().insert(key.clone(), var.clone());
                             }
@@ -110,7 +134,7 @@ impl Exec for Evaluate {
 
         if export {
             // Synchronize environment with global scope
-            sync_env_vars(global_scope);
+            sync_env_vars(&scope.global());
         }
 
         Ok(Value::success())

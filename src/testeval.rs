@@ -470,20 +470,20 @@ pub mod tests {
         assert_eval_err!("FOO=", "Variable expected on left hand-side of assignment");
     }
 
-    // #[test]
-    // fn test_export() {
-    //     assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
-    //     // Expect value to be preserved across evals.
-    //     assert_eval_ok!("$FOO", Value::Int(123));
-    //     // Expect to find it in the environment
-    //     assert_eval_ok!("env | grep FOO | bar; $bar", Value::from("FOO=123"));
-    //     // Erase it
-    //     assert_eval_ok!("$FOO =", Value::Int(123));
-    //     // Should be gone from the env.
-    //     assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
-    //     // Should not be found (not expanded)
-    //     assert_eval_ok!("$FOO", Value::from("$FOO"));
-    // }
+    #[test]
+    fn test_export() {
+        assert_eval_ok!("eval --export \"FOO=123\"; $FOO", Value::Int(123));
+        // Expect value to be preserved across evals.
+        assert_eval_ok!("$FOO", Value::Int(123));
+        // Expect to find it in the environment
+        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from("FOO=123"));
+        // Erase it
+        assert_eval_ok!("$FOO =", Value::Int(123));
+        // Should be gone from the env.
+        assert_eval_ok!("env | grep FOO | bar; $bar", Value::from(""));
+        // Should not be found (not expanded)
+        assert_eval_ok!("$FOO", Value::from("$FOO"));
+    }
 
     #[test]
     fn test_escape_unicode() {

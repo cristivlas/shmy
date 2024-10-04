@@ -61,6 +61,7 @@ impl Exec for Run {
                 // Pass all args following -- (or --args) to the command.
                 command_args.extend(cmd_flags.split_ascii_whitespace().map(String::from));
             }
+
             if flags.is_present("raw") {
                 // Use custom delimiter if specified, otherwise use whitespace
                 let delimiters = flags.value("delimiter").unwrap_or(" \t\n\r");

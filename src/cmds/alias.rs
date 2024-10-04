@@ -37,7 +37,16 @@ impl Exec for AliasRunner {
     /// Execute alias via the "eval" command.
     fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let eval = get_command("eval").expect("eval command not registered");
-        let expr = format!("{} \"{}\"", self.args.join(" "), args.join(" "));
+        // Concatenate registered alias args with command line args wrapped in raw strings.
+        let expr = format!(
+            "{} {}",
+            self.args.join(" "),
+            args.iter()
+                .map(|s| format!("r\"({})\"", s))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
         eval.exec(name, &vec![expr], scope)
     }
 }
