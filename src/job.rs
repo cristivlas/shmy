@@ -1,3 +1,5 @@
+/// Execute commands as part of a Job.
+/// Just a simple std::process::Command wrapper for non-Windows targets.
 use std::io;
 use std::path::Path;
 use std::process::{Command, ExitStatus};
@@ -73,9 +75,8 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use crate::INTERRUPT_EVENT;
-    use std::ffi::c_void;
-    use std::ffi::{OsStr, OsString};
+    use crate::INTERRUPT_EVENT; // See interrupt_event function below.
+    use std::ffi::{c_void, OsStr, OsString};
     use std::io;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::FromRawHandle;
@@ -84,7 +85,6 @@ mod imp {
         io::{AsRawHandle, OwnedHandle},
         process::CommandExt,
     };
-    use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{
         HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
@@ -99,9 +99,9 @@ mod imp {
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+    /// Get the event handle associated with Ctrl+C.
+    /// TODO: decouple from the INTERRUPT_EVENT global var.
     fn interrupt_event() -> io::Result<HANDLE> {
-        // Get the event handle associated with Ctrl+C.
-        // TODO: decouple from the INTERRUPT_EVENT global var.
         Ok(INTERRUPT_EVENT
             .lock()
             .map_err(|e| {
@@ -119,7 +119,7 @@ mod imp {
     }
 
     /// Look up the executable associated with a file.
-    fn get_associated_command(path: &OsStr) -> Option<PathBuf> {
+    fn get_associated_command(path: &OsStr) -> Option<OsString> {
         let mut app_path: Vec<u16> = vec![0; 4096];
         let mut app_path_length: u32 = app_path.len() as u32;
 
@@ -141,7 +141,7 @@ mod imp {
             if launcher.to_string_lossy().starts_with("%") {
                 None
             } else {
-                Some(PathBuf::from(launcher))
+                Some(launcher)
             }
         } else {
             None
@@ -200,7 +200,7 @@ mod imp {
 
             AssignProcessToJobObject(HANDLE(job.as_raw_handle()), proc)?;
 
-            // Resume the process.
+            // Everything went okay so far. Resume the process.
             ResumeThread(HANDLE(main_thread.as_raw_handle()));
         }
         Ok(job)
@@ -230,6 +230,7 @@ mod imp {
             }
         }
 
+        /// Run elevated. Used by the "sudo" command.
         fn runas(&self) -> io::Result<()> {
             let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
             let file: Vec<u16> = self.path.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -286,10 +287,33 @@ mod imp {
             }
         }
 
+        /// Spawn command process and associate it with a job object.
+        /// The process is created suspended and add_proccess_to_job resumes it on success.
         fn run_command(command: &mut Command) -> io::Result<()> {
             let mut child = command.spawn()?;
 
-            let job = add_process_to_job(child.id(), HANDLE(child.as_raw_handle()))?;
+            // Set up cleanup machinery to terminate the child process in case
+            // anything goes wrong with add_process_to_job. Maybe overkill?
+            struct Cleanup {
+                process: Option<HANDLE>,
+            }
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    if let Some(process) = self.process {
+                        unsafe {
+                            _ = TerminateProcess(process, 42);
+                        }
+                    }
+                }
+            }
+            let handle = HANDLE(child.as_raw_handle());
+            let mut cleanup = Cleanup {
+                process: Some(handle),
+            };
+
+            let job = add_process_to_job(child.id(), handle)?;
+            cleanup.process.take(); // cancel the cleanup, the process is now associated with the job object
+
             Self::wait(&job)?;
 
             check_exit_status(child.wait()?)
@@ -307,8 +331,12 @@ mod imp {
                 let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
                 loop {
+                    // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
                     let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
+
                     if wait_res == WAIT_OBJECT_0 {
+                        // Woken up by the completion port? Check that all processes associated with the job are done.
+                        // https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
                         GetQueuedCompletionStatus(
                             HANDLE(iocp.as_raw_handle()),
                             &mut completion_code,
@@ -322,6 +350,9 @@ mod imp {
                             break;
                         }
                     } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                        // Ctrl+C event set. Do not TerminateProcess, just let the job go; that should finish the processes
+                        // associated with the job object. Calling TerminateProcess may have undesired effects. For example:
+                        // when running Python interactively from this shell, Ctrl+C should not terminate Python.
                         break;
                     } else {
                         eprintln!("{:?}", wait_res);
@@ -362,12 +393,14 @@ mod imp {
                 }
             };
 
+            // Create the process suspended, so that it can be added to a Job object.
             command.args(args).creation_flags(CREATE_SUSPENDED.0);
 
             command
         }
 
         /// Create a IO completion port and associate it with the Job object.
+        /// https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
         fn create_completion_port(job: &OwnedHandle) -> io::Result<OwnedHandle> {
             unsafe {
                 let iocp = to_owned(CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, 1)?);
