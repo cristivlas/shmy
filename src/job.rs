@@ -6,8 +6,6 @@ pub struct Job {
     inner: imp::Job,
 }
 
-pub struct Signals {}
-
 impl Job {
     pub fn new(path: &Path, args: &[String], elevated: bool) -> Self {
         Self {
@@ -15,8 +13,8 @@ impl Job {
         }
     }
 
-    pub fn run(&mut self, signals: Signals) -> io::Result<ExitStatus> {
-        self.inner.run(signals)
+    pub fn run(&mut self) -> io::Result<ExitStatus> {
+        self.inner.run()
     }
 
     pub fn command(&mut self) -> Option<&mut Command> {
@@ -39,7 +37,7 @@ mod imp {
             Self { cmd }
         }
 
-        pub fn run(&mut self, _: Signals) -> io::Result<ExitStatus> {
+        pub fn run(&mut self) -> io::Result<ExitStatus> {
             let mut child = self.cmd.spawn()?;
             child.wait()
         }
@@ -53,6 +51,7 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
+    use crate::INTERRUPT_EVENT;
     use std::ffi::c_void;
     use std::ffi::{OsStr, OsString};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
@@ -63,9 +62,9 @@ mod imp {
         process::CommandExt,
     };
     use std::path::PathBuf;
+    use std::process::Child;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::INVALID_HANDLE_VALUE;
-    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+    use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_OBJECT_0};
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
     use windows::Win32::System::Threading::*;
@@ -78,8 +77,8 @@ mod imp {
         OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
     }
 
-    /// Get the executable associated with a file.
-    fn associated_command(path: &OsStr) -> Option<PathBuf> {
+    /// Look up the executable associated with a file.
+    fn get_associated_command(path: &OsStr) -> Option<PathBuf> {
         let mut app_path: Vec<u16> = vec![0; 4096];
         let mut app_path_length: u32 = app_path.len() as u32;
 
@@ -108,7 +107,7 @@ mod imp {
         }
     }
 
-    /// Given a process id retrieve the handle of its main thread.
+    /// Retrieve the handle of the main thread for a process id.
     fn main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
         use windows::Win32::System::Diagnostics::ToolHelp::*;
         unsafe {
@@ -144,8 +143,9 @@ mod imp {
 
     /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
     /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-    /// The end goal is to have Ctrl+C kill all child processes the given proc. may have created.
-    fn add_process_to_job(pid: u32) -> io::Result<OwnedHandle> {
+    fn add_process_to_job(process: &Child) -> io::Result<OwnedHandle> {
+        let main_thread = main_thread_handle(process.id())?;
+
         let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
         unsafe {
             let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -157,35 +157,12 @@ mod imp {
                 size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
 
-            let proc = to_owned(OpenProcess(PROCESS_ALL_ACCESS, false, pid)?);
-            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(proc.as_raw_handle()))?;
+            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(process.as_raw_handle()))?;
 
-            // Retrieve the main thread from the process and resume it.
-            let thread = main_thread_handle(pid)?;
-            ResumeThread(HANDLE(thread.as_raw_handle()));
+            // Resume the process.
+            ResumeThread(HANDLE(main_thread.as_raw_handle()));
         }
         Ok(job)
-    }
-
-    pub trait Interrupt {
-        fn interrupt_event(&self) -> io::Result<HANDLE>;
-    }
-
-    impl Interrupt for Signals {
-        fn interrupt_event(&self) -> io::Result<HANDLE> {
-            use crate::INTERRUPT_EVENT;
-
-            Ok(INTERRUPT_EVENT
-                .lock()
-                .map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Failed to take interrupt lock: {}", e),
-                    )
-                })?
-                .event
-                .0)
-        }
     }
 
     pub struct Job {
@@ -205,51 +182,76 @@ mod imp {
             job
         }
 
-        pub fn run(&mut self, signals: Signals) -> io::Result<ExitStatus> {
+        pub fn run(&mut self) -> io::Result<ExitStatus> {
             match self.cmd.as_mut() {
-                Some(command) => {
-                    let mut child = command.spawn()?;
-
-                    let job = add_process_to_job(child.id())?;
-                    let iocp = self.set_completion_port(&job)?;
-
-                    let interrupt = signals.interrupt_event()?;
-                    let process = HANDLE(child.as_raw_handle());
-
-                    unsafe {
-                        let mut completion_code: u32 = 0;
-                        let mut completion_key: usize = 0;
-                        let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
-
-                        while completion_key != job.as_raw_handle() as usize
-                            || completion_code != JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
-                        {
-                            let wait_res = WaitForSingleObject(interrupt, 100);
-                            if wait_res == WAIT_OBJECT_0 {
-                                _ = TerminateProcess(process, 2);
-                                break;
-                            }
-                            _ = GetQueuedCompletionStatus(
-                                HANDLE(iocp.as_raw_handle()),
-                                &mut completion_code,
-                                &mut completion_key,
-                                &mut overlapped,
-                                100,
-                            );
-                        }
-                    }
-                    child.wait()
-                }
+                Some(command) => Self::run_command(command),
                 None => {
                     todo!(); // TODO: elevated mode
                 }
             }
         }
 
+        fn run_command(command: &mut Command) -> io::Result<ExitStatus> {
+            let mut child = command.spawn()?;
+
+            let job = add_process_to_job(&child)?;
+            let iocp = Self::completion_port(&job)?;
+
+            // Get the event handle associated with Ctrl+C.
+            // TODO: decouple from the INTERRUPT_EVENT global var.
+            let interrupt = INTERRUPT_EVENT
+                .lock()
+                .map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Failed to take interrupt lock: {}", e),
+                    )
+                })?
+                .event
+                .0;
+
+            let handles = [HANDLE(iocp.as_raw_handle()), interrupt];
+
+            unsafe {
+                let mut completion_code: u32 = 0;
+                let mut completion_key: usize = 0;
+                let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+                loop {
+                    let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
+                    if wait_res == WAIT_OBJECT_0 {
+                        GetQueuedCompletionStatus(
+                            HANDLE(iocp.as_raw_handle()),
+                            &mut completion_code,
+                            &mut completion_key,
+                            &mut overlapped,
+                            0,
+                        )?;
+                        if completion_key == job.as_raw_handle() as usize
+                            && completion_code == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                        {
+                            break;
+                        }
+                    } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                        let process = HANDLE(child.as_raw_handle());
+                        _ = TerminateProcess(process, 2);
+                        break;
+                    } else {
+                        break; // TODO: error handling?
+                    }
+                }
+
+                child.wait()
+            }
+        }
+
+        /// Return the command associated with the Job.
         pub fn command(&mut self) -> Option<&mut Command> {
             self.cmd.as_mut()
         }
 
+        /// Create a std::process::Command to launch the process.
+        /// If the path does not have EXE extension, look up the
+        /// associated app; if not found, fail over to CMD.EXE /C
         fn create_command(path: &Path, args: &[String]) -> Command {
             let is_exe = path
                 .extension()
@@ -260,7 +262,7 @@ mod imp {
             let mut command = if is_exe {
                 Command::new(path)
             } else {
-                if let Some(launcher) = associated_command(path.as_os_str()) {
+                if let Some(launcher) = get_associated_command(path.as_os_str()) {
                     let mut command = Command::new(launcher);
                     command.arg(path).args(args);
                     command
@@ -277,7 +279,8 @@ mod imp {
             command
         }
 
-        fn set_completion_port(&mut self, job: &OwnedHandle) -> io::Result<OwnedHandle> {
+        /// Create a IO completion port and associate it with the Job object.
+        fn completion_port(job: &OwnedHandle) -> io::Result<OwnedHandle> {
             unsafe {
                 let iocp = to_owned(CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, 1)?);
 

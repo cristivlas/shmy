@@ -260,7 +260,7 @@ impl Exec for External {
         let mut job = Job::new(&self.which_path(), &args, false);
         copy_vars_to_command_env(job.command().unwrap(), &scope);
 
-        match job.run(Signals {}) {
+        match job.run() {
             Ok(status) => {
                 if let Some(code) = status.code() {
                     if code != 0 {
