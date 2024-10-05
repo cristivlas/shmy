@@ -208,7 +208,10 @@ mod imp {
         Ok(job)
     }
 
-    const EXIT_CODE_EXEMPT: [&str; 1] = ["\\windows\\system32\\control.exe"];
+    const EXIT_CODE_EXEMPT: [&str; 2] = [
+        "\\windows\\explorer.exe",
+        "\\windows\\system32\\control.exe",
+    ];
 
     pub struct Job<'a> {
         cmd: Option<Command>,
