@@ -257,7 +257,9 @@ impl Exec for External {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         use crate::job::*;
 
+        // Resolve the path on each execution, because $PATH may have changed.
         let path = self.which_path();
+
         let mut job = Job::new(&path, &args, false);
         copy_vars_to_command_env(job.command().unwrap(), &scope);
 

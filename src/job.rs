@@ -2,7 +2,7 @@
 /// Just a simple std::process::Command wrapper for non-Windows targets.
 use std::io;
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 
 pub struct Job<'a> {
     inner: imp::Job<'a>,
@@ -34,17 +34,17 @@ fn check_exit_code(code: i64) -> io::Result<()> {
     Ok(())
 }
 
-fn check_exit_status(status: ExitStatus) -> io::Result<()> {
-    if let Some(code) = status.code() {
-        check_exit_code(code as _)
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(not(windows))]
 mod imp {
     use super::*;
+
+    fn check_exit_status(status: std::process::ExitStatus) -> io::Result<()> {
+        if let Some(code) = status.code() {
+            check_exit_code(code as _)
+        } else {
+            Ok(())
+        }
+    }
 
     pub struct Job<'a> {
         cmd: Command,
@@ -76,6 +76,7 @@ mod imp {
 mod imp {
     use super::*;
     use crate::INTERRUPT_EVENT; // See interrupt_event function below.
+    use std::borrow::Cow;
     use std::ffi::{c_void, OsStr, OsString};
     use std::io;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
@@ -85,6 +86,7 @@ mod imp {
         io::{AsRawHandle, OwnedHandle},
         process::CommandExt,
     };
+    use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{
         HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
@@ -206,32 +208,53 @@ mod imp {
         Ok(job)
     }
 
+    const EXIT_CODE_EXEMPT: [&str; 1] = ["\\windows\\system32\\control.exe"];
+
     pub struct Job<'a> {
         cmd: Option<Command>,
         path: &'a Path,
         args: &'a [String],
+        exe: Cow<'a, Path>, // The actual executable that runs the command
     }
 
     impl<'a> Job<'a> {
         pub fn new(path: &'a Path, args: &'a [String], elevated: bool) -> Self {
-            let cmd = if elevated {
-                None
-            } else {
-                Some(Self::create_command(path, args))
+            let mut job = Self {
+                cmd: None,
+                path,
+                args,
+                exe: Cow::Borrowed(path),
             };
 
-            Self { cmd, path, args }
+            // Elevated (sudo) commands use ShellExecuteExW.
+            if !elevated {
+                job.create_command(path, args);
+            }
+
+            job
         }
 
         pub fn run(&mut self) -> io::Result<()> {
-            match self.cmd.as_mut() {
-                Some(command) => Self::run_command(command),
-                None => self.runas(),
+            let exit_code = if self.cmd.is_some() {
+                self.run_command()
+            } else {
+                self.runas() // Run elevated (sudo)
+            }?;
+
+            // This is a hack for preventing errors for commands that are known to return
+            // non-zero exit codes, such as the Control Panel (control.exe), that returns TRUE.
+            // TODO: Come up with a better solution / workaround?
+            for path in EXIT_CODE_EXEMPT {
+                // Lowercase and skip the drive letter.
+                if &self.exe.to_string_lossy().to_lowercase()[2..] == path {
+                    return Ok(());
+                }
             }
+            check_exit_code(exit_code)
         }
 
         /// Run elevated. Used by the "sudo" command.
-        fn runas(&self) -> io::Result<()> {
+        fn runas(&self) -> io::Result<i64> {
             let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
             let file: Vec<u16> = self.path.as_os_str().encode_wide().chain(Some(0)).collect();
 
@@ -283,13 +306,14 @@ mod imp {
                 let mut exit_code: u32 = 0;
                 GetExitCodeProcess(sei.hProcess, &mut exit_code)?;
 
-                check_exit_code(exit_code as _)
+                Ok(exit_code as _)
             }
         }
 
         /// Spawn command process and associate it with a job object.
         /// The process is created suspended and add_proccess_to_job resumes it on success.
-        fn run_command(command: &mut Command) -> io::Result<()> {
+        fn run_command(&mut self) -> io::Result<i64> {
+            let command = self.command().expect("No command");
             let mut child = command.spawn()?;
 
             // Set up cleanup machinery to terminate the child process in case
@@ -315,8 +339,12 @@ mod imp {
             cleanup.process.take(); // cancel the cleanup, the process is now associated with the job object
 
             Self::wait(&job)?;
-
-            check_exit_status(child.wait()?)
+            let status = child.wait()?;
+            if let Some(code) = status.code() {
+                Ok(code as _)
+            } else {
+                Ok(0)
+            }
         }
 
         /// Wait for all processes associated with the Job object to complete.
@@ -371,7 +399,7 @@ mod imp {
         /// Create a std::process::Command to launch the process.
         /// If the path does not have EXE extension, look up the
         /// associated app; if not found, fail over to CMD.EXE /C
-        fn create_command(path: &Path, args: &[String]) -> Command {
+        fn create_command(&mut self, path: &Path, args: &[String]) {
             let is_exe = path
                 .extension()
                 .map(|ext| ext.to_string_lossy().to_lowercase())
@@ -382,11 +410,15 @@ mod imp {
                 Command::new(path)
             } else {
                 if let Some(launcher) = get_associated_command(path.as_os_str()) {
+                    self.exe = Cow::Owned(PathBuf::from(&launcher));
+
                     let mut command = Command::new(launcher);
                     command.arg(path).args(args);
                     command
                 } else {
                     // Fail over to using CMD.EXE /C as launcher.
+                    self.exe = Cow::Owned(PathBuf::from("cmd.exe"));
+
                     let mut command = Command::new("cmd");
                     command.arg("/C").arg(path).args(args);
                     command
@@ -396,10 +428,10 @@ mod imp {
             // Create the process suspended, so that it can be added to a Job object.
             command.args(args).creation_flags(CREATE_SUSPENDED.0);
 
-            command
+            self.cmd = Some(command);
         }
 
-        /// Create a IO completion port and associate it with the Job object.
+        /// Create IO completion port and associate it with the Job object.
         /// https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
         fn create_completion_port(job: &OwnedHandle) -> io::Result<OwnedHandle> {
             unsafe {
