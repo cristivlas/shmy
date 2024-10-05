@@ -65,18 +65,14 @@ mod imp {
     use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
-    use windows::Win32::System::Threading::CREATE_SUSPENDED;
     use windows::Win32::System::Threading::*;
     use windows::Win32::System::IO::{
         CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
     };
     use windows::Win32::UI::Shell::*;
-    use windows::Win32::{
-        Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0},
-        System::Threading::WaitForMultipleObjects,
-    };
 
     unsafe fn to_owned(handle: HANDLE) -> OwnedHandle {
         OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
@@ -217,34 +213,28 @@ mod imp {
                     let job = add_process_to_job(child.id())?;
                     let iocp = self.set_completion_port(&job)?;
 
+                    let interrupt = signals.interrupt_event()?;
                     let process = HANDLE(child.as_raw_handle());
-                    let handles = [process, signals.interrupt_event()?];
 
                     unsafe {
-                        let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
-                        if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                            _ = TerminateProcess(process, 2);
-                        } else {
-                            let mut completion_code: u32 = 0;
-                            let mut completion_key: usize = 0;
-                            let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+                        let mut completion_code: u32 = 0;
+                        let mut completion_key: usize = 0;
+                        let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
-                            while completion_key != job.as_raw_handle() as usize
-                                || completion_code != JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
-                            {
-                                GetQueuedCompletionStatus(
-                                    HANDLE(iocp.as_raw_handle()),
-                                    &mut completion_code,
-                                    &mut completion_key,
-                                    &mut overlapped,
-                                    INFINITE,
-                                )?;
+                        while completion_key != job.as_raw_handle() as usize
+                            || completion_code != JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                        {
+                            let wait_res = WaitForSingleObject(interrupt, 100);
+                            if wait_res == WAIT_OBJECT_0 {
+                                _ = TerminateProcess(process, 2);
+                                break;
                             }
-                            println!(
-                                "{:x} {:?} {}",
-                                completion_key,
-                                job.as_raw_handle(),
-                                completion_code
+                            _ = GetQueuedCompletionStatus(
+                                HANDLE(iocp.as_raw_handle()),
+                                &mut completion_code,
+                                &mut completion_key,
+                                &mut overlapped,
+                                100,
                             );
                         }
                     }
