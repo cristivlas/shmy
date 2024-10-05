@@ -465,7 +465,7 @@ pub mod win {
     ///
     /// Get the executable associated with a file.
     ///
-    pub fn associated_command(path: &OsStr) -> io::Result<String> {
+    pub fn associated_command(path: &OsStr) -> Option<OsString> {
         let mut app_path: Vec<u16> = vec![0; 4096];
         let mut app_path_length: u32 = app_path.len() as u32;
 
@@ -483,16 +483,14 @@ pub mod win {
         };
 
         if result.is_ok() {
-            let executable = OsString::from_wide(&app_path[..app_path_length as usize - 1])
-                .to_string_lossy()
-                .into_owned();
-            if executable.starts_with("%") {
-                Ok(String::default())
+            let launcher = OsString::from_wide(&app_path[..app_path_length as usize - 1]);
+            if launcher.to_string_lossy().starts_with("%") {
+                None
             } else {
-                Ok(executable)
+                Some(launcher)
             }
         } else {
-            Err(io::Error::last_os_error())
+            None
         }
     }
 }

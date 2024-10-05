@@ -269,12 +269,10 @@ impl External {
 
         let path = self.which_path();
         if self.is_script() {
-            if let Ok(exe) = associated_command(path.as_os_str()) {
-                if !exe.is_empty() {
-                    let mut command = Command::new(exe);
-                    command.arg(path.as_os_str()).args(args);
-                    return command;
-                }
+            if let Some(exe) = associated_command(path.as_os_str()) {
+                let mut command = Command::new(exe);
+                command.arg(path.as_os_str()).args(args);
+                return command;
             }
 
             let mut command = Command::new("cmd");
