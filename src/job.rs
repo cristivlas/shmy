@@ -53,6 +53,7 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use super::*;
+    use std::ffi::c_void;
     use std::ffi::{OsStr, OsString};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::FromRawHandle;
@@ -63,8 +64,14 @@ mod imp {
     };
     use std::path::PathBuf;
     use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows::Win32::System::JobObjects::*;
+    use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
     use windows::Win32::System::Threading::CREATE_SUSPENDED;
     use windows::Win32::System::Threading::*;
+    use windows::Win32::System::IO::{
+        CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
+    };
     use windows::Win32::UI::Shell::*;
     use windows::Win32::{
         Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0},
@@ -143,8 +150,6 @@ mod imp {
     /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
     /// The end goal is to have Ctrl+C kill all child processes the given proc. may have created.
     fn add_process_to_job(pid: u32) -> io::Result<OwnedHandle> {
-        use windows::Win32::System::JobObjects::*;
-
         let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
         unsafe {
             let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -189,15 +194,11 @@ mod imp {
 
     pub struct Job {
         cmd: Option<Command>,
-        job: Option<OwnedHandle>,
     }
 
     impl Job {
         pub fn new(path: &Path, args: &[String], elevated: bool) -> Self {
-            let mut job = Self {
-                cmd: None,
-                job: None,
-            };
+            let mut job = Self { cmd: None };
 
             if elevated {
                 todo!() // TODO
@@ -212,7 +213,9 @@ mod imp {
             match self.cmd.as_mut() {
                 Some(command) => {
                     let mut child = command.spawn()?;
-                    self.job = Some(add_process_to_job(child.id())?);
+
+                    let job = add_process_to_job(child.id())?;
+                    let iocp = self.set_completion_port(&job)?;
 
                     let process = HANDLE(child.as_raw_handle());
                     let handles = [process, signals.interrupt_event()?];
@@ -221,6 +224,28 @@ mod imp {
                         let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
                         if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
                             _ = TerminateProcess(process, 2);
+                        } else {
+                            let mut completion_code: u32 = 0;
+                            let mut completion_key: usize = 0;
+                            let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+
+                            while completion_key != job.as_raw_handle() as usize
+                                || completion_code != JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                            {
+                                GetQueuedCompletionStatus(
+                                    HANDLE(iocp.as_raw_handle()),
+                                    &mut completion_code,
+                                    &mut completion_key,
+                                    &mut overlapped,
+                                    INFINITE,
+                                )?;
+                            }
+                            println!(
+                                "{:x} {:?} {}",
+                                completion_key,
+                                job.as_raw_handle(),
+                                completion_code
+                            );
                         }
                     }
                     child.wait()
@@ -260,6 +285,25 @@ mod imp {
             command.args(args).creation_flags(CREATE_SUSPENDED.0);
 
             command
+        }
+
+        fn set_completion_port(&mut self, job: &OwnedHandle) -> io::Result<OwnedHandle> {
+            unsafe {
+                let iocp = to_owned(CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, 1)?);
+
+                let port = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+                    CompletionKey: job.as_raw_handle(),
+                    CompletionPort: HANDLE(iocp.as_raw_handle()),
+                };
+                SetInformationJobObject(
+                    HANDLE(job.as_raw_handle()),
+                    JobObjectAssociateCompletionPortInformation,
+                    &port as *const _ as *const c_void,
+                    std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
+                )?;
+
+                Ok(iocp)
+            }
         }
     }
 }

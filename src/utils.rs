@@ -104,10 +104,10 @@ pub mod win {
     use std::cmp::min;
     use std::ffi::OsString;
     use std::fs::{self, OpenOptions};
+    use std::io;
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
-    use std::{io, mem};
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
@@ -191,7 +191,7 @@ pub mod win {
         }
         .map_err(|_| io::Error::last_os_error())?;
 
-        if bytes_returned < mem::size_of::<D>() as u32 {
+        if bytes_returned < size_of::<D>() as u32 {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Invalid reparse point data",
@@ -207,7 +207,7 @@ pub mod win {
     /// Read WSL symbolic link.
     /// If a non-WSL link is detected, fail over to fs::read_link
     pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
-        const WSL_LINK_SIZE: usize = mem::size_of::<ReparseDataBufferLxSymlink>();
+        const WSL_LINK_SIZE: usize = size_of::<ReparseDataBufferLxSymlink>();
 
         // Prepare buffer for reparse point data
         let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
@@ -254,7 +254,7 @@ pub mod win {
             // First read the parse point, because the tag passed to
             // FSCTL_DELETE_REPARSE_POINT must match the existing one.
             let header = read_reparse_data::<ReparseHeader>(path, &mut buffer)?;
-            let mut bytes_returned = std::mem::size_of::<ReparseHeader>() as u32;
+            let mut bytes_returned = size_of::<ReparseHeader>() as u32;
 
             // Clear the data_length
             // https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-delete-reparse-point
@@ -307,7 +307,7 @@ pub mod win {
                         token_handle,
                         TokenElevation,
                         Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
-                        std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                        size_of::<TOKEN_ELEVATION>() as u32,
                         &mut return_length,
                     );
 
