@@ -1,19 +1,8 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, Flag, ShellCommand};
-use crate::{eval::Value, scope::Scope, utils::executable, INTERRUPT_EVENT};
-use std::ffi::OsStr;
-use std::io::{self, Error, IsTerminal};
-use std::os::windows::ffi::OsStrExt;
+use crate::{eval::Value, job::Job, scope::Scope, utils::executable};
+use std::io::IsTerminal;
+use std::path::Path;
 use std::sync::Arc;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, HINSTANCE, HWND, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
-};
-use windows::Win32::System::Registry::HKEY;
-use windows::Win32::System::Threading::*;
-use windows::Win32::UI::Shell::{
-    ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, SHELLEXECUTEINFOW_0,
-};
-use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 struct Sudo {
     flags: CommandFlags,
@@ -29,70 +18,6 @@ impl Sudo {
             "Pass all remaining arguments to COMMAND",
         );
         Self { flags }
-    }
-
-    fn runas(&self, exe: &str, args: &str) -> Result<Value, String> {
-        let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
-        let file: Vec<u16> = OsStr::new(&exe).encode_wide().chain(Some(0)).collect();
-        let params: Vec<u16> = OsStr::new(&args).encode_wide().chain(Some(0)).collect();
-
-        let mut sei = SHELLEXECUTEINFOW {
-            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-            fMask: SEE_MASK_NOCLOSEPROCESS,
-            hwnd: HWND::default(),
-            lpVerb: PCWSTR(verb.as_ptr()),
-            lpFile: PCWSTR(file.as_ptr()),
-            lpParameters: PCWSTR(params.as_ptr()),
-            lpDirectory: PCWSTR::null(),
-            nShow: SW_SHOWNORMAL.0,
-            hInstApp: HINSTANCE::default(),
-            lpIDList: std::ptr::null_mut(),
-            lpClass: PCWSTR::null(),
-            hkeyClass: HKEY::default(),
-            dwHotKey: 0,
-            Anonymous: SHELLEXECUTEINFOW_0::default(),
-            hProcess: HANDLE::default(),
-        };
-
-        unsafe {
-            if ShellExecuteExW(&mut sei).is_err() {
-                return Err(format!("ShellExecuteExW: {}", Error::last_os_error()));
-            } else if sei.hProcess.is_invalid() {
-                return Err(format!("{} {}: {}", exe, args, Error::last_os_error()));
-            } else {
-                // Wait for either process exit or the interrupt event
-                let handles = [
-                    sei.hProcess,
-                    INTERRUPT_EVENT
-                        .lock()
-                        .map_err(|e| format!("Failed to take interrupt lock: {}", e))?
-                        .event
-                        .0,
-                ];
-
-                let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
-
-                if wait_result == WAIT_FAILED {
-                    let wait_error = io::Error::last_os_error();
-                    _ = CloseHandle(sei.hProcess);
-                    return Err(wait_error.to_string());
-                } else if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                    _ = TerminateProcess(sei.hProcess, 2);
-                }
-
-                let mut exit_code: u32 = 0;
-                let result = GetExitCodeProcess(sei.hProcess, &mut exit_code);
-
-                CloseHandle(sei.hProcess)
-                    .and_then(|_| result)
-                    .map_err(|e| e.to_string())?;
-
-                if exit_code != 0 {
-                    return Err(format!("exit code: {:X}", exit_code));
-                }
-            }
-        }
-        Ok(Value::success())
     }
 }
 
@@ -164,7 +89,11 @@ impl Exec for Sudo {
             return Err(format!("Command not found: {}", cmd_name));
         };
 
-        self.runas(&executable, &parameters)
+        Job::new(Path::new(&executable), &[parameters], true)
+            .run()
+            .map_err(|e| e.to_string())?;
+
+        Ok(Value::success())
     }
 }
 

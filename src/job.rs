@@ -2,18 +2,18 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, ExitStatus};
 
-pub struct Job {
-    inner: imp::Job,
+pub struct Job<'a> {
+    inner: imp::Job<'a>,
 }
 
-impl Job {
-    pub fn new(path: &Path, args: &[String], elevated: bool) -> Self {
+impl<'a> Job<'a> {
+    pub fn new(path: &'a Path, args: &'a [String], elevated: bool) -> Self {
         Self {
             inner: imp::Job::new(path, args, elevated),
         }
     }
 
-    pub fn run(&mut self) -> io::Result<ExitStatus> {
+    pub fn run(&mut self) -> io::Result<()> {
         self.inner.run()
     }
 
@@ -22,24 +22,46 @@ impl Job {
     }
 }
 
+fn check_exit_code(code: i64) -> io::Result<()> {
+    if code != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("exit code: {} (0x{:X})", code, code),
+        ));
+    }
+    Ok(())
+}
+
+fn check_exit_status(status: ExitStatus) -> io::Result<()> {
+    if let Some(code) = status.code() {
+        check_exit_code(code as _)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(not(windows))]
 mod imp {
     use super::*;
 
-    pub struct Job {
+    pub struct Job<'a> {
         cmd: Command,
+        _marker: std::marker::PhantomData<&'a ()>,
     }
 
-    impl Job {
+    impl<'a> Job<'a> {
         pub fn new(path: &Path, args: &[String], _elevated: bool) -> Self {
             let mut cmd = Command::new(path);
             cmd.args(args);
-            Self { cmd }
+            Self {
+                cmd,
+                _marker: std::marker::PhantomData,
+            }
         }
 
-        pub fn run(&mut self) -> io::Result<ExitStatus> {
+        pub fn run(&mut self) -> io::Result<()> {
             let mut child = self.cmd.spawn()?;
-            child.wait()
+            check_exit_status(child.wait()?)
         }
 
         pub fn command(&mut self) -> Option<&mut Command> {
@@ -54,6 +76,7 @@ mod imp {
     use crate::INTERRUPT_EVENT;
     use std::ffi::c_void;
     use std::ffi::{OsStr, OsString};
+    use std::io;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::FromRawHandle;
     use std::os::windows::prelude::RawHandle;
@@ -62,16 +85,34 @@ mod imp {
         process::CommandExt,
     };
     use std::path::PathBuf;
-    use std::process::Child;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_OBJECT_0};
+    use windows::Win32::Foundation::{
+        HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
+    };
     use windows::Win32::System::JobObjects::*;
+    use windows::Win32::System::Registry::HKEY;
     use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
     use windows::Win32::System::Threading::*;
     use windows::Win32::System::IO::{
         CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
     };
     use windows::Win32::UI::Shell::*;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn interrupt_event() -> io::Result<HANDLE> {
+        // Get the event handle associated with Ctrl+C.
+        // TODO: decouple from the INTERRUPT_EVENT global var.
+        Ok(INTERRUPT_EVENT
+            .lock()
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to take interrupt lock: {}", e),
+                )
+            })?
+            .event
+            .0)
+    }
 
     unsafe fn to_owned(handle: HANDLE) -> OwnedHandle {
         OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
@@ -108,7 +149,7 @@ mod imp {
     }
 
     /// Retrieve the handle of the main thread for a process id.
-    fn main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
+    fn get_main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
         use windows::Win32::System::Diagnostics::ToolHelp::*;
         unsafe {
             // Take a snapshot of the system
@@ -143,8 +184,8 @@ mod imp {
 
     /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
     /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-    fn add_process_to_job(process: &Child) -> io::Result<OwnedHandle> {
-        let main_thread = main_thread_handle(process.id())?;
+    fn add_process_to_job(pid: u32, proc: HANDLE) -> io::Result<OwnedHandle> {
+        let main_thread = get_main_thread_handle(pid)?;
 
         let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
         unsafe {
@@ -157,7 +198,7 @@ mod imp {
                 size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )?;
 
-            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(process.as_raw_handle()))?;
+            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), proc)?;
 
             // Resume the process.
             ResumeThread(HANDLE(main_thread.as_raw_handle()));
@@ -165,57 +206,106 @@ mod imp {
         Ok(job)
     }
 
-    pub struct Job {
+    pub struct Job<'a> {
         cmd: Option<Command>,
+        path: &'a Path,
+        args: &'a [String],
     }
 
-    impl Job {
-        pub fn new(path: &Path, args: &[String], elevated: bool) -> Self {
-            let mut job = Self { cmd: None };
-
-            if elevated {
-                todo!() // TODO
+    impl<'a> Job<'a> {
+        pub fn new(path: &'a Path, args: &'a [String], elevated: bool) -> Self {
+            let cmd = if elevated {
+                None
             } else {
-                job.cmd = Some(Self::create_command(path, args));
-            }
+                Some(Self::create_command(path, args))
+            };
 
-            job
+            Self { cmd, path, args }
         }
 
-        pub fn run(&mut self) -> io::Result<ExitStatus> {
+        pub fn run(&mut self) -> io::Result<()> {
             match self.cmd.as_mut() {
                 Some(command) => Self::run_command(command),
-                None => {
-                    todo!(); // TODO: elevated mode
-                }
+                None => self.runas(),
             }
         }
 
-        fn run_command(command: &mut Command) -> io::Result<ExitStatus> {
+        fn runas(&self) -> io::Result<()> {
+            let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(Some(0)).collect();
+            let file: Vec<u16> = self.path.as_os_str().encode_wide().chain(Some(0)).collect();
+
+            let args = self.args.join(" ");
+            let params: Vec<u16> = OsStr::new(&args).encode_wide().chain(Some(0)).collect();
+
+            let mut sei = SHELLEXECUTEINFOW {
+                cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
+                fMask: SEE_MASK_NOCLOSEPROCESS,
+                hwnd: HWND::default(),
+                lpVerb: PCWSTR(verb.as_ptr()),
+                lpFile: PCWSTR(file.as_ptr()),
+                lpParameters: PCWSTR(params.as_ptr()),
+                lpDirectory: PCWSTR::null(),
+                nShow: SW_SHOWNORMAL.0,
+                hInstApp: HINSTANCE::default(),
+                lpIDList: std::ptr::null_mut(),
+                lpClass: PCWSTR::null(),
+                hkeyClass: HKEY::default(),
+                dwHotKey: 0,
+                Anonymous: SHELLEXECUTEINFOW_0::default(),
+                hProcess: HANDLE::default(),
+            };
+
+            unsafe {
+                ShellExecuteExW(&mut sei)?;
+
+                // TODO: can this happen?
+                // if sei.hProcess.is_invalid() {
+                //     return Err(io::Error::last_os_error());
+                // }
+                assert!(!sei.hProcess.is_invalid());
+
+                let process = to_owned(sei.hProcess);
+
+                // This does not work:
+                // let pid = GetProcessId(HANDLE(process.as_raw_handle()));
+                // let job = add_process_to_job(pid, sei.hProcess)?;
+                // Self::wait(&job)?;
+                let handles = [HANDLE(process.as_raw_handle()), interrupt_event()?];
+                let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
+
+                if wait_result == WAIT_FAILED {
+                    return Err(io::Error::last_os_error());
+                } else if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                    _ = TerminateProcess(sei.hProcess, 2);
+                }
+
+                let mut exit_code: u32 = 0;
+                GetExitCodeProcess(sei.hProcess, &mut exit_code)?;
+
+                check_exit_code(exit_code as _)
+            }
+        }
+
+        fn run_command(command: &mut Command) -> io::Result<()> {
             let mut child = command.spawn()?;
 
-            let job = add_process_to_job(&child)?;
-            let iocp = Self::completion_port(&job)?;
+            let job = add_process_to_job(child.id(), HANDLE(child.as_raw_handle()))?;
+            Self::wait(&job)?;
 
-            // Get the event handle associated with Ctrl+C.
-            // TODO: decouple from the INTERRUPT_EVENT global var.
-            let interrupt = INTERRUPT_EVENT
-                .lock()
-                .map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Failed to take interrupt lock: {}", e),
-                    )
-                })?
-                .event
-                .0;
+            check_exit_status(child.wait()?)
+        }
 
-            let handles = [HANDLE(iocp.as_raw_handle()), interrupt];
+        /// Wait for all processes associated with the Job object to complete.
+        fn wait(job: &OwnedHandle) -> io::Result<()> {
+            let iocp = Self::create_completion_port(&job)?;
+
+            let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
 
             unsafe {
                 let mut completion_code: u32 = 0;
                 let mut completion_key: usize = 0;
                 let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+
                 loop {
                     let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
                     if wait_res == WAIT_OBJECT_0 {
@@ -232,16 +322,14 @@ mod imp {
                             break;
                         }
                     } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                        let process = HANDLE(child.as_raw_handle());
-                        _ = TerminateProcess(process, 2);
                         break;
                     } else {
-                        break; // TODO: error handling?
+                        eprintln!("{:?}", wait_res);
+                        break;
                     }
                 }
-
-                child.wait()
             }
+            Ok(())
         }
 
         /// Return the command associated with the Job.
@@ -280,7 +368,7 @@ mod imp {
         }
 
         /// Create a IO completion port and associate it with the Job object.
-        fn completion_port(job: &OwnedHandle) -> io::Result<OwnedHandle> {
+        fn create_completion_port(job: &OwnedHandle) -> io::Result<OwnedHandle> {
             unsafe {
                 let iocp = to_owned(CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, 0, 1)?);
 
@@ -288,6 +376,7 @@ mod imp {
                     CompletionKey: job.as_raw_handle(),
                     CompletionPort: HANDLE(iocp.as_raw_handle()),
                 };
+
                 SetInformationJobObject(
                     HANDLE(job.as_raw_handle()),
                     JobObjectAssociateCompletionPortInformation,

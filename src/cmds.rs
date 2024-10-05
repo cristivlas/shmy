@@ -257,16 +257,12 @@ impl Exec for External {
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         use crate::job::*;
 
-        let mut job = Job::new(&self.which_path(), &args, false);
+        let path = self.which_path();
+        let mut job = Job::new(&path, &args, false);
         copy_vars_to_command_env(job.command().unwrap(), &scope);
 
         match job.run() {
-            Ok(status) => {
-                if let Some(code) = status.code() {
-                    if code != 0 {
-                        return Err(format!("exit code: {}", code));
-                    }
-                }
+            Ok(_) => {
                 return Ok(Value::success());
             }
             Err(error) => {
