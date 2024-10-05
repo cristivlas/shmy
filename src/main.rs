@@ -27,6 +27,7 @@ mod macros;
 mod cmds;
 mod completions;
 mod eval;
+mod job;
 mod prompt;
 mod scope;
 mod symlnk;

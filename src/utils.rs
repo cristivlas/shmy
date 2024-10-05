@@ -4,7 +4,6 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
 use std::sync::Arc;
 
 // Maximum length for displaying user account name (ls, ps)
@@ -103,14 +102,14 @@ pub mod win {
     use super::*;
     use crate::symlnk::SymLink;
     use std::cmp::min;
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsString;
     use std::fs::{self, OpenOptions};
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
     use std::{io, mem};
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
         Authorization::ConvertStringSidToSidW, GetTokenInformation, LookupAccountSidW,
         TokenElevation, PSID, SID_NAME_USE, TOKEN_ELEVATION, TOKEN_QUERY,
@@ -119,7 +118,6 @@ pub mod win {
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
     };
     use windows::Win32::System::Threading::*;
-    use windows::Win32::UI::Shell::*;
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -459,139 +457,6 @@ pub mod win {
     pub fn set_event(event: &EventHandle) {
         unsafe { _ = SetEvent(event.0) }
     }
-
-    ///
-    /// Get the executable associated with a file.
-    ///
-    pub fn associated_command(path: &OsStr) -> io::Result<String> {
-        let mut app_path: Vec<u16> = vec![0; 4096];
-        let mut app_path_length: u32 = app_path.len() as u32;
-
-        let wide_path: Vec<u16> = path.encode_wide().chain(Some(0)).collect();
-
-        let result = unsafe {
-            AssocQueryStringW(
-                ASSOCF_NOTRUNCATE | ASSOCF_REMAPRUNDLL,
-                ASSOCSTR_EXECUTABLE,
-                PCWSTR(wide_path.as_ptr()),
-                None,
-                PWSTR(app_path.as_mut_ptr()),
-                &mut app_path_length,
-            )
-        };
-
-        if result.is_ok() {
-            let executable = OsString::from_wide(&app_path[..app_path_length as usize - 1])
-                .to_string_lossy()
-                .into_owned();
-            if executable.starts_with("%") {
-                Ok(String::default())
-            } else {
-                Ok(executable)
-            }
-        } else {
-            Err(io::Error::last_os_error())
-        }
-    }
-
-    ///
-    /// Wait for child process, observing Ctrl+C event.
-    ///
-    pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-        use crate::INTERRUPT_EVENT;
-        use std::os::windows::io::AsRawHandle;
-
-        let process_handle = HANDLE(child.as_raw_handle());
-
-        let handles = [
-            process_handle,
-            INTERRUPT_EVENT
-                .lock()
-                .map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("Failed to take interrupt lock: {}", e),
-                    )
-                })?
-                .event
-                .0,
-        ];
-
-        unsafe {
-            let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
-            if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                _ = TerminateProcess(process_handle, 2);
-            }
-        }
-        child.wait()
-    }
-
-    unsafe fn to_owned(handle: HANDLE) -> OwnedHandle {
-        OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
-    }
-
-    ///
-    /// Given a process id retrieve the handle of its main thread.
-    ///
-    fn main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
-        use windows::Win32::System::Diagnostics::ToolHelp::*;
-        unsafe {
-            // Take a snapshot of the system
-            let snapshot = to_owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)?);
-            let handle = HANDLE(snapshot.as_raw_handle());
-
-            let mut thread_entry = THREADENTRY32 {
-                dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
-                ..Default::default()
-            };
-
-            // Get the first thread
-            if Thread32First(handle, &mut thread_entry).is_ok() {
-                loop {
-                    if thread_entry.th32OwnerProcessID == pid {
-                        // Found a thread belonging to our process
-                        let thread_handle =
-                            OpenThread(THREAD_ALL_ACCESS, false, thread_entry.th32ThreadID)?;
-                        return Ok(to_owned(thread_handle));
-                    }
-
-                    // Move to the next thread
-                    if Thread32Next(handle, &mut thread_entry).is_err() {
-                        break;
-                    }
-                }
-            }
-
-            Err(io::Error::last_os_error())
-        }
-    }
-
-    /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
-    /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-    /// The end goal is to have Ctrl+C kill all child processes the given proc. may have created.
-    pub fn add_process_to_job(pid: u32) -> io::Result<OwnedHandle> {
-        use windows::Win32::System::JobObjects::*;
-
-        let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
-        unsafe {
-            let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-            job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            SetInformationJobObject(
-                HANDLE(job.as_raw_handle()),
-                JobObjectExtendedLimitInformation,
-                &mut job_info as *mut _ as *mut _,
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            )?;
-
-            let proc = to_owned(OpenProcess(PROCESS_ALL_ACCESS, false, pid)?);
-            AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(proc.as_raw_handle()))?;
-
-            // Retrieve the main thread from the process and resume it.
-            let thread = main_thread_handle(pid)?;
-            ResumeThread(HANDLE(thread.as_raw_handle()));
-        }
-        Ok(job)
-    }
 }
 
 /// Return the target of a symbolic link.
@@ -633,14 +498,4 @@ pub fn format_error<E: std::fmt::Display>(
     error: E,
 ) -> String {
     format!("{}: {}", scope.err_path_arg(value, args), error)
-}
-
-#[cfg(not(windows))]
-pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-    child.wait()
-}
-
-#[cfg(windows)]
-pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-    win::wait_child(child)
 }

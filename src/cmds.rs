@@ -1,4 +1,4 @@
-use crate::utils::{copy_vars_to_command_env, wait_child};
+use crate::utils::copy_vars_to_command_env;
 use crate::{eval::Value, scope::Scope};
 use std::any::Any;
 use std::borrow::Cow;
@@ -6,10 +6,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
-#[cfg(windows)]
-use std::os::windows::{io::OwnedHandle, process::CommandExt};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
 use std::sync::{Arc, LazyLock, Mutex};
 use which::which;
 
@@ -252,108 +249,33 @@ impl External {
     }
 }
 
-struct ExternalCommand {
-    command: Command,
-    #[allow(dead_code)]
-    use_job: bool,
-    #[cfg(windows)]
-    job: Option<OwnedHandle>,
-}
-
-impl ExternalCommand {
-    fn new(command: Command, use_job: bool) -> Self {
-        Self {
-            command,
-            use_job,
-            #[cfg(windows)]
-            job: None,
-        }
-    }
-
-    fn spawn(&mut self) -> std::io::Result<Child> {
-        #[cfg(windows)]
-        if self.use_job {
-            use windows::Win32::System::Threading::CREATE_SUSPENDED;
-            self.command.creation_flags(CREATE_SUSPENDED.0);
-        }
-
-        self.command.spawn().and_then(|child| {
-            #[cfg(windows)]
-            if self.use_job {
-                self.job = Some(crate::utils::win::add_process_to_job(child.id())?);
-            }
-            Ok(child)
-        })
-    }
-}
-
-///
-/// Construct std::process::Command and set up arguments.
-///
-#[cfg(unix)]
-impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> ExternalCommand {
-        let mut command = Command::new(self.path().as_os_str());
-        command.args(args);
-        ExternalCommand::new(command, false)
-    }
-}
-
-#[cfg(windows)]
-impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> ExternalCommand {
-        use crate::utils::win::associated_command;
-
-        let path = self.which_path();
-        if self.is_script() {
-            if let Ok(exe) = associated_command(path.as_os_str()) {
-                if !exe.is_empty() {
-                    eprintln!("{}", exe);
-                    let mut command = Command::new(exe);
-                    command.arg(path.as_os_str()).args(args);
-                    return ExternalCommand::new(command, true);
-                }
-            }
-
-            let mut command = Command::new("cmd");
-            command.arg("/C").arg(path.as_os_str()).args(args);
-            ExternalCommand::new(command, true)
-        } else {
-            let mut command = Command::new(path.as_os_str());
-            command.args(args);
-            ExternalCommand::new(command, false)
-        }
-    }
-}
-
 impl Exec for External {
     fn as_any(&self) -> Option<&dyn Any> {
         Some(self)
     }
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
-        let mut c = self.prepare_command(args);
-        copy_vars_to_command_env(&mut c.command, &scope);
+        use crate::job::*;
 
-        match c.spawn() {
-            Ok(mut child) => match &wait_child(&mut child) {
-                Ok(status) => {
-                    if let Some(code) = status.code() {
-                        if code != 0 {
-                            return Err(format!("exit code: {}", code));
-                        }
+        let mut job = Job::new(&self.which_path(), &args, false);
+        copy_vars_to_command_env(job.command().unwrap(), &scope);
+
+        match job.run(Signals {}) {
+            Ok(status) => {
+                if let Some(code) = status.code() {
+                    if code != 0 {
+                        return Err(format!("exit code: {}", code));
                     }
-                    return Ok(Value::success());
                 }
-                Err(e) => Err(format!("Failed to wait on child process: {}", e)),
-            },
+                return Ok(Value::success());
+            }
             Err(error) => {
-                let cmd = std::iter::once(c.command.get_program())
-                    .chain(c.command.get_args())
+                let command = job.command().unwrap();
+                let cmd = std::iter::once(command.get_program())
+                    .chain(command.get_args())
                     .map(|a| a.to_string_lossy().to_string())
                     .collect::<Vec<_>>()
                     .join(" ");
-
                 if matches!(error.raw_os_error(), Some(740)) {
                     Err(format!("{}\nTry:\nsudo {}", error, cmd))
                 } else {
