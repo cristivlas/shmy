@@ -239,7 +239,7 @@ mod imp {
 
             let mut sei = SHELLEXECUTEINFOW {
                 cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
-                fMask: SEE_MASK_NOCLOSEPROCESS,
+                fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
                 hwnd: HWND::default(),
                 lpVerb: PCWSTR(verb.as_ptr()),
                 lpFile: PCWSTR(file.as_ptr()),
@@ -258,18 +258,18 @@ mod imp {
             unsafe {
                 ShellExecuteExW(&mut sei)?;
 
-                // TODO: can this happen?
-                // if sei.hProcess.is_invalid() {
-                //     return Err(io::Error::last_os_error());
-                // }
-                assert!(!sei.hProcess.is_invalid());
+                // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow
+                // Note: ShellExecuteEx does not always return an hProcess, even if a process is launched as the result of the call.
+                if sei.hProcess.is_invalid() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Invalid process handle",
+                    ));
+                }
 
+                // Close the process automatically.
                 let process = to_owned(sei.hProcess);
 
-                // This does not work:
-                // let pid = GetProcessId(HANDLE(process.as_raw_handle()));
-                // let job = add_process_to_job(pid, sei.hProcess)?;
-                // Self::wait(&job)?;
                 let handles = [HANDLE(process.as_raw_handle()), interrupt_event()?];
                 let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
 
