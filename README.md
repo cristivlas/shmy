@@ -459,8 +459,12 @@ export "PATHEXT = \"$PATHEXT;.CPL\""
 which powercfg.cpl
 C:\WINDOWS\system32\powercfg.cpl
 ```
-and typing ```powercfg.cpl``` brings up the Power Configuration panel (you still get an exit code 1 in the shell at the time of this writing, but it is a benign message).
+and typing ```powercfg.cpl``` brings up the Power Configuration panel.
 
+Another example, using raw strings:
+```
+export r"(PATH = \"$PATH;C:\\Program Files\\Windows NT\\Accessories")"
+```
 
 
 
