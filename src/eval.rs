@@ -478,14 +478,14 @@ impl EvalError {
 
         // Retrieve and trim the line with the error
         if let Some(mut error_line) = input.lines().nth(line - 1).map(|l| l.to_string()) {
-            let max_width = col.max(utils::terminal_width().saturating_sub(5));
+            let max_width = utils::terminal_width().saturating_sub(5);
             if error_line.len() > max_width {
                 error_line.truncate(max_width);
                 error_line.push_str("...");
             }
 
             eprintln!("{}", error_line);
-            eprintln!("{}", "-".repeat(col - 1) + "^\n");
+            eprintln!("{}", "-".repeat(col.min(max_width) - 1) + "^\n");
         }
     }
 }
