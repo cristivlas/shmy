@@ -212,25 +212,38 @@ mod imp {
         }
 
         // Optional Header starts after the PE signature (4 bytes) and the File Header (20 bytes)
-        let optional_header_offset = pe_offset + 4 + std::mem::size_of::<PeFileHeader>();
+        let optional_header_offset = pe_offset + 4 + size_of::<PeFileHeader>();
 
         // Check if there are enough bytes for the optional header
-        if optional_header_offset + std::mem::size_of::<PeOptionalHeader>() > buffer.len() {
+        if optional_header_offset + size_of::<PeOptionalHeader>() > buffer.len() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "File too small for Optional Header",
             ));
         }
 
-        // Read the Subsystem from the Optional Header
-        let subsystem_offset = optional_header_offset + 68;
-        // Subsystem is located at offset 68 in the Optional Header
-        let subsystem = u16::from_le_bytes(
-            buffer[subsystem_offset..subsystem_offset + 2]
-                .try_into()
-                .unwrap_or_default(),
-        );
+        // Read the Optional Header from the buffer
+        let optional_header_bytes =
+            &buffer[optional_header_offset..optional_header_offset + size_of::<PeOptionalHeader>()];
+        let optional_header: &PeOptionalHeader =
+            unsafe { &*(optional_header_bytes.as_ptr() as *const _) };
 
+        // Validate: check for 32 or 64 PE header magic.
+        match optional_header.magic {
+            0x010B | 0x20B => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Invalid magic number in PE header: 0x{:X}",
+                        optional_header.magic
+                    ),
+                ));
+            }
+        }
+
+        let subsystem = optional_header.subsystem;
+        // println!("subsystem: {}", subsystem);
         match subsystem {
             IMAGE_SUBSYSTEM_WINDOWS_GUI => Ok(Subsystem::GUI),
             IMAGE_SUBSYSTEM_WINDOWS_CUI => Ok(Subsystem::Console),
@@ -278,7 +291,7 @@ mod imp {
             let handle = HANDLE(snapshot.as_raw_handle());
 
             let mut thread_entry = THREADENTRY32 {
-                dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+                dwSize: size_of::<THREADENTRY32>() as u32,
                 ..Default::default()
             };
 
@@ -434,6 +447,7 @@ mod imp {
 
         /// Spawn command process and associate it with a job object.
         /// The process is created suspended and add_proccess_to_job resumes it on success.
+        /// Return the exit code.
         fn run_command(&mut self) -> io::Result<i64> {
             // This is a convoluted hack to determine how handle Ctrl+C.
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
@@ -509,7 +523,7 @@ mod imp {
                         }
                     } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
                         if kill_on_ctrl_c {
-                            // Terminating is not strictly needed, dropping it should be enough
+                            // Terminating is not strictly needed, dropping the job should be enough
                             // but this way the user gets to see an error (exit code 2).
                             _ = TerminateJobObject(HANDLE(job.as_raw_handle()), 2);
                             break;
@@ -578,7 +592,7 @@ mod imp {
                     HANDLE(job.as_raw_handle()),
                     JobObjectAssociateCompletionPortInformation,
                     &port as *const _ as *const c_void,
-                    std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
+                    size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
                 )?;
 
                 Ok(iocp)
