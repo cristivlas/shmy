@@ -1,4 +1,4 @@
-/// Execute commands as part of a Job.
+/// Execute commands as part of a Job. Experimental.
 /// Just a simple std::process::Command wrapper for non-Windows targets.
 use std::io;
 use std::path::Path;
@@ -81,10 +81,9 @@ mod imp {
     use std::fs::File;
     use std::io::{self, Read};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use std::os::windows::io::FromRawHandle;
     use std::os::windows::prelude::RawHandle;
     use std::os::windows::{
-        io::{AsRawHandle, OwnedHandle},
+        io::{AsRawHandle, FromRawHandle, OwnedHandle},
         process::CommandExt,
     };
     use std::path::PathBuf;
@@ -129,7 +128,6 @@ mod imp {
 
     #[repr(C)]
     struct PeFileHeader {
-        // This structure holds the number of sections and the size of the optional header.
         machine: u16,
         number_of_sections: u16,
         timestamp: u32,
@@ -201,7 +199,7 @@ mod imp {
         }
 
         // Check the DOS header and get the PE header offset
-        let pe_offset = u32::from_le_bytes(buffer[60..64].try_into().unwrap()) as usize;
+        let pe_offset = u32::from_le_bytes(buffer[60..64].try_into().unwrap_or_default()) as usize;
 
         // Check for PE signature
         if &buffer[pe_offset..pe_offset + 4] != PE_SIGNATURE {
