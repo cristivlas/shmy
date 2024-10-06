@@ -78,7 +78,8 @@ mod imp {
     use crate::INTERRUPT_EVENT; // See interrupt_event function below.
     use std::borrow::Cow;
     use std::ffi::{c_void, OsStr, OsString};
-    use std::io;
+    use std::fs::File;
+    use std::io::{self, Read};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::FromRawHandle;
     use std::os::windows::prelude::RawHandle;
@@ -120,6 +121,123 @@ mod imp {
         OwnedHandle::from_raw_handle(RawHandle::from(handle.0))
     }
 
+    const PE_SIGNATURE: &[u8] = b"PE\0\0";
+
+    // Subsystem constants based on Windows PE header definitions
+    const IMAGE_SUBSYSTEM_WINDOWS_GUI: u16 = 2;
+    const IMAGE_SUBSYSTEM_WINDOWS_CUI: u16 = 3;
+
+    #[repr(C)]
+    struct PeFileHeader {
+        // This structure holds the number of sections and the size of the optional header.
+        machine: u16,
+        number_of_sections: u16,
+        timestamp: u32,
+        pointer_to_symbol_table: u32,
+        number_of_symbols: u32,
+        size_of_optional_header: u16,
+        characteristics: u16,
+    }
+
+    #[repr(C)]
+    struct PeOptionalHeader {
+        magic: u16,
+        major_linker_version: u8,
+        minor_linker_version: u8,
+        size_of_code: u32,
+        size_of_initialized_data: u32,
+        size_of_uninitialized_data: u32,
+        address_of_entry_point: u32,
+        base_of_code: u32,
+        base_of_data: u32,
+        image_base: u32,
+        section_alignment: u32,
+        file_alignment: u32,
+        major_operating_system_version: u16,
+        minor_operating_system_version: u16,
+        major_image_version: u16,
+        minor_image_version: u16,
+        major_subsystem_version: u16,
+        minor_subsystem_version: u16,
+        win32_version_value: u32,
+        size_of_image: u32,
+        size_of_headers: u32,
+        checksum: u32,
+        subsystem: u16,
+        dll_characteristics: u16,
+        size_of_stack_reserve: u64,
+        size_of_stack_commit: u64,
+        size_of_heap_reserve: u64,
+        size_of_heap_commit: u64,
+        loader_flags: u32,
+        number_of_rva_and_sizes: u32,
+    }
+
+    #[derive(Debug)]
+    enum Subsystem {
+        Unknown,
+        Console,
+        GUI,
+    }
+
+    impl Default for Subsystem {
+        fn default() -> Self {
+            Self::Unknown
+        }
+    }
+
+    /// Determine if executable is GUI or Console.
+    fn get_exe_subsystem<P: AsRef<Path>>(path: P) -> io::Result<Subsystem> {
+        let mut file = File::open(path)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+
+        // Check for DOS header
+        if buffer.len() < 64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "File too small to be a valid PE",
+            ));
+        }
+
+        // Check the DOS header and get the PE header offset
+        let pe_offset = u32::from_le_bytes(buffer[60..64].try_into().unwrap()) as usize;
+
+        // Check for PE signature
+        if &buffer[pe_offset..pe_offset + 4] != PE_SIGNATURE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid PE signature",
+            ));
+        }
+
+        // Optional Header starts after the PE signature (4 bytes) and the File Header (20 bytes)
+        let optional_header_offset = pe_offset + 4 + std::mem::size_of::<PeFileHeader>();
+
+        // Check if there are enough bytes for the optional header
+        if optional_header_offset + std::mem::size_of::<PeOptionalHeader>() > buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "File too small for Optional Header",
+            ));
+        }
+
+        // Read the Subsystem from the Optional Header
+        let subsystem_offset = optional_header_offset + 68;
+        // Subsystem is located at offset 68 in the Optional Header
+        let subsystem = u16::from_le_bytes(
+            buffer[subsystem_offset..subsystem_offset + 2]
+                .try_into()
+                .unwrap_or_default(),
+        );
+
+        match subsystem {
+            IMAGE_SUBSYSTEM_WINDOWS_GUI => Ok(Subsystem::GUI),
+            IMAGE_SUBSYSTEM_WINDOWS_CUI => Ok(Subsystem::Console),
+            _ => Ok(Subsystem::Unknown),
+        }
+    }
+
     /// Look up the executable associated with a file.
     fn get_associated_command(path: &OsStr) -> Option<OsString> {
         let mut app_path: Vec<u16> = vec![0; 4096];
@@ -153,6 +271,7 @@ mod imp {
     /// Retrieve the handle of the main thread for a process id.
     fn get_main_thread_handle(pid: u32) -> io::Result<OwnedHandle> {
         use windows::Win32::System::Diagnostics::ToolHelp::*;
+
         unsafe {
             // Take a snapshot of the system
             let snapshot = to_owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)?);
@@ -316,6 +435,12 @@ mod imp {
         /// Spawn command process and associate it with a job object.
         /// The process is created suspended and add_proccess_to_job resumes it on success.
         fn run_command(&mut self) -> io::Result<i64> {
+            // This is a convoluted hack to determine how handle Ctrl+C.
+            // If the launched command is a Console App, do not send it CTRL_C_EVENT
+            // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
+            // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
+            let kill_on_ctrl_c = matches!(get_exe_subsystem(&self.exe)?, Subsystem::GUI);
+
             let command = self.command().expect("No command");
             let mut child = command.spawn()?;
 
@@ -341,7 +466,9 @@ mod imp {
             let job = add_process_to_job(child.id(), handle)?;
             cleanup.process.take(); // cancel the cleanup, the process is now associated with the job object
 
-            Self::wait(&job)?;
+            Self::wait(&job, kill_on_ctrl_c)?;
+            drop(job);
+
             let status = child.wait()?;
             if let Some(code) = status.code() {
                 Ok(code as _)
@@ -351,7 +478,7 @@ mod imp {
         }
 
         /// Wait for all processes associated with the Job object to complete.
-        fn wait(job: &OwnedHandle) -> io::Result<()> {
+        fn wait(job: &OwnedHandle, kill_on_ctrl_c: bool) -> io::Result<()> {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
@@ -381,10 +508,12 @@ mod imp {
                             break;
                         }
                     } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                        // Ctrl+C event set. Do not TerminateProcess, just let the job go; that should finish the processes
-                        // associated with the job object. Calling TerminateProcess may have undesired effects. For example:
-                        // when running Python interactively from this shell, Ctrl+C should not terminate Python.
-                        break;
+                        if kill_on_ctrl_c {
+                            // Terminating is not strictly needed, dropping it should be enough
+                            // but this way the user gets to see an error (exit code 2).
+                            _ = TerminateJobObject(HANDLE(job.as_raw_handle()), 2);
+                            break;
+                        }
                     } else {
                         eprintln!("{:?}", wait_res);
                         break;
