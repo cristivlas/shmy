@@ -1,13 +1,13 @@
-use crate::utils::copy_vars_to_command_env;
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::copy_vars_to_command_env};
+use colored::Colorize;
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::{fs, io};
 use which::which;
 
 mod flags;
@@ -249,6 +249,18 @@ impl External {
     }
 }
 
+fn format_sudo_hints(path: &Path, cmd: &str, color: bool) -> String {
+    let opt = [format!("sudo {}", path.display()), format!("sudo {}", cmd)].map(|s| {
+        if color {
+            s.bright_cyan()
+        } else {
+            s.normal()
+        }
+    });
+
+    format!("Try: {}\n or: {}", opt[0], opt[1])
+}
+
 impl Exec for External {
     fn as_any(&self) -> Option<&dyn Any> {
         Some(self)
@@ -275,7 +287,11 @@ impl Exec for External {
                     .collect::<Vec<_>>()
                     .join(" ");
                 if matches!(error.raw_os_error(), Some(740)) {
-                    Err(format!("{}\nTry:\nsudo {}", error, cmd))
+                    Err(format!(
+                        "{}\n{}",
+                        error,
+                        format_sudo_hints(&self.path, &cmd, scope.use_colors(&io::stderr()))
+                    ))
                 } else {
                     Err(format!("{}: {}", cmd, error))
                 }
