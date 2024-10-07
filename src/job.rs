@@ -317,7 +317,7 @@ mod imp {
     }
 
     /// $__limit_job_memory: max job memory in MB
-    /// $__limit_proc_memory: max process memory in Gb
+    /// $__limit_proc_memory: max process memory in MB
     /// $__limit_proc_count: limit the number of processes associated with the job.
     /// TODO: complete with more variables
     /// TODO: write ulimit-like utility to manage and list these limits.
