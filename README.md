@@ -12,6 +12,7 @@ Project purpose and goals:
 1. An exercise in Rust programming.
 2. Provide an alternative, light-weight solution for executing Unix-like commands in a Windows environment.
 3. Experiment with design ideas that enforce robust error handling practices in shell scripting.
+4. New in 0.19.6, Windows-only: execute external commands using Job object, experimental limit variables (```$__limit_proc_count, $__limit_proc_memory, $__limit_job_memory```)
 
 The interpreter operates in both interactive mode and script execution mode, with the latter activated by passing script files as command line arguments. In interactive mode, the interpreter leverages rustyline to provide history functionality and TAB completion.
 
