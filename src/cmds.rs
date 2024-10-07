@@ -1,14 +1,13 @@
-use crate::utils::{copy_vars_to_command_env, wait_child};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::copy_vars_to_command_env};
+use colored::Colorize;
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::{fs, io};
 use which::which;
 
 mod flags;
@@ -250,40 +249,16 @@ impl External {
     }
 }
 
-///
-/// Cosntruct std::process::Command and set up arguments.
-///
-#[cfg(unix)]
-impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> Command {
-        let mut command = Command::new(self.path().as_os_str());
-        command.args(args);
-        command
-    }
-}
-
-#[cfg(windows)]
-impl External {
-    fn prepare_command(&self, args: &Vec<String>) -> Command {
-        use crate::utils::win::associated_command;
-
-        let path = self.which_path();
-        if self.is_script() {
-            if let Some(exe) = associated_command(path.as_os_str()) {
-                let mut command = Command::new(exe);
-                command.arg(path.as_os_str()).args(args);
-                return command;
-            }
-
-            let mut command = Command::new("cmd");
-            command.arg("/C").arg(path.as_os_str()).args(args);
-            command
+fn format_sudo_hints(path: &Path, cmd: &str, color: bool) -> String {
+    let opt = [format!("sudo {}", path.display()), format!("sudo {}", cmd)].map(|s| {
+        if color {
+            s.bright_cyan()
         } else {
-            let mut command = Command::new(path.as_os_str());
-            command.args(args);
-            command
+            s.normal()
         }
-    }
+    });
+
+    format!("Try: {}\n or: {}", opt[0], opt[1])
 }
 
 impl Exec for External {
@@ -292,30 +267,31 @@ impl Exec for External {
     }
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
-        let mut command = self.prepare_command(args);
-        copy_vars_to_command_env(&mut command, &scope);
+        use crate::job::*;
 
-        match command.spawn() {
-            Ok(mut child) => match &wait_child(&mut child) {
-                Ok(status) => {
-                    if let Some(code) = status.code() {
-                        if code != 0 {
-                            return Err(format!("exit code: {}", code));
-                        }
-                    }
-                    return Ok(Value::success());
-                }
-                Err(e) => Err(format!("Failed to wait on child process: {}", e)),
-            },
+        // Resolve the path on each execution, because $PATH may have changed.
+        let path = self.which_path();
+
+        let mut job = Job::new(scope, &path, &args, false);
+        copy_vars_to_command_env(job.command().unwrap(), &scope);
+
+        match job.run() {
+            Ok(_) => {
+                return Ok(Value::success());
+            }
             Err(error) => {
+                let command = job.command().unwrap();
                 let cmd = std::iter::once(command.get_program())
                     .chain(command.get_args())
                     .map(|a| a.to_string_lossy().to_string())
                     .collect::<Vec<_>>()
                     .join(" ");
-
                 if matches!(error.raw_os_error(), Some(740)) {
-                    Err(format!("{}\nTry:\nsudo {}", error, cmd))
+                    Err(format!(
+                        "{}\n{}",
+                        error,
+                        format_sudo_hints(&self.path, &cmd, scope.use_colors(&io::stderr()))
+                    ))
                 } else {
                     Err(format!("{}: {}", cmd, error))
                 }

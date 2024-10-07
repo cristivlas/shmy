@@ -449,10 +449,10 @@ pub mod tests {
         assert_eval_ok!("echo ---Hello--- | x; $x", Value::from("---Hello---"));
     }
 
-    // #[test]
-    // fn test_pass_vars_thru_pipes() {
-    //     assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
-    // }
+    #[test]
+    fn test_pass_vars_thru_pipes() {
+        assert_eval_ok!("i = 2; echo hello | echo $i | x; $x", Value::Int(2));
+    }
 
     #[test]
     fn test_hash_tag() {

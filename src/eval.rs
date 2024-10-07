@@ -107,10 +107,10 @@ enum Priority {
 impl Op {
     fn priority(&self) -> Priority {
         match &self {
-            Op::Assign | Op::Pipe => Priority::VeryLow,
-            Op::And
-            | Op::Append
-            | Op::Or
+            // Give logical ops same (lowest) priority as assignment so that parentheses are not
+            // needed in: ```a == b || b = c``` i.e. we don't need to write ```a == b || (b = c)```
+            Op::Assign | Op::Pipe | Op::Or | Op::And => Priority::VeryLow,
+            Op::Append
             | Op::Gt
             | Op::Gte
             | Op::Lt
@@ -478,14 +478,14 @@ impl EvalError {
 
         // Retrieve and trim the line with the error
         if let Some(mut error_line) = input.lines().nth(line - 1).map(|l| l.to_string()) {
-            let max_width = col.max(utils::terminal_width().saturating_sub(5));
+            let max_width = utils::terminal_width().saturating_sub(5);
             if error_line.len() > max_width {
                 error_line.truncate(max_width);
                 error_line.push_str("...");
             }
 
             eprintln!("{}", error_line);
-            eprintln!("{}", "-".repeat(col - 1) + "^\n");
+            eprintln!("{}", "-".repeat(col.min(max_width) - 1) + "^\n");
         }
     }
 }
@@ -1668,6 +1668,10 @@ macro_rules! eval_cmp_fn {
     }
 }
 
+fn starts_with_special(s: &str) -> bool {
+    s.starts_with(|c: char| c.is_ascii_digit() || matches!(c, '{' | '}' | '[' | ']'))
+}
+
 impl BinExpr {
     fn eval_and(&self) -> EvalResult<Value> {
         let mut status = false;
@@ -1762,7 +1766,7 @@ impl BinExpr {
                 } else {
                     return error(self, &format!("Variable not found: {}", var_name));
                 }
-            } else {
+            } else if !starts_with_special(&var_name) {
                 // Create new variable in the current scope
                 self.scope.insert_value(var_name, rhs.clone());
                 return Ok(rhs);
@@ -2263,7 +2267,11 @@ impl Eval for GroupExpr {
                             message: "CONTINUE outside loop".to_string(),
                             jump: Some(Jump::Continue(result.unwrap())),
                         });
-                        continue;
+                        // It may seem counter-intuitive to break here instead of continue-ing;
+                        // however this is correct: the evaluation of the statements (expressions)
+                        // in this group is skipped here; eval_iteration continues the evaluation
+                        // of the loop body.
+                        break;
                     }
                 } else if let Err(err) = temp {
                     match &err.jump {
@@ -2282,7 +2290,7 @@ impl Eval for GroupExpr {
                                 message: err.message,
                                 jump: Some(Jump::Continue(result.unwrap())),
                             });
-                            continue;
+                            break;
                         }
                         None => {
                             result = Err(err);

@@ -4,7 +4,6 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
 use std::sync::Arc;
 
 // Maximum length for displaying user account name (ls, ps)
@@ -100,15 +99,15 @@ pub fn terminal_width() -> usize {
 ///
 #[cfg(windows)]
 pub mod win {
-    use super::MAX_USER_DISPLAY_LEN;
+    use super::*;
     use crate::symlnk::SymLink;
     use std::cmp::min;
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsString;
     use std::fs::{self, OpenOptions};
+    use std::io;
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::prelude::*;
     use std::path::{Path, PathBuf};
-    use std::{io, mem};
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
@@ -118,10 +117,7 @@ pub mod win {
     use windows::Win32::Storage::FileSystem::{
         GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAG_BACKUP_SEMANTICS,
     };
-    use windows::Win32::System::Threading::{
-        CreateEventW, GetCurrentProcess, OpenProcessToken, SetEvent,
-    };
-    use windows::Win32::UI::Shell::*;
+    use windows::Win32::System::Threading::*;
     use windows::{
         Win32::Storage::FileSystem::{
             FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -195,7 +191,7 @@ pub mod win {
         }
         .map_err(|_| io::Error::last_os_error())?;
 
-        if bytes_returned < mem::size_of::<D>() as u32 {
+        if bytes_returned < size_of::<D>() as u32 {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Invalid reparse point data",
@@ -211,7 +207,7 @@ pub mod win {
     /// Read WSL symbolic link.
     /// If a non-WSL link is detected, fail over to fs::read_link
     pub fn read_link(path: &Path) -> std::io::Result<PathBuf> {
-        const WSL_LINK_SIZE: usize = mem::size_of::<ReparseDataBufferLxSymlink>();
+        const WSL_LINK_SIZE: usize = size_of::<ReparseDataBufferLxSymlink>();
 
         // Prepare buffer for reparse point data
         let mut buffer: Vec<u8> = vec![0; MAX_REPARSE_DATA_BUFFER_SIZE];
@@ -258,7 +254,7 @@ pub mod win {
             // First read the parse point, because the tag passed to
             // FSCTL_DELETE_REPARSE_POINT must match the existing one.
             let header = read_reparse_data::<ReparseHeader>(path, &mut buffer)?;
-            let mut bytes_returned = std::mem::size_of::<ReparseHeader>() as u32;
+            let mut bytes_returned = size_of::<ReparseHeader>() as u32;
 
             // Clear the data_length
             // https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-delete-reparse-point
@@ -311,7 +307,7 @@ pub mod win {
                         token_handle,
                         TokenElevation,
                         Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
-                        std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                        size_of::<TOKEN_ELEVATION>() as u32,
                         &mut return_length,
                     );
 
@@ -461,38 +457,6 @@ pub mod win {
     pub fn set_event(event: &EventHandle) {
         unsafe { _ = SetEvent(event.0) }
     }
-
-    ///
-    /// Get the executable associated with a file.
-    ///
-    pub fn associated_command(path: &OsStr) -> Option<OsString> {
-        let mut app_path: Vec<u16> = vec![0; 4096];
-        let mut app_path_length: u32 = app_path.len() as u32;
-
-        let wide_path: Vec<u16> = path.encode_wide().chain(Some(0)).collect();
-
-        let result = unsafe {
-            AssocQueryStringW(
-                ASSOCF_NOTRUNCATE | ASSOCF_REMAPRUNDLL,
-                ASSOCSTR_EXECUTABLE,
-                PCWSTR(wide_path.as_ptr()),
-                None,
-                PWSTR(app_path.as_mut_ptr()),
-                &mut app_path_length,
-            )
-        };
-
-        if result.is_ok() {
-            let launcher = OsString::from_wide(&app_path[..app_path_length as usize - 1]);
-            if launcher.to_string_lossy().starts_with("%") {
-                None
-            } else {
-                Some(launcher)
-            }
-        } else {
-            None
-        }
-    }
 }
 
 /// Return the target of a symbolic link.
@@ -534,44 +498,4 @@ pub fn format_error<E: std::fmt::Display>(
     error: E,
 ) -> String {
     format!("{}: {}", scope.err_path_arg(value, args), error)
-}
-
-#[cfg(not(windows))]
-pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-    child.wait()
-}
-
-///
-/// Wait for child process, observing Ctrl+C event.
-///
-#[cfg(windows)]
-pub fn wait_child(child: &mut Child) -> io::Result<ExitStatus> {
-    use crate::INTERRUPT_EVENT;
-    use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::{HANDLE, WAIT_EVENT, WAIT_OBJECT_0};
-    use windows::Win32::System::Threading::*;
-
-    let process_handle = HANDLE(child.as_raw_handle());
-
-    let handles = [
-        process_handle,
-        INTERRUPT_EVENT
-            .lock()
-            .map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Failed to take interrupt lock: {}", e),
-                )
-            })?
-            .event
-            .0,
-    ];
-
-    unsafe {
-        let wait_result = WaitForMultipleObjects(&handles, false, INFINITE);
-        if wait_result == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-            _ = TerminateProcess(process_handle, 2);
-        }
-    }
-    child.wait()
 }
