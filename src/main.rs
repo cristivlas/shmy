@@ -746,6 +746,9 @@ impl InterruptEvent {
 
     pub fn clear(&mut self) {
         self.flag.store(false, SeqCst);
+
+        #[cfg(windows)]
+        utils::win::reset_event(&self.event);
     }
 
     pub fn is_set(&self) -> bool {

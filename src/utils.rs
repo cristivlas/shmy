@@ -457,6 +457,10 @@ pub mod win {
     pub fn set_event(event: &EventHandle) {
         unsafe { _ = SetEvent(event.0) }
     }
+
+    pub fn reset_event(event: &EventHandle) {
+        unsafe { _ = ResetEvent(event.0) }
+    }
 }
 
 /// Return the target of a symbolic link.
