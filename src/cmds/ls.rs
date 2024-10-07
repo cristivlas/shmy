@@ -578,15 +578,15 @@ fn format_time(time: SystemTime, use_utc: bool) -> String {
 
 #[ctor::ctor]
 fn register() {
-    let exec = Arc::new(Dir::new());
+    let dir = Arc::new(Dir::new());
 
     register_command(ShellCommand {
         name: "ls".to_string(),
-        inner: Arc::clone(&exec) as Arc<dyn Exec>,
+        inner: Arc::clone(&dir) as Arc<dyn Exec>,
     });
 
     register_command(ShellCommand {
         name: "dir".to_string(),
-        inner: Arc::clone(&exec) as Arc<dyn Exec>,
+        inner: Arc::clone(&dir) as Arc<dyn Exec>,
     });
 }

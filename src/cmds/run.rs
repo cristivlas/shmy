@@ -1,5 +1,5 @@
 use super::{flags::CommandFlags, get_command, register_command, Exec, Flag, ShellCommand};
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils::executable};
 use std::sync::Arc;
 
 struct Run {
@@ -36,12 +36,12 @@ impl Exec for Run {
         Box::new(self.flags.iter())
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut command_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
-            println!("Usage: run COMMAND [ARGS]...");
+            println!("Usage: {} COMMAND [ARGS]...", name);
             println!("Execute the specified command with its arguments.");
             println!("\nOptions:");
             print!("{}", flags.help());
@@ -49,7 +49,11 @@ impl Exec for Run {
         }
 
         if command_args.is_empty() {
-            return Err("No command specified".to_string());
+            if name == "exec" {
+                command_args.push(executable()?);
+            } else {
+                return Err("No command specified".to_string());
+            }
         }
 
         let cmd_name = command_args.iter().next().cloned().unwrap();
@@ -87,8 +91,15 @@ impl Exec for Run {
 
 #[ctor::ctor]
 fn register() {
+    let exec = Arc::new(Run::new());
+
     register_command(ShellCommand {
         name: "run".to_string(),
-        inner: Arc::new(Run::new()),
+        inner: exec.clone() as Arc<dyn Exec>,
+    });
+
+    register_command(ShellCommand {
+        name: "exec".to_string(),
+        inner: exec.clone() as Arc<dyn Exec>,
     });
 }
