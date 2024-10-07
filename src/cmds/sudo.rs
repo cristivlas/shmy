@@ -89,7 +89,7 @@ impl Exec for Sudo {
             return Err(format!("Command not found: {}", cmd_name));
         };
 
-        Job::new(Path::new(&executable), &[parameters], true)
+        Job::new(scope, Path::new(&executable), &[parameters], true)
             .run()
             .map_err(|e| e.to_string())?;
 

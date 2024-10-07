@@ -272,7 +272,7 @@ impl Exec for External {
         // Resolve the path on each execution, because $PATH may have changed.
         let path = self.which_path();
 
-        let mut job = Job::new(&path, &args, false);
+        let mut job = Job::new(scope, &path, &args, false);
         copy_vars_to_command_env(job.command().unwrap(), &scope);
 
         match job.run() {

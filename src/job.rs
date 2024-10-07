@@ -1,17 +1,19 @@
-/// Execute commands as part of a Job. Experimental.
-/// Just a simple std::process::Command wrapper for non-Windows targets.
+use crate::scope::Scope;
 use std::io;
 use std::path::Path;
 use std::process::Command;
+
+/// Execute commands as part of a Job. Experimental.
+/// Just a simple std::process::Command wrapper for non-Windows targets.
 
 pub struct Job<'a> {
     inner: imp::Job<'a>,
 }
 
 impl<'a> Job<'a> {
-    pub fn new(path: &'a Path, args: &'a [String], elevated: bool) -> Self {
+    pub fn new(scope: &'a Scope, path: &'a Path, args: &'a [String], elevated: bool) -> Self {
         Self {
-            inner: imp::Job::new(path, args, elevated),
+            inner: imp::Job::new(scope, path, args, elevated),
         }
     }
 
@@ -52,7 +54,7 @@ mod imp {
     }
 
     impl<'a> Job<'a> {
-        pub fn new(path: &Path, args: &[String], _elevated: bool) -> Self {
+        pub fn new(_: &Scope, path: &Path, args: &[String], _elevated: bool) -> Self {
             let mut cmd = Command::new(path);
             cmd.args(args);
             Self {
@@ -314,15 +316,49 @@ mod imp {
         }
     }
 
+    /// $__limit_job_memory: max job memory in MB
+    /// $__limit_proc_memory: max process memory in Gb
+    /// $__limit_proc_count: limit the number of processes associated with the job.
+    /// TODO: complete with more variables
+    /// TODO: write ulimit-like utility to manage and list these limits.
+    fn apply_job_limits(scope: &Scope, job_info: &mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION) {
+        if let Some(limit) = scope
+            .lookup("__limit_job_memory")
+            .and_then(|v| v.value().as_str().parse::<usize>().ok())
+        {
+            job_info.JobMemoryLimit = limit * 1024 * 1024;
+            job_info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+        }
+
+        if let Some(limit) = scope
+            .lookup("__limit_proc_memory")
+            .and_then(|v| v.value().as_str().parse::<usize>().ok())
+        {
+            job_info.ProcessMemoryLimit = limit * 1024 * 1024;
+            job_info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        }
+
+        if let Some(limit) = scope
+            .lookup("__limit_proc_count")
+            .and_then(|v| v.value().as_str().parse::<u32>().ok())
+        {
+            job_info.BasicLimitInformation.ActiveProcessLimit = limit;
+            job_info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        }
+    }
+
     /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
     /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-    fn add_process_to_job(pid: u32, proc: HANDLE) -> io::Result<OwnedHandle> {
+    fn add_process_to_job(scope: &Scope, pid: u32, proc: HANDLE) -> io::Result<OwnedHandle> {
         let main_thread = get_main_thread_handle(pid)?;
 
         let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
         unsafe {
             let mut job_info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
             job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            apply_job_limits(scope, &mut job_info);
+
             SetInformationJobObject(
                 HANDLE(job.as_raw_handle()),
                 JobObjectExtendedLimitInformation,
@@ -348,15 +384,17 @@ mod imp {
         path: &'a Path,
         args: &'a [String],
         exe: Cow<'a, Path>, // The actual executable that runs the command
+        scope: &'a Scope,
     }
 
     impl<'a> Job<'a> {
-        pub fn new(path: &'a Path, args: &'a [String], elevated: bool) -> Self {
+        pub fn new(scope: &'a Scope, path: &'a Path, args: &'a [String], elevated: bool) -> Self {
             let mut job = Self {
                 cmd: None,
                 path,
                 args,
                 exe: Cow::Borrowed(path),
+                scope,
             };
 
             // Elevated (sudo) commands use ShellExecuteExW.
@@ -475,7 +513,7 @@ mod imp {
                 process: Some(handle),
             };
 
-            let job = add_process_to_job(child.id(), handle)?;
+            let job = add_process_to_job(self.scope, child.id(), handle)?;
             cleanup.process.take(); // cancel the cleanup, the process is now associated with the job object
 
             Self::wait(&job, kill_on_ctrl_c)?;
