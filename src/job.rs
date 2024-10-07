@@ -93,6 +93,7 @@ mod imp {
     use windows::Win32::Foundation::{
         HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
     };
+    use windows::Win32::System::Console::GetConsoleWindow;
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Registry::HKEY;
     use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
@@ -101,7 +102,7 @@ mod imp {
         CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
     };
     use windows::Win32::UI::Shell::*;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, SW_SHOWNORMAL};
 
     /// Get the event handle associated with Ctrl+C.
     /// TODO: decouple from the INTERRUPT_EVENT global var.
@@ -506,6 +507,13 @@ mod imp {
                             _ = TerminateProcess(process, 42);
                         }
                     }
+
+                    unsafe {
+                        let hwnd = GetConsoleWindow();
+                        if hwnd != HWND::default() {
+                            _ = SetForegroundWindow(hwnd);
+                        }
+                    }
                 }
             }
             let handle = HANDLE(child.as_raw_handle());
@@ -514,7 +522,7 @@ mod imp {
             };
 
             let job = add_process_to_job(self.scope, child.id(), handle)?;
-            cleanup.process.take(); // cancel the cleanup, the process is now associated with the job object
+            cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
             Self::wait(&job, kill_on_ctrl_c)?;
             drop(job);
