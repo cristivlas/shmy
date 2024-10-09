@@ -498,7 +498,7 @@ mod imp {
         /// The process is created suspended and add_proccess_to_job resumes it on success.
         /// Return the exit code.
         fn run_command(&mut self) -> io::Result<i64> {
-            // This is a convoluted hack to determine how handle Ctrl+C.
+            // This is a convoluted hack to determine how to handle Ctrl+C.
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
             // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
             // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
