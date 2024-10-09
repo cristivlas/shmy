@@ -1076,7 +1076,7 @@ where
             let current_scope = Arc::clone(&self.scope);
             self.scope_stack.push(current_scope.clone());
             // Create new scope and make it current
-            self.scope = Scope::with_parent(Some(current_scope));
+            self.scope = Scope::with_parent_and_hooks(Some(current_scope), None);
             // Start a new group
             self.group_stack.push(Rc::clone(&self.group));
 
@@ -1986,6 +1986,7 @@ impl BinExpr {
                 // Base use case, left hand-side is not a pipe expression
                 self.eval_redirect(lhs)?
             };
+
             let value = Value::from_str(output.trim())?;
             self.scope.insert_value(&lit.text.value, value.clone());
 
@@ -2934,7 +2935,7 @@ impl Interp {
             } else {
                 // Create a child scope of the global scope; the global scope contains
                 // the environmental vars, which should be preserved between evaluations.
-                Scope::with_parent(Some(self.scope.clone()))
+                Scope::with_parent_and_hooks(Some(self.scope.clone()), None)
             }
         };
 
@@ -2955,8 +2956,12 @@ impl Interp {
         self.file = file;
     }
 
+    pub fn file(&self) -> Option<Arc<String>> {
+        self.file.clone()
+    }
+
     pub fn parse_tail(&self, input: &str) -> Option<(Location, String)> {
-        let scope = Scope::with_parent(Some(self.scope.clone()));
+        let scope = Scope::with_parent_and_hooks(Some(self.scope.clone()), None);
         let mut parser = Parser::new(input.chars(), &scope, None);
         let mut quit = false;
 

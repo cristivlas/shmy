@@ -56,7 +56,7 @@ impl Exec for Evaluate {
         let export = flags.is_present("export");
         let source = flags.is_present("source");
 
-        let eval_scope = Scope::with_parent(Some(scope.clone()));
+        let eval_scope = Scope::with_parent_and_hooks(Some(scope.clone()), None);
         let mut interp = Interp::new(scope.clone());
 
         let mut args_iter = eval_args.iter();

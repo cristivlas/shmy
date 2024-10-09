@@ -1,3 +1,4 @@
+use crate::hooks::Hooks;
 use crate::{eval::Value, utils::executable};
 use colored::*;
 use std::cell::{Ref, RefCell, RefMut};
@@ -193,6 +194,7 @@ pub struct Scope {
     pub parent: Option<Arc<Scope>>,
     vars: VarTable,
     err_arg: RefCell<usize>, // Index of argument with error.
+    pub hooks: Option<Arc<Hooks>>,
 }
 
 impl Debug for Scope {
@@ -212,14 +214,19 @@ impl Scope {
             parent: None,
             vars: VarTable::new(),
             err_arg: RefCell::default(),
+            hooks: None,
         })
     }
 
-    pub fn with_parent(parent: Option<Arc<Scope>>) -> Arc<Scope> {
+    pub fn with_parent_and_hooks(parent: Option<Arc<Scope>>, mut hooks: Option<Arc<Hooks>>) -> Arc<Scope> {
+        if hooks.is_none() {
+            hooks = parent.clone().and_then(|p| p.hooks.clone());
+        }
         Arc::new(Self {
             parent,
             vars: VarTable::new(),
             err_arg: RefCell::default(),
+            hooks,
         })
     }
 
@@ -234,6 +241,7 @@ impl Scope {
             parent: None,
             vars: VarTable::with_vars(vars),
             err_arg: RefCell::default(),
+            hooks: None,
         })
     }
 

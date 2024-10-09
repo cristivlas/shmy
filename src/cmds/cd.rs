@@ -26,7 +26,12 @@ impl ChangeDir {
 
         env::set_current_dir(&path)
             .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_str(dir), e))?;
-        Ok(())
+
+        if let Some(hooks) = &scope.hooks {
+            hooks.run(scope, "change_dir", &[])
+        } else {
+            Ok(())
+        }
     }
 
     fn chdir(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {

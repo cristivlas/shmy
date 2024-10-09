@@ -503,3 +503,14 @@ pub fn format_error<E: std::fmt::Display>(
 ) -> String {
     format!("{}: {}", scope.err_path_arg(value, args), error)
 }
+
+pub fn is_elevated() -> bool {
+    #[cfg(windows)]
+    {
+        super::utils::win::is_elevated().unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        uzers::get_current_uid() == 0
+    }
+}

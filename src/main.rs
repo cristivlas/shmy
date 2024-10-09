@@ -2,6 +2,7 @@ use cmds::{get_command, registered_commands, Exec};
 use console::Term;
 use directories::UserDirs;
 use eval::{Interp, Value, KEYWORDS};
+use hooks::Hooks;
 use prompt::PromptBuilder;
 use rustyline::completion::{self, FilenameCompleter};
 use rustyline::error::ReadlineError;
@@ -13,7 +14,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc, LazyLock, Mutex,
@@ -27,6 +28,7 @@ mod macros;
 mod cmds;
 mod completions;
 mod eval;
+mod hooks;
 mod job;
 mod prompt;
 mod scope;
@@ -225,7 +227,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                         dir.join(file_name).to_string_lossy().to_string()
                     };
 
-                    let replacement = if path.dereference().unwrap_or(path.into()).is_dir() {
+                    let replacement = if Path::new(&display).is_dir() {
                         format!("{}\\", display)
                     } else {
                         display.clone()
@@ -365,6 +367,7 @@ struct Shell {
     edit_config: rustyline::config::Config,
     prompt_builder: prompt::PromptBuilder,
     user_dirs: UserDirs,
+    hooks: Option<Arc<Hooks>>,
 }
 
 /// Search history in reverse for entry that starts with &line[1..]
@@ -412,6 +415,7 @@ impl Shell {
             prompt_builder: PromptBuilder::with_scope(&scope),
             user_dirs: UserDirs::new()
                 .ok_or_else(|| "Failed to get user directories".to_string())?,
+            hooks: None,
         };
         shell.set_home_dir(shell.user_dirs.home_dir().to_path_buf());
 
@@ -479,7 +483,7 @@ impl Shell {
             scope.insert(format!("{}", i), Value::Str(Arc::new(arg)));
         }
 
-        Scope::with_parent(Some(Arc::clone(&scope)))
+        Scope::with_parent_and_hooks(Some(scope.clone()), self.hooks.clone())
     }
 
     fn read_lines<R: BufRead>(&mut self, mut reader: R) -> Result<(), String> {
@@ -641,6 +645,7 @@ impl Shell {
     }
 
     fn eval(&mut self, input: &String) {
+        // Clear interrupt events
         INTERRUPT_EVENT
             .try_lock()
             .and_then(|mut event| Ok(event.clear()))
@@ -684,7 +689,7 @@ pub fn current_dir() -> Result<String, String> {
     }
 }
 
-fn parse_cmd_line() -> Result<Shell, String> {
+fn create_shell() -> Result<Shell, String> {
     let mut shell = Shell::new()?;
 
     let args: Vec<String> = env::args().collect();
@@ -708,14 +713,22 @@ fn parse_cmd_line() -> Result<Shell, String> {
                 }
                 break;
             }
-        } else {
+        } else if shell.interp.file().is_none() {
             let file = File::open(&arg).map_err(|e| format!("{}: {}", arg, e))?;
 
             shell.source = Some(Box::new(BufReader::new(file)));
             shell.interactive = false;
             shell.interp.set_file(Some(Arc::new(arg.to_owned())));
+        }
+    }
 
-            break;
+    // Load hooks, if any
+    if let Some(home_dir) = &shell.home_dir {
+        let hooks_path = home_dir.join(".shmy").join("hooks").join("config.yaml");
+        if hooks_path.exists() {
+            shell.hooks = Some(Arc::new(
+                Hooks::new(&hooks_path).map_err(|e| format!("{}: {}", hooks_path.display(), e))?,
+            ));
         }
     }
 
@@ -767,7 +780,7 @@ pub static INTERRUPT_EVENT: LazyLock<Mutex<InterruptEvent>> =
     LazyLock::new(|| Mutex::new(InterruptEvent::new().expect("Failed to create InterruptEvent")));
 
 fn main() -> Result<(), ()> {
-    match &mut parse_cmd_line() {
+    match &mut create_shell() {
         Err(e) => {
             eprint!("Command line error: {}.", e);
         }

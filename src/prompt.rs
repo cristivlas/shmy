@@ -1,4 +1,4 @@
-use crate::{eval::Value, scope::Scope};
+use crate::{eval::Value, scope::Scope, utils};
 use colored::Colorize;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -158,7 +158,7 @@ impl PromptBuilder {
             scope: Arc::clone(&scope),
             prompt: String::default(),
             without_ansi: String::default(),
-            elevated: Self::is_elevated(),
+            elevated: utils::is_elevated(),
             spec: Arc::default(),
             strip_ansi: Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap(),
         }
@@ -207,19 +207,8 @@ impl PromptBuilder {
         }
     }
 
-    #[cfg(windows)]
-    fn is_elevated() -> bool {
-        use crate::utils::win::is_elevated;
-        is_elevated().unwrap_or(false)
-    }
-
-    #[cfg(not(windows))]
-    fn is_elevated() -> bool {
-        false
-    }
-
     fn is_root(&self) -> bool {
-        self.elevated || self.username().as_str() == "root"
+        self.elevated
     }
 
     fn hostname(&self) -> String {
