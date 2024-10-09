@@ -7,6 +7,26 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use yaml_rust::yaml::{Yaml, YamlLoader};
 
+/// Experimental, currently implemented only for changing dirs via cd/pushd/popd.
+///
+/// Example configuration:
+/// ```
+/// hooks:
+///   on_change_dir:
+///   - action: "detect_git_branch.my"
+/// ```
+/// Example hook:
+/// ```
+/// if $__interactive (
+///     # Suppress errors from git commands
+///     __stderr = NULL;
+//     # Set GIT_BRANCH variable if git repository detected.
+///     if (git branch --show-current | b && eval -x "GIT_BRANCH = \\$b")
+///         ()
+///     # Otherwise clear variable if previously defined.
+///     else (if (defined GIT_BRANCH) ($GIT_BRANCH=));
+/// )
+/// ```
 pub struct Hooks {
     config: Yaml,
     path: PathBuf, // path to scripts
