@@ -1,6 +1,6 @@
 use crate::cmds::{get_command, Exec};
-use crate::utils;
 use crate::scope::Scope;
+use crate::utils;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -31,11 +31,18 @@ impl Hooks {
     }
 
     /// Executes the hooks for a given event (e.g., `change_dir`).
-    pub fn run(&self, scope: &Arc<Scope>, event: &str, event_args: &[String]) -> Result<(), String> {
+    pub fn run(
+        &self,
+        scope: &Arc<Scope>,
+        event: &str,
+        event_args: &[String],
+    ) -> Result<(), String> {
         // Do not run any hooks if elevated (or root).
         if utils::is_elevated() {
             return Ok(());
         }
+
+        // TODO: need a variable to control if hooks should run in non-interactive mode.
 
         let hooks = self.config["hooks"][format!("on_{}", event).as_str()].as_vec();
         if let Some(hooks) = hooks {
@@ -49,13 +56,19 @@ impl Hooks {
     }
 
     /// Executes the specified action.
-    fn run_action(&self, scope: &Arc<Scope>, action: &str, event_args: &[String]) -> Result<(), String> {
+    fn run_action(
+        &self,
+        scope: &Arc<Scope>,
+        action: &str,
+        event_args: &[String],
+    ) -> Result<(), String> {
         let eval = get_command("eval").expect("eval command not registered?");
         let action_path = self.path.join(action);
 
         let mut args = Vec::new();
-        args.push("--source".to_string());
+        args.push("-s".to_string());
         args.push(action_path.to_string_lossy().to_string());
+        args.push("-q".to_string()); // suppress stdout output
         args.extend_from_slice(event_args);
 
         eval.exec("hook", &args, scope)?;

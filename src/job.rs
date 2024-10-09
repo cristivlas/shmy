@@ -539,6 +539,19 @@ mod imp {
                 let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
                 loop {
+                    // First, make sure that there are processes left in the job.
+                    let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+                    QueryInformationJobObject(
+                        HANDLE(job.as_raw_handle()),
+                        JobObjectBasicAccountingInformation,
+                        &mut info as *mut _ as *mut _,
+                        std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                        None,
+                    )?;
+                    if info.TotalProcesses == 0 {
+                        my_dbg!(true);
+                        break;
+                    }
                     // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
                     let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
 

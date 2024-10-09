@@ -46,6 +46,8 @@ const ERR_POW_STR_EXP: &str = "Exponent cannot be a string";
 const ERR_POW_STATUS_EXP: &str = "Exponent cannot be a command status";
 const ERR_POW_INVALID_BASE: &str = "Invalid base type";
 
+const NULL_REDIRECT: &str = "NULL";
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     And,
@@ -1891,20 +1893,21 @@ impl BinExpr {
     }
 
     /// Evaluate expr and redirect output into a String
-    fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<String> {
+    fn eval_redirect(&self, expr: &Rc<Expression>) -> EvalResult<(Value, String)> {
         let mut redirect =
             BufferRedirect::stdout().map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
-        Status::check_result(expr.eval(), false)?;
+        let result = expr.eval()?;
 
         let mut str_buf = String::new();
         redirect
             .read_to_string(&mut str_buf)
             .map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
 
-        Ok(str_buf.to_string())
+        Ok((result, str_buf.to_string()))
     }
 
+    /// Evaluate the exit code of a comand, and wrap result into Value::Stat (command status)
     fn eval_exit_code(&self, cmd: String, status: &std::process::ExitStatus) -> EvalResult<Value> {
         let exit_code = status.code().unwrap_or_else(|| -1);
         my_dbg!(exit_code);
@@ -1930,6 +1933,10 @@ impl BinExpr {
     /// ```
     /// x = `ls -al`; echo $x
     /// ```
+    /// # NOTE: Changed in 0.20.0
+    /// The returned result is of the left side of the pipe, so that:
+    /// if (ls | result) ... or if (ls | cat | my_var) ... evaluates to true / false if the commands succeed / fail.
+    ///
     fn eval_pipe_to_var(
         &self,
         lhs: &Rc<Expression>,
@@ -1938,7 +1945,7 @@ impl BinExpr {
         // Piping into a literal? assign standard output capture to string variable.
         if let Expression::Leaf(lit) = &**rhs {
             // Special case: is the left hand-side expression a pipeline?
-            let output = if lhs.is_pipe() {
+            let (result, output) = if lhs.is_pipe() {
                 let program = executable().map_err(|e| EvalError::new(self.loc(), e))?;
 
                 // Get the left hand-side expression as a string
@@ -1974,14 +1981,15 @@ impl BinExpr {
                     )
                 })?;
 
-                self.eval_exit_code(lhs_str, &exit_status)?;
-
-                String::from_utf8(buffer).map_err(|e| {
-                    EvalError::new(
-                        rhs.loc(),
-                        format!("Failed to convert pipe output from UTF8: {}", e),
-                    )
-                })?
+                (
+                    self.eval_exit_code(lhs_str, &exit_status)?,
+                    String::from_utf8(buffer).map_err(|e| {
+                        EvalError::new(
+                            rhs.loc(),
+                            format!("Failed to convert pipe output from UTF8: {}", e),
+                        )
+                    })?,
+                )
             } else {
                 // Base use case, left hand-side is not a pipe expression
                 self.eval_redirect(lhs)?
@@ -1990,7 +1998,7 @@ impl BinExpr {
             let value = Value::from_str(output.trim())?;
             self.scope.insert_value(&lit.text.value, value.clone());
 
-            return Ok(Some(value));
+            return Ok(Some(result));
         }
         Ok(None)
     }
@@ -2110,44 +2118,52 @@ impl BinExpr {
     /// Redirect standard output to file, and evaluate the left hand-side expression.
     fn eval_write(&self, append: bool) -> EvalResult<Value> {
         let filename = self.rhs.eval()?.to_string();
-        let operation = if append { "append" } else { "overwrite" };
-
-        if Path::new(&filename).exists()
-            && confirm(
-                format!("{} exists, confirm {}", filename, operation),
-                &self.scope,
-                false,
-            )
-            .map_err(|e| EvalError::new(self.loc(), e.to_string()))?
-                != Answer::Yes
-        {
-            Ok(Value::success())
-        } else {
-            // Open destination file
-            let file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .append(append)
-                .truncate(!append)
-                .open(&filename)
-                .map_err(|e| {
-                    EvalError::new(
-                        self.loc(),
-                        format!(
-                            "Failed to open {}: {}",
-                            self.scope.err_str(&filename),
-                            e.to_string()
-                        ),
-                    )
-                })?;
-
-            // Redirect stdout to the file
-            let _redirect = Redirect::stdout(file).map_err(|e| {
-                EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e))
-            })?;
-
+        if filename == NULL_REDIRECT {
+            // Silence off stdout
+            let _redirect = Gag::stdout()
+                .map_err(|e| EvalError::new(self.loc(), format!("Failed to gag output: {}", e)))?;
             // Evaluate left hand-side expression
             self.lhs.eval()
+        } else {
+            let operation = if append { "append" } else { "overwrite" };
+
+            if Path::new(&filename).exists()
+                && confirm(
+                    format!("{} exists, confirm {}", filename, operation),
+                    &self.scope,
+                    false,
+                )
+                .map_err(|e| EvalError::new(self.loc(), e.to_string()))?
+                    != Answer::Yes
+            {
+                Ok(Value::success())
+            } else {
+                // Open destination file
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .append(append)
+                    .truncate(!append)
+                    .open(&filename)
+                    .map_err(|e| {
+                        EvalError::new(
+                            self.loc(),
+                            format!(
+                                "Failed to open {}: {}",
+                                self.scope.err_str(&filename),
+                                e.to_string()
+                            ),
+                        )
+                    })?;
+
+                // Redirect stdout to the file
+                let _redirect = Redirect::stdout(file).map_err(|e| {
+                    EvalError::new(self.loc(), format!("Failed to redirect stdout: {}", e))
+                })?;
+
+                // Evaluate left hand-side expression
+                self.lhs.eval()
+            }
         }
     }
 }
@@ -2396,7 +2412,7 @@ impl Redirection {
         other_desc: &str,
         path: &String,
     ) -> Result<Self, String> {
-        if path == "null" {
+        if path == NULL_REDIRECT {
             if name == "__stdout" {
                 return Ok(Redirection::Null(Gag::stdout().map_err(|e| e.to_string())?));
             } else {
@@ -2493,12 +2509,12 @@ impl Command {
 impl Eval for Command {
     fn eval(&self) -> EvalResult<Value> {
         // Redirect stdout if a $__stdout variable found in scope.
-        // Values can be "2", "__stderr", "null", or a filename.
+        // Values can be "2", "__stderr", "NULL", or a filename.
         let redir_stdout = Redirection::with_scope(&self.scope, "__stdout", "__stderr", "2");
         handle_redir_error!(&redir_stdout, self.loc());
 
         // Redirect stderr if a $__stderr variable found in scope.
-        // Values can be "1", "__stdout", "null", or a filename.
+        // Values can be "1", "__stdout", "NULL", or a filename.
         let redir_stderr = Redirection::with_scope(&self.scope, "__stderr", "__stdout", "1");
         handle_redir_error!(&redir_stderr, self.loc());
 
@@ -2509,10 +2525,6 @@ impl Eval for Command {
             .cmd
             .exec(&self.cmd.name(), &args, &self.scope)
             .map_err(|e| EvalError::new(self.err_loc(), e));
-
-        // if Scope::is_interrupted() {
-        //     eprintln!("^C");
-        // }
 
         Ok(Value::Stat(Status::new(
             self.to_string(),

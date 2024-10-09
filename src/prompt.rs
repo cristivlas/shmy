@@ -255,6 +255,12 @@ impl PromptBuilder {
         }
     }
 
+    fn push_git_branch(&mut self) {
+        if let Some(b) = self.scope.lookup("GIT_BRANCH") {
+            self.prompt.push_str(&b.value().as_str());
+        }
+    }
+
     pub fn build(&mut self, spec: &str) -> Cow<str> {
         self.prompt.clear();
 
@@ -264,6 +270,7 @@ impl PromptBuilder {
             if ch == '\\' {
                 if let Some(next_ch) = chars.next() {
                     match next_ch {
+                        'b' => self.push_git_branch(),
                         'u' => self.prompt.push_str(&self.username()),
                         'H' => self.push_hostname(),
                         'h' => self.push_short_hostname(),

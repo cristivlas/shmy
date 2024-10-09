@@ -275,7 +275,7 @@ The interpreter provides special variables for output redirection:
 
 Examples:
 ```shell
-__stderr = null; ls;
+__stderr = NULL; ls;
 __stderr = log.txt; ls -al;
 __stderr = __stdout; ls -al /
 __stdout = some/path/file.txt ls -al;

@@ -21,7 +21,8 @@ impl Evaluate {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
         flags.add_flag('x', "export", "Export variables to environment");
-        flags.add_flag('s', "source", "Treat the arguments as file paths");
+        flags.add_flag('s', "source", "Treat the argument as path to script source");
+        flags.add_flag('q', "quiet", "Quiet (suppress output)");
 
         Self { flags }
     }
@@ -129,7 +130,7 @@ impl Exec for Evaluate {
                                 global_scope.vars_mut().insert(key.clone(), var.clone());
                             }
                         }
-                    } else if !command {
+                    } else if !command && !flags.is_present("quiet") {
                         my_println!("{}", value)?;
                     }
                 }
