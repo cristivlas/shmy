@@ -39,7 +39,6 @@ const ERR_MUL_STATUS: &str = "Cannot multiply command statuses";
 const ERR_SUB_NUM_STR: &str = "Cannot subtract string from number";
 const ERR_SUB_NUM_STATUS: &str = "Cannot subtract command status from number";
 const ERR_SUB_STR_NUM: &str = "Cannot subtract number from string";
-const ERR_SUB_STR_STR: &str = "Cannot subtract strings";
 const ERR_SUB_STR_STATUS: &str = "Cannot subtract command status from string";
 const ERR_SUB_STATUS: &str = "Cannot subtract from command status";
 const ERR_POW_STR_EXP: &str = "Exponent cannot be a string";
@@ -1857,7 +1856,13 @@ impl BinExpr {
             (Int(_) | Real(_), Str(_)) => error(self, ERR_SUB_NUM_STR),
             (Int(_) | Real(_), Stat(_)) => error(self, ERR_SUB_NUM_STATUS),
             (Str(_), Int(_) | Real(_)) => error(self, ERR_SUB_STR_NUM),
-            (Str(_), Str(_)) => error(self, ERR_SUB_STR_STR),
+            (Str(_), Str(_)) => error(
+                self,
+                &format!(
+                    "Cannot subtract strings, {} is not a recognized command",
+                    self.lhs.to_string()
+                ),
+            ),
             (Str(_), Stat(_)) => error(self, ERR_SUB_STR_STATUS),
             (Stat(_), _) => error(self, ERR_SUB_STATUS),
         }

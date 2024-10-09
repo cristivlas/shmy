@@ -386,13 +386,13 @@ pub mod tests {
         );
     }
 
-    // #[test]
-    // fn test_pipeline_rewrite() {
-    //     assert_eval_ok!(
-    //         "echo World | (echo Hello; cat) | cat | x; $x",
-    //         Value::from("Hello\nWorld")
-    //     );
-    // }
+    #[test]
+    fn test_pipeline_rewrite() {
+        assert_eval_ok!(
+            "echo World | (echo Hello; cat) | cat | x; $x",
+            Value::from("Hello\nWorld")
+        );
+    }
 
     #[test]
     fn test_power() {
@@ -408,7 +408,7 @@ pub mod tests {
     fn test_sub() {
         assert_eval_ok!("10000 - 2 ^ 14", Value::Int(-6384));
         assert_eval_ok!("1 - 2 * 2 - 1", Value::Int(-4));
-        assert_eval_err!("x - y", "Cannot subtract strings");
+        assert_eval_err!("x - y", "Cannot subtract strings, x is not a recognized command");
         assert_eval_err!("0 - y", "Cannot subtract string from number");
         assert_eval_err!("x - 2", "Cannot subtract number from string");
         assert_eval_err!("1 - (echo)", "Cannot subtract command status from number");
