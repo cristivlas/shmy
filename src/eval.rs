@@ -962,7 +962,15 @@ where
                 self.current_expr = Rc::clone(&expr);
                 return Ok(());
             } else {
-                return error(&**expr, "Unexpected expression, missing semicolon?");
+                let current_expr_str = current.to_string();
+                let token = current_expr_str.split_ascii_whitespace().next().unwrap();
+                return error(
+                    &**expr,
+                    &format!(
+                        "Unexpected expression, {} is not a recognized command",
+                        token
+                    ),
+                );
             }
         }
 
