@@ -529,6 +529,17 @@ impl Shell {
                 colored::control::unset_override();
             }
 
+            let scope = self.interp.global_scope();
+
+            // Set $__interactive variable
+            self.interp
+                .global_scope()
+                .insert("__interactive".to_string(), Value::Int(1));
+
+            if let Some(hooks) = &self.hooks {
+                hooks.run(&scope, "start_eval_loop", &[])?;
+            }
+
             // Run interactive read-evaluate loop
             while !self.interp.quit {
                 let prompt = self.prompt_builder.prompt();
@@ -607,7 +618,8 @@ impl Shell {
             Value::Str(s) => {
                 println!("{}", s);
 
-                if !input.contains(" ") {
+                // Heuristic, hack
+                if !input.contains(" ") && !input.trim().starts_with("$") {
                     let cmds = registered_commands(false);
                     if let Some((near, distance)) = cmds
                         .iter()

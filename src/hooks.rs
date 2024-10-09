@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use yaml_rust::yaml::{Yaml, YamlLoader};
 
-/// Experimental, currently implemented only for changing dirs via cd/pushd/popd.
 ///
 /// Example configuration:
 /// ```
