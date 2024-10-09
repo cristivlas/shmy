@@ -81,7 +81,7 @@ mod imp {
             check_exit_status(child.wait()?)
         }
 
-        pub fn command(&mut self) -> Option<&mut Command> {
+        pub fn command_mut(&mut self) -> Option<&mut Command> {
             Some(&mut self.cmd)
         }
     }

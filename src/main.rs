@@ -14,7 +14,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering::SeqCst},
     Arc, LazyLock, Mutex,
@@ -227,7 +227,7 @@ fn match_path_prefix(word: &str, candidates: &mut Vec<completion::Pair>) {
                         dir.join(file_name).to_string_lossy().to_string()
                     };
 
-                    let replacement = if Path::new(&display).is_dir() {
+                    let replacement = if std::path::Path::new(&display).is_dir() {
                         format!("{}\\", display)
                     } else {
                         display.clone()
