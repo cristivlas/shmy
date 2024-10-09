@@ -653,6 +653,12 @@ impl Shell {
 
         let scope = self.new_top_scope();
 
+        // Set $__interactive variable
+        self.interp.global_scope().insert(
+            "__interactive".to_string(),
+            Value::Int(self.interactive as _),
+        );
+
         match self.interp.eval(input, Some(Arc::clone(&scope))) {
             Ok(value) => {
                 // Did the expression eval result in running a command? Check for errors.

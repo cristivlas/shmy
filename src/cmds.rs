@@ -273,19 +273,16 @@ impl Exec for External {
         let path = self.which_path();
 
         let mut job = Job::new(scope, &path, &args, false);
-        copy_vars_to_command_env(job.command().unwrap(), &scope);
+        copy_vars_to_command_env(job.command_mut().unwrap(), &scope);
+
+        // Retain cmd_line for reporting errors
+        let cmd = job.cmd_line().expect("No command line");
 
         match job.run() {
             Ok(_) => {
                 return Ok(Value::success());
             }
             Err(error) => {
-                let command = job.command().unwrap();
-                let cmd = std::iter::once(command.get_program())
-                    .chain(command.get_args())
-                    .map(|a| a.to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ");
                 if matches!(error.raw_os_error(), Some(740)) {
                     Err(format!(
                         "{}\n{}",

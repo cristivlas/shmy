@@ -19,7 +19,7 @@ pub fn copy_vars_to_command_env(command: &mut std::process::Command, scope: &Arc
     while let Some(scope) = &current_scope {
         for (key, variable) in scope.vars().iter() {
             if !key.is_special_var() {
-                command.env(&key.view(), variable.value().to_string());
+                command.env(key.as_str(), variable.value().to_string());
             }
         }
         current_scope = scope.parent.as_ref();

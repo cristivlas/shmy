@@ -21,8 +21,21 @@ impl<'a> Job<'a> {
         self.inner.run()
     }
 
-    pub fn command(&mut self) -> Option<&mut Command> {
-        self.inner.command()
+    pub fn command_mut(&mut self) -> Option<&mut Command> {
+        self.inner.command_mut()
+    }
+
+    pub fn cmd_line(&mut self) -> Option<String> {
+        if let Some(command) = self.inner.command_mut() {
+            let cmd = std::iter::once(command.get_program())
+                .chain(command.get_args())
+                .map(|a| a.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            return Some(cmd);
+        }
+        None
     }
 }
 
@@ -489,9 +502,9 @@ mod imp {
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
             // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
             // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
-            let kill_on_ctrl_c = matches!(get_exe_subsystem(&self.exe)?, Subsystem::GUI);
+            let kill_on_ctrl_c = matches!(get_exe_subsystem(&self.exe).unwrap_or_default(), Subsystem::GUI);
 
-            let command = self.command().expect("No command");
+            let mut command = self.command().expect("No command");
             let mut child = command.spawn()?;
 
             // Set up cleanup machinery to terminate the child process in case
@@ -539,7 +552,7 @@ mod imp {
                 let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
                 loop {
-                    // First, make sure that there are processes left in the job.
+                    // Check that there are processes left in the job.
                     let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
                     QueryInformationJobObject(
                         HANDLE(job.as_raw_handle()),
@@ -549,7 +562,6 @@ mod imp {
                         None,
                     )?;
                     if info.TotalProcesses == 0 {
-                        my_dbg!(true);
                         break;
                     }
                     // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
@@ -587,8 +599,12 @@ mod imp {
         }
 
         /// Return the command associated with the Job.
-        pub fn command(&mut self) -> Option<&mut Command> {
+        pub fn command_mut(&mut self) -> Option<&mut Command> {
             self.cmd.as_mut()
+        }
+
+        pub fn command(&mut self) -> Option<Command> {
+            self.cmd.take()
         }
 
         /// Create a std::process::Command to launch the process.
