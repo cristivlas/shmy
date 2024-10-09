@@ -62,8 +62,6 @@ impl Hooks {
             return Ok(());
         }
 
-        // TODO: need a variable to control if hooks should run in non-interactive mode.
-
         let hooks = self.config["hooks"][format!("on_{}", event).as_str()].as_vec();
         if let Some(hooks) = hooks {
             for hook in hooks {
