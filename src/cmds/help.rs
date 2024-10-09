@@ -23,6 +23,36 @@ impl Help {
 
         Self { flags }
     }
+    #[rustfmt::skip]
+    fn print_hooks_help() {
+        println!("HOOKS");
+        println!("    The shell supports a 'hooks' feature, which allows the execution of custom actions");
+        println!("    upon specific events. These hooks are configured using a config.yaml file, located");
+        println!("    in ~/.shmy/hooks. Each hook is triggered by an event such as changing directories.");
+        println!();
+        println!("    Configuration Example:");
+        println!("    hooks:");
+        println!("      on_change_dir:");
+        println!("      - action: \"detect_git_branch.my\"");
+        println!();
+        println!("    This example defines a hook that runs the script detect_git_branch.my when the");
+        println!("    on_change_dir event occurs.");
+        println!();
+        println!("    Supported Events:");
+        println!("        on_change_dir: Executes whenever the working directory changes.");
+        println!("        on_start_eval_loop: Executes when the evaluation loop of the shell starts.");
+        println!();
+        println!("    Hook Script Example:");
+        println!("    if $__interactive (");
+        println!("        __stderr = NULL;  # Suppress git errors");
+        println!("        if (git branch --show-current | b && eval -x \"GIT_BRANCH = \\$b\") ()");
+        println!("        else (if (defined GIT_BRANCH) ($GIT_BRANCH=));");
+        println!("    )");
+        println!();
+        println!("    This script updates the GIT_BRANCH environment variable based on the current");
+        println!("    Git branch or clears it if no branch is found.");
+        println!();
+    }
 
     #[rustfmt::skip]
     fn print_interpreter_help() {
@@ -76,6 +106,7 @@ impl Help {
         println!("PROMPT CUSTOMIZATION");
         println!("    The prompt can be customized using escape sequences prefixed with '\\'.");
         println!("    Supported sequences:");
+        println!("        \\b  - Value of $GIT_BRANCH variable, if defined");
         println!("        \\u  - Insert the current username");
         println!("        \\H  - Insert the full hostname");
         println!("        \\h  - Insert the short hostname (up to the first dot)");
@@ -95,6 +126,7 @@ impl Help {
         println!("        __stderr = __stdout; ls -al /");
         println!("        __stdout = some/path/file.txt; __stderr = 1; ls -al");
         println!();
+        Self::print_hooks_help();
         Self::print_available_commands(4, 4);
         println!("SEE ALSO");
         println!("    help [COMMAND]");
