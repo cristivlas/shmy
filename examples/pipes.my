@@ -32,7 +32,7 @@ rm -f temp;
 
 
 # Instead of redirecting to a file, we can redirect __stdout to null
-# __stdout = null
+# __stdout = NULL
 
 #... or to standard error
 # __stdout = 2
@@ -44,4 +44,4 @@ rm -f temp;
 # NOTE: line below fails, because of conflicting redirection of stdout
 # to both null and to a pipe.
 
-__stdout = null; echo hello | cat;
+__stdout = NULL; echo hello | cat;

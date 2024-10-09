@@ -90,7 +90,7 @@ impl Help {
         println!("    Redirect stdout: $__stdout");
         println!("    Redirect stderr: $__stderr");
         println!("    Examples:");
-        println!("        __stderr = null; ls");
+        println!("        __stderr = NULL; ls");
         println!("        __stderr = log.txt; ls -al");
         println!("        __stderr = __stdout; ls -al /");
         println!("        __stdout = some/path/file.txt; __stderr = 1; ls -al");

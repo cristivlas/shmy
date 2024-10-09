@@ -2383,7 +2383,7 @@ macro_rules! handle_redir_error {
 /// Implement special variables __stderr and __stdout for redirecting standard error and output.
 /// # Examples
 /// ```
-/// __stderr = null; ls;
+/// __stderr = NULL; ls;
 /// __stderr = log.txt; ls -al;
 /// __stderr = __stdout; ls -al /
 /// __stdout = some/path/file.txt ls -al;
