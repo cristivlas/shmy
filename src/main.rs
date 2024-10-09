@@ -616,10 +616,10 @@ impl Shell {
         }
         match value {
             Value::Str(s) => {
-                println!("{}", s);
+                println!("{}", &s);
 
-                // Heuristic, hack
-                if !input.contains(" ") && !input.trim().starts_with("$") {
+                // Try to figure out if user typo, and provide hints.
+                if input.trim().starts_with(s.as_str()) {
                     let cmds = registered_commands(false);
                     if let Some((near, distance)) = cmds
                         .iter()
