@@ -502,32 +502,36 @@ mod imp {
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
             // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
             // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
-            let kill_on_ctrl_c = matches!(get_exe_subsystem(&self.exe).unwrap_or_default(), Subsystem::GUI);
+            let kill_on_ctrl_c = matches!(
+                get_exe_subsystem(&self.exe).unwrap_or_default(),
+                Subsystem::GUI
+            );
 
             let mut command = self.command().expect("No command");
             let mut child = command.spawn()?;
 
+            let handle = HANDLE(child.as_raw_handle());
+
             // Set up cleanup machinery to terminate the child process in case
             // anything goes wrong with add_process_to_job. Maybe overkill?
-            struct Cleanup {
-                process: Option<HANDLE>,
-            }
-            impl Drop for Cleanup {
-                fn drop(&mut self) {
-                    if let Some(process) = self.process {
-                        unsafe {
-                            _ = TerminateProcess(process, 42);
-                        }
-                    }
-                }
-            }
-            let handle = HANDLE(child.as_raw_handle());
-            let mut cleanup = Cleanup {
-                process: Some(handle),
-            };
+            // struct Cleanup {
+            //     process: Option<HANDLE>,
+            // }
+            // impl Drop for Cleanup {
+            //     fn drop(&mut self) {
+            //         if let Some(process) = self.process {
+            //             unsafe {
+            //                 _ = TerminateProcess(process, 42);
+            //             }
+            //         }
+            //     }
+            // }
+            // let mut cleanup = Cleanup {
+            //     process: Some(handle),
+            // };
 
             let job = add_process_to_job(self.scope, child.id(), handle)?;
-            cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
+            // cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
             eprintln!("Waiting for job completion...");
             Self::wait(&job, kill_on_ctrl_c)?;
@@ -536,6 +540,8 @@ mod imp {
 
             eprintln!("Waiting for child process...");
             let status = child.wait()?;
+            eprintln!("Done.");
+
             if let Some(code) = status.code() {
                 Ok(code as _)
             } else {
@@ -548,25 +554,24 @@ mod imp {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
+            let mut completion_code: u32 = 0;
+            let mut completion_key: usize = 0;
+            let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
             unsafe {
-                let mut completion_code: u32 = 0;
-                let mut completion_key: usize = 0;
-                let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
-
                 loop {
                     // Check that there are processes left in the job.
-                    let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-                    QueryInformationJobObject(
-                        HANDLE(job.as_raw_handle()),
-                        JobObjectBasicAccountingInformation,
-                        &mut info as *mut _ as *mut _,
-                        std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
-                        None,
-                    )?;
-                    if info.TotalProcesses == 0 {
-                        break;
-                    }
+                    // let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+                    // QueryInformationJobObject(
+                    //     HANDLE(job.as_raw_handle()),
+                    //     JobObjectBasicAccountingInformation,
+                    //     &mut info as *mut _ as *mut _,
+                    //     std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                    //     None,
+                    // )?;
+                    // if info.TotalProcesses == 0 {
+                    //     break;
+                    // }
                     // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
                     let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
 

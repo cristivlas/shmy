@@ -19,7 +19,7 @@ use yaml_rust::yaml::{Yaml, YamlLoader};
 /// if $__interactive (
 ///     # Suppress errors from git commands
 ///     __stderr = NULL;
-//     # Set GIT_BRANCH variable if git repository detected.
+//      # Set GIT_BRANCH variable if git repository detected.
 ///     if (git branch --show-current | b && eval -x "GIT_BRANCH = \\$b")
 ///         ()
 ///     # Otherwise clear variable if previously defined.
