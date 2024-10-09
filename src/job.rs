@@ -533,14 +533,14 @@ mod imp {
             let job = add_process_to_job(self.scope, child.id(), handle)?;
             // cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
-            eprintln!("Waiting for job completion...");
+            // eprintln!("Waiting for job completion...");
             Self::wait(&job, kill_on_ctrl_c)?;
 
             drop(job);
 
-            eprintln!("Waiting for child process...");
+            // eprintln!("Waiting for child process...");
             let status = child.wait()?;
-            eprintln!("Done.");
+            // eprintln!("Done.");
 
             if let Some(code) = status.code() {
                 Ok(code as _)
