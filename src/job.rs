@@ -540,9 +540,9 @@ mod imp {
                 Ok(_) => eprintln!("Done."),
                 Err(err) => {
                     if let Some(message) = err.downcast_ref::<&str>() {
-                        println!("Caught panic from method: {:?}", message);
+                        eprintln!("Caught panic from method: {}", message);
                     } else {
-                        println!("Caught unknown panic from method");
+                        eprintln!("Caught unknown panic from method");
                     }
                 }
             }
