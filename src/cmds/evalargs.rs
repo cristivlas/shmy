@@ -35,7 +35,7 @@ impl Exec for Evaluate {
 
     fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
-        let eval_args = flags.parse(scope, args)?;
+        let eval_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
             println!("Usage: eval EXPR...");
