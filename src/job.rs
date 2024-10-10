@@ -537,7 +537,7 @@ mod imp {
             let result = std::panic::catch_unwind(|| Self::wait(&job, kill_on_ctrl_c));
 
             match result {
-                Ok(_) => eprintln!("Done."),
+                Ok(_) => {},
                 Err(err) => {
                     if let Some(message) = err.downcast_ref::<&str>() {
                         eprintln!("Caught panic from method: {}", message);
