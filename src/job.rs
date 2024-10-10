@@ -514,34 +514,42 @@ mod imp {
 
             // Set up cleanup machinery to terminate the child process in case
             // anything goes wrong with add_process_to_job. Maybe overkill?
-            // struct Cleanup {
-            //     process: Option<HANDLE>,
-            // }
-            // impl Drop for Cleanup {
-            //     fn drop(&mut self) {
-            //         if let Some(process) = self.process {
-            //             unsafe {
-            //                 _ = TerminateProcess(process, 42);
-            //             }
-            //         }
-            //     }
-            // }
-            // let mut cleanup = Cleanup {
-            //     process: Some(handle),
-            // };
+            struct Cleanup {
+                process: Option<HANDLE>,
+            }
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    if let Some(process) = self.process {
+                        unsafe {
+                            _ = TerminateProcess(process, 42);
+                        }
+                    }
+                }
+            }
+            let mut cleanup = Cleanup {
+                process: Some(handle),
+            };
 
             let job = add_process_to_job(self.scope, child.id(), handle)?;
-            // cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
-            // eprintln!("Waiting for job completion...");
-            Self::wait(&job, kill_on_ctrl_c)?;
+            cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
+
+            let result = std::panic::catch_unwind(|| Self::wait(&job, kill_on_ctrl_c));
+
+            match result {
+                Ok(_) => eprintln!("Done."),
+                Err(err) => {
+                    if let Some(message) = err.downcast_ref::<&str>() {
+                        println!("Caught panic from method: {:?}", message);
+                    } else {
+                        println!("Caught unknown panic from method");
+                    }
+                }
+            }
 
             drop(job);
 
-            // eprintln!("Waiting for child process...");
             let status = child.wait()?;
-            // eprintln!("Done.");
-
             if let Some(code) = status.code() {
                 Ok(code as _)
             } else {
@@ -598,8 +606,13 @@ mod imp {
                             break;
                         }
                     } else {
-                        eprintln!("{:?}", wait_res);
-                        break;
+                        return Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            format!(
+                                "Error while waiting for job completion: {:?}",
+                                io::Error::last_os_error()
+                            ),
+                        ));
                     }
                 }
             }
