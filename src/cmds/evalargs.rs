@@ -22,7 +22,7 @@ impl Evaluate {
         let mut flags = CommandFlags::with_help();
         flags.add_flag('x', "export", "Export variables to environment");
         flags.add_flag('s', "source", "Treat the argument as path to script source");
-        flags.add_flag('q', "quiet", "Quiet (suppress output)");
+        flags.add_flag('q', "quiet", "Print command output, but do not show eval results");
 
         Self { flags }
     }
