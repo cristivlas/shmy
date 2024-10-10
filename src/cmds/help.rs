@@ -23,6 +23,7 @@ impl Help {
 
         Self { flags }
     }
+
     #[rustfmt::skip]
     fn print_hooks_help() {
         println!("HOOKS");
@@ -117,6 +118,9 @@ impl Help {
         println!("    Examples:");
         println!("        $__prompt = \\u@\\h:\\w\\_");
         println!("        $__prompt = \"\\\\u@\\h|\\\\w\\\\$ \"");
+        println!();
+        println!("    Customizations may be defined in the ~/.shmy/profile file, which is executed every time");
+        println!("    when the shell starts in interactive mode.");
         println!();
         println!("SPECIAL VARIABLES");
         println!("    Redirect stdout: $__stdout");
