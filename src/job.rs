@@ -540,11 +540,9 @@ mod imp {
 
             Self::wait(job, kill_on_ctrl_c)?;
 
-            let status = child.wait()?;
-            if let Some(code) = status.code() {
-                Ok(code as _)
-            } else {
-                Ok(0)
+            match child.wait()?.code() {
+                Some(code) => Ok(code as _),
+                None => Ok(0),
             }
         }
 
@@ -591,7 +589,6 @@ mod imp {
                             true,
                         )?;
                     }
-                    // dbg!(&completion_entries, &num_entries_removed);
 
                     if completion_entries[0].lpCompletionKey == job.as_raw_handle() as usize
                         && completion_entries[0].dwNumberOfBytesTransferred
@@ -621,9 +618,8 @@ mod imp {
             Ok(())
         }
 
-        ///
         /// Return the command associated with the Job. For elevated jobs return None.
-        ///
+        /// Mutable is required if command.spawn is to be called.
         pub fn command_mut(&mut self) -> Option<&mut Command> {
             self.cmd.as_mut()
         }
@@ -652,7 +648,7 @@ mod imp {
                     command.arg(path).args(args);
                     command
                 } else {
-                    // Fail over to using CMD.EXE /C as launcher.
+                    // Fail over to using CMD.EXE /C as the launcher.
                     self.exe = Cow::Owned(PathBuf::from("cmd.exe"));
 
                     let mut command = Command::new("cmd");
