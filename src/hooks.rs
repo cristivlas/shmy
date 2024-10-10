@@ -20,7 +20,7 @@ use yaml_rust::yaml::{Yaml, YamlLoader};
 ///     # Suppress errors from git commands
 ///     __stderr = NULL;
 //      # Set GIT_BRANCH variable if git repository detected.
-///     if (git branch --show-current | b && eval -x "GIT_BRANCH = \\$b")
+///     if (git branch --show-current | b && eval -x "GIT_BRANCH = $b")
 ///         ()
 ///     # Otherwise clear variable if previously defined.
 ///     else (if (defined GIT_BRANCH) ($GIT_BRANCH=));
@@ -80,6 +80,8 @@ impl Hooks {
         event_args: &[String],
     ) -> Result<(), String> {
         let eval = get_command("eval").expect("eval command not registered");
+
+        // Associated action scripts are always relative to self.path
         let action_path = self.path.join(action);
 
         let mut args = Vec::new();
@@ -88,7 +90,7 @@ impl Hooks {
         args.push("-q".to_string()); // suppress stdout output
         args.extend_from_slice(event_args);
 
-        // Create a scope with empty hooks, to prevent the hook actions from triggering hooks!
+        // Create a scope with empty hooks, to prevent hook actions from triggering more hooks.
         let empty_hooks = Arc::new(Self {
             config: Yaml::Null,
             path: PathBuf::default(),

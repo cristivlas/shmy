@@ -363,6 +363,7 @@ mod imp {
     /// Create job and add process (expected to have been started with CREATE_SUSPENDED).
     /// Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
     fn add_process_to_job(scope: &Scope, pid: u32, proc: HANDLE) -> io::Result<OwnedHandle> {
+        // Get the main thread, so that we can resume it at the end.
         let main_thread = get_main_thread_handle(pid)?;
 
         let job = unsafe { to_owned(CreateJobObjectW(None, None)?) };
@@ -418,6 +419,7 @@ mod imp {
             job
         }
 
+        /// Run the Job and check exit code, unless executable is listed in EXIT_CODE_EXEMPT.
         pub fn run(&mut self) -> io::Result<()> {
             let exit_code = if self.cmd.is_some() {
                 self.run_command()
@@ -556,7 +558,15 @@ mod imp {
 
             loop {
                 // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
-                let wait_res = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
+                let wait_res = std::panic::catch_unwind(|| unsafe {
+                    WaitForMultipleObjects(&handles, false, INFINITE)
+                })
+                .map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("WaitForMultipleObjects: {:?}", e),
+                    )
+                })?;
 
                 if wait_res == WAIT_OBJECT_0 {
                     // Woken up by the completion port? Check that all processes associated with the job are done.
