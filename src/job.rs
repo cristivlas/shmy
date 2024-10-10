@@ -582,7 +582,7 @@ mod imp {
                             HANDLE(iocp.as_raw_handle()),
                             &mut completion_entries,
                             &mut num_entries_removed,
-                            INFINITE,
+                            0,
                             true,
                         )?;
                     }
