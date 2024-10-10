@@ -539,6 +539,7 @@ mod imp {
             match result {
                 Ok(_) => {},
                 Err(err) => {
+                    dbg!(&err);
                     if let Some(message) = err.downcast_ref::<&str>() {
                         eprintln!("Caught panic from method: {}", message);
                     } else {

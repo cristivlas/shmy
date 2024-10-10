@@ -45,7 +45,7 @@ impl Help {
         println!("    Hook Script Example:");
         println!("    if $__interactive (");
         println!("        __stderr = NULL;  # Suppress git errors");
-        println!("        if (git branch --show-current | b && eval -x \"GIT_BRANCH = \\$b\") ()");
+        println!("        if (git branch --show-current | b && eval -x \"GIT_BRANCH = $b\") ()");
         println!("        else (if (defined GIT_BRANCH) ($GIT_BRANCH=));");
         println!("    )");
         println!();
