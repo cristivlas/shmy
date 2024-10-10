@@ -111,7 +111,7 @@ mod imp {
     use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
     use windows::Win32::System::Threading::*;
     use windows::Win32::System::IO::{
-        CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
+        CreateIoCompletionPort, GetQueuedCompletionStatusEx, OVERLAPPED_ENTRY,
     };
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -502,10 +502,18 @@ mod imp {
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
             // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
             // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
-            let kill_on_ctrl_c = matches!(
-                get_exe_subsystem(&self.exe).unwrap_or_default(),
-                Subsystem::GUI
-            );
+            let result = std::panic::catch_unwind(|| get_exe_subsystem(&self.exe));
+            let kill_on_ctrl_c = match result {
+                Ok(is_gui) => matches!(is_gui.unwrap_or_default(), Subsystem::GUI),
+                Err(err) => {
+                    dbg!(&err);
+                    panic!("get_exe_subsystem");
+                }
+            };
+            // let kill_on_ctrl_c = matches!(
+            //     get_exe_subsystem(&self.exe).unwrap_or_default(),
+            //     Subsystem::GUI
+            // );
 
             let mut command = self.command().expect("No command");
             let mut child = command.spawn()?;
@@ -535,9 +543,8 @@ mod imp {
             cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
             let result = std::panic::catch_unwind(|| Self::wait(&job, kill_on_ctrl_c));
-
             match result {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(err) => {
                     dbg!(&err);
                     if let Some(message) = err.downcast_ref::<&str>() {
@@ -563,9 +570,6 @@ mod imp {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
-            let mut completion_code: u32 = 0;
-            let mut completion_key: usize = 0;
-            let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
 
             unsafe {
                 loop {
@@ -581,22 +585,30 @@ mod imp {
                     // if info.TotalProcesses == 0 {
                     //     break;
                     // }
+                    // dbg!(&info.TotalProcesses);
+
                     // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
                     let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
 
                     if wait_res == WAIT_OBJECT_0 {
                         // Woken up by the completion port? Check that all processes associated with the job are done.
                         // https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
-                        GetQueuedCompletionStatus(
+                        let mut completion_entries: [OVERLAPPED_ENTRY; 1] =
+                            [OVERLAPPED_ENTRY::default(); 1];
+                        let mut num_entries_removed = 0u32;
+
+                        GetQueuedCompletionStatusEx(
                             HANDLE(iocp.as_raw_handle()),
-                            &mut completion_code,
-                            &mut completion_key,
-                            &mut overlapped,
-                            0,
+                            &mut completion_entries,
+                            &mut num_entries_removed,
+                            INFINITE,
+                            false,
                         )?;
-                        if completion_key == job.as_raw_handle() as usize
-                            && completion_code == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                        if completion_entries[0].lpCompletionKey == job.as_raw_handle() as usize
+                            && completion_entries[0].dwNumberOfBytesTransferred
+                                == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
                         {
+                            // eprintln!("JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO");
                             break;
                         }
                     } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
