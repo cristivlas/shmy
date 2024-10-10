@@ -255,7 +255,7 @@ impl External {
     /// * call hooks on internal commands?
     fn run_post_cmd_hooks(&self, scope: &Arc<Scope>, args: &[String]) -> Result<(), String> {
         if let Some(hooks) = &scope.hooks {
-            hooks.run(scope, "external_command_ok", args)
+            hooks.run(scope, "external_command", args)
         } else {
             Ok(())
         }
