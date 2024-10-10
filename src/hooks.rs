@@ -1,4 +1,5 @@
 use crate::cmds::{get_command, Exec};
+use crate::eval::Value;
 use crate::scope::Scope;
 use crate::utils;
 use std::fs;
@@ -78,7 +79,7 @@ impl Hooks {
         scope: &Arc<Scope>,
         action: &str,
         event_args: &[String],
-    ) -> Result<(), String> {
+    ) -> Result<Value, String> {
         let eval = get_command("eval").expect("eval command not registered");
 
         // Associated action scripts are always relative to self.path
@@ -97,7 +98,6 @@ impl Hooks {
         });
         let scope = Scope::with_parent_and_hooks(Some(scope.clone()), Some(empty_hooks));
 
-        eval.exec("hook", &args, &scope)?;
-        Ok(())
+        eval.exec("hook", &args, &scope)
     }
 }

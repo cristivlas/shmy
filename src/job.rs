@@ -537,8 +537,7 @@ mod imp {
             // Cancel cleaning up the process, as it is now associated with the job
             cleanup.process.take();
 
-            Self::wait(&job, kill_on_ctrl_c)?;
-            drop(job);
+            Self::wait(job, kill_on_ctrl_c)?;
 
             let status = child.wait()?;
             if let Some(code) = status.code() {
@@ -551,13 +550,15 @@ mod imp {
         ///
         /// Wait for all processes associated with the Job object to complete.
         ///
-        fn wait(job: &OwnedHandle, kill_on_ctrl_c: bool) -> io::Result<()> {
+        fn wait(job: OwnedHandle, kill_on_ctrl_c: bool) -> io::Result<()> {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
 
             loop {
                 // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
+                // NOTE: WaitForMultipleObjects seems to panic occasionally, and the program deadlocks when
+                // another rust threads tries to unwind the stack.
                 let wait_res = std::panic::catch_unwind(|| unsafe {
                     WaitForMultipleObjects(&handles, false, INFINITE)
                 })
@@ -567,6 +568,7 @@ mod imp {
                         format!("WaitForMultipleObjects: {:?}", e.downcast_ref::<&str>()),
                     )
                 })?;
+                // dbg!(&wait_res);
 
                 if wait_res == WAIT_OBJECT_0 {
                     // Woken up by the completion port? Check that all processes associated with the job are done.
@@ -584,6 +586,8 @@ mod imp {
                             true,
                         )?;
                     }
+                    // dbg!(&completion_entries, &num_entries_removed);
+
                     if completion_entries[0].lpCompletionKey == job.as_raw_handle() as usize
                         && completion_entries[0].dwNumberOfBytesTransferred
                             == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
