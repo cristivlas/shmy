@@ -212,6 +212,11 @@ fn register() {
     _ = alias.register("export", &["eval", "--export"]);
     _ = alias.register("source", &["eval", "--source"]);
 
+    #[cfg(windows)]
+    {
+        _ = alias.register("reboot", &["shutdown", "/r", "/t", "0"]);
+    }
+
     register_command(ShellCommand {
         name: "alias".to_string(),
         inner: Arc::new(alias),

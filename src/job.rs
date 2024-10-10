@@ -538,7 +538,7 @@ mod imp {
             // Cancel cleaning up the process, as it is now associated with the job
             cleanup.process.take();
 
-            Self::wait(job, kill_on_ctrl_c)?;
+            Self::wait(job, handle, kill_on_ctrl_c)?;
 
             match child.wait()?.code() {
                 Some(code) => Ok(code as _),
@@ -549,27 +549,12 @@ mod imp {
         ///
         /// Wait for all processes associated with the Job object to complete.
         ///
-        fn wait(job: OwnedHandle, kill_on_ctrl_c: bool) -> io::Result<()> {
+        fn wait(job: OwnedHandle, process: HANDLE, kill_on_ctrl_c: bool) -> io::Result<()> {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
             const TIMEOUT_MILLISECS: u32 = 3000;
             loop {
-                // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
-                // Check that there are processes left in the job.
-                let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-                unsafe {
-                    QueryInformationJobObject(
-                        HANDLE(job.as_raw_handle()),
-                        JobObjectBasicAccountingInformation,
-                        &mut info as *mut _ as *mut _,
-                        std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
-                        None,
-                    )?;
-                }
-                if info.TotalProcesses == 0 {
-                    break;
-                }
                 let wait_res =
                     unsafe { WaitForMultipleObjects(&handles, false, TIMEOUT_MILLISECS) };
 
@@ -605,11 +590,16 @@ mod imp {
                         }
                         break;
                     }
-                } else if wait_res != WAIT_TIMEOUT {
+                } else if wait_res == WAIT_TIMEOUT {
+                    if unsafe { WaitForSingleObject(process, TIMEOUT_MILLISECS) } != WAIT_TIMEOUT {
+                        break;
+                    }
+                } else {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
                         format!(
-                            "Error while waiting for job completion: {:?}",
+                            "Error while waiting for job completion: {:?} ({})",
+                            wait_res,
                             io::Error::last_os_error()
                         ),
                     ));
