@@ -532,7 +532,8 @@ mod imp {
 
             let job = add_process_to_job(self.scope, child.id(), handle)?;
 
-            cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
+            // Cancel cleaning up the process, as it is now associated with the job
+            cleanup.process.take();
 
             Self::wait(&job, kill_on_ctrl_c)?;
             drop(job);
@@ -545,74 +546,65 @@ mod imp {
             }
         }
 
+        ///
         /// Wait for all processes associated with the Job object to complete.
+        ///
         fn wait(job: &OwnedHandle, kill_on_ctrl_c: bool) -> io::Result<()> {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
 
-            unsafe {
-                loop {
-                    // Check that there are processes left in the job.
-                    // let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-                    // QueryInformationJobObject(
-                    //     HANDLE(job.as_raw_handle()),
-                    //     JobObjectBasicAccountingInformation,
-                    //     &mut info as *mut _ as *mut _,
-                    //     std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
-                    //     None,
-                    // )?;
-                    // if info.TotalProcesses == 0 {
-                    //     break;
-                    // }
-                    // dbg!(&info.TotalProcesses);
+            loop {
+                // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
+                let wait_res = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
 
-                    // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
-                    let wait_res = WaitForMultipleObjects(&handles, false, INFINITE);
+                if wait_res == WAIT_OBJECT_0 {
+                    // Woken up by the completion port? Check that all processes associated with the job are done.
+                    // https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
+                    let mut completion_entries: [OVERLAPPED_ENTRY; 1] =
+                        [OVERLAPPED_ENTRY::default(); 1];
+                    let mut num_entries_removed = 0u32;
 
-                    if wait_res == WAIT_OBJECT_0 {
-                        // Woken up by the completion port? Check that all processes associated with the job are done.
-                        // https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
-                        let mut completion_entries: [OVERLAPPED_ENTRY; 1] =
-                            [OVERLAPPED_ENTRY::default(); 1];
-                        let mut num_entries_removed = 0u32;
-
+                    unsafe {
                         GetQueuedCompletionStatusEx(
                             HANDLE(iocp.as_raw_handle()),
                             &mut completion_entries,
                             &mut num_entries_removed,
                             INFINITE,
-                            false,
+                            true,
                         )?;
-                        if completion_entries[0].lpCompletionKey == job.as_raw_handle() as usize
-                            && completion_entries[0].dwNumberOfBytesTransferred
-                                == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
-                        {
-                            // eprintln!("JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO");
-                            break;
-                        }
-                    } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
-                        if kill_on_ctrl_c {
-                            // Terminating is not strictly needed, dropping the job should be enough
-                            // but this way the user gets to see an error (exit code 2).
-                            _ = TerminateJobObject(HANDLE(job.as_raw_handle()), 2);
-                            break;
-                        }
-                    } else {
-                        return Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!(
-                                "Error while waiting for job completion: {:?}",
-                                io::Error::last_os_error()
-                            ),
-                        ));
                     }
+                    if completion_entries[0].lpCompletionKey == job.as_raw_handle() as usize
+                        && completion_entries[0].dwNumberOfBytesTransferred
+                            == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                    {
+                        break;
+                    }
+                } else if wait_res == WAIT_EVENT(WAIT_OBJECT_0.0 + 1) {
+                    if kill_on_ctrl_c {
+                        // Terminating is not strictly needed, dropping the job should be enough
+                        // but this way the user gets to see an error (exit code 2).
+                        unsafe {
+                            _ = TerminateJobObject(HANDLE(job.as_raw_handle()), 2);
+                        }
+                        break;
+                    }
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!(
+                            "Error while waiting for job completion: {:?}",
+                            io::Error::last_os_error()
+                        ),
+                    ));
                 }
             }
             Ok(())
         }
 
-        /// Return the command associated with the Job.
+        ///
+        /// Return the command associated with the Job. For elevated jobs return None.
+        ///
         pub fn command_mut(&mut self) -> Option<&mut Command> {
             self.cmd.as_mut()
         }

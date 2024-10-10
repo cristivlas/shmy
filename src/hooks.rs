@@ -79,7 +79,7 @@ impl Hooks {
         action: &str,
         event_args: &[String],
     ) -> Result<(), String> {
-        let eval = get_command("eval").expect("eval command not registered?");
+        let eval = get_command("eval").expect("eval command not registered");
         let action_path = self.path.join(action);
 
         let mut args = Vec::new();
