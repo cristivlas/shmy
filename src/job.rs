@@ -564,7 +564,7 @@ mod imp {
                 .map_err(|e| {
                     io::Error::new(
                         io::ErrorKind::Other,
-                        format!("WaitForMultipleObjects: {:?}", e),
+                        format!("WaitForMultipleObjects: {:?}", e.downcast_ref::<&str>()),
                     )
                 })?;
 
