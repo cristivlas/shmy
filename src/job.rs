@@ -25,17 +25,13 @@ impl<'a> Job<'a> {
         self.inner.command_mut()
     }
 
-    pub fn cmd_line(&mut self) -> Option<String> {
-        if let Some(command) = self.inner.command_mut() {
-            let cmd = std::iter::once(command.get_program())
+    pub fn args(&self) -> Option<Vec<String>> {
+        self.inner.command().map(|command| {
+            std::iter::once(command.get_program())
                 .chain(command.get_args())
                 .map(|a| a.to_string_lossy().to_string())
                 .collect::<Vec<_>>()
-                .join(" ");
-
-            return Some(cmd);
-        }
-        None
+        })
     }
 }
 
@@ -515,7 +511,7 @@ mod imp {
             //     Subsystem::GUI
             // );
 
-            let mut command = self.command().expect("No command");
+            let command = self.command_mut().expect("No command");
             let mut child = command.spawn()?;
 
             let handle = HANDLE(child.as_raw_handle());
@@ -637,8 +633,8 @@ mod imp {
             self.cmd.as_mut()
         }
 
-        pub fn command(&mut self) -> Option<Command> {
-            self.cmd.take()
+        pub fn command<'b>(&'b self) -> Option<&'b Command> {
+            self.cmd.as_ref()
         }
 
         /// Create a std::process::Command to launch the process.

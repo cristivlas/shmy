@@ -247,6 +247,19 @@ impl External {
             Cow::Borrowed(&self.path)
         }
     }
+
+    /// Run hooks upon successful execution of an external command.
+    /// # TODO: Possible design refinements:
+    /// * call hooks before and after executing commands?
+    /// * call hooks regardless of success or failure of command?
+    /// * call hooks on internal commands?
+    fn run_post_cmd_hooks(&self, scope: &Arc<Scope>, args: &[String]) -> Result<(), String> {
+        if let Some(hooks) = &scope.hooks {
+            hooks.run(scope, "external_command_ok", args)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 fn format_sudo_hints(path: &Path, cmd: &str, color: bool) -> String {
@@ -275,14 +288,15 @@ impl Exec for External {
         let mut job = Job::new(scope, &path, &args, false);
         copy_vars_to_command_env(job.command_mut().unwrap(), &scope);
 
-        // Retain cmd_line for reporting errors
-        let cmd = job.cmd_line().expect("No command line");
+        let args = job.args().unwrap_or_default();
 
         match job.run() {
             Ok(_) => {
+                self.run_post_cmd_hooks(scope, &args)?;
                 return Ok(Value::success());
             }
             Err(error) => {
+                let cmd = args.join(" ");
                 if matches!(error.raw_os_error(), Some(740)) {
                     Err(format!(
                         "{}\n{}",

@@ -41,6 +41,7 @@ impl Help {
         println!("    Supported Events:");
         println!("        on_change_dir: Executes whenever the working directory changes.");
         println!("        on_start_eval_loop: Executes when the evaluation loop of the shell starts.");
+        println!("        on_external_command_ok: Executes after successful completion of an external command.");
         println!();
         println!("    Hook Script Example:");
         println!("    if $__interactive (");

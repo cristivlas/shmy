@@ -88,7 +88,14 @@ impl Hooks {
         args.push("-q".to_string()); // suppress stdout output
         args.extend_from_slice(event_args);
 
-        eval.exec("hook", &args, scope)?;
+        // Create a scope with empty hooks, to prevent the hook actions from triggering hooks!
+        let empty_hooks = Arc::new(Self {
+            config: Yaml::Null,
+            path: PathBuf::default(),
+        });
+        let scope = Scope::with_parent_and_hooks(Some(scope.clone()), Some(empty_hooks));
+
+        eval.exec("hook", &args, &scope)?;
         Ok(())
     }
 }
