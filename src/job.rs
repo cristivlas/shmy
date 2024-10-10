@@ -502,18 +502,10 @@ mod imp {
             // If the launched command is a Console App, do not send it CTRL_C_EVENT
             // nor terminate, assuming it implements its own handler (e.g. Python interpreter).
             // Terminate GUI apps on Ctrl+C -- in the future this may change to send WM_CLOSE.
-            let result = std::panic::catch_unwind(|| get_exe_subsystem(&self.exe));
-            let kill_on_ctrl_c = match result {
-                Ok(is_gui) => matches!(is_gui.unwrap_or_default(), Subsystem::GUI),
-                Err(err) => {
-                    dbg!(&err);
-                    panic!("get_exe_subsystem");
-                }
-            };
-            // let kill_on_ctrl_c = matches!(
-            //     get_exe_subsystem(&self.exe).unwrap_or_default(),
-            //     Subsystem::GUI
-            // );
+            let kill_on_ctrl_c = matches!(
+                get_exe_subsystem(&self.exe).unwrap_or_default(),
+                Subsystem::GUI
+            );
 
             let command = self.command_mut().expect("No command");
             let mut child = command.spawn()?;
@@ -542,19 +534,7 @@ mod imp {
 
             cleanup.process.take(); // cancel cleaning up the process, as it is now associated with the job
 
-            let result = std::panic::catch_unwind(|| Self::wait(&job, kill_on_ctrl_c));
-            match result {
-                Ok(_) => {}
-                Err(err) => {
-                    dbg!(&err);
-                    if let Some(message) = err.downcast_ref::<&str>() {
-                        eprintln!("Caught panic from method: {}", message);
-                    } else {
-                        eprintln!("Caught unknown panic from method");
-                    }
-                }
-            }
-
+            Self::wait(&job, kill_on_ctrl_c)?;
             drop(job);
 
             let status = child.wait()?;
