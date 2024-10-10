@@ -88,9 +88,16 @@ impl CmdLineHelper {
         pos: &mut usize,
         candidates: &mut Vec<completion::Pair>,
     ) {
-        // Get registered commands. Pass false to internal_only,
-        // to include cached, previously used external commands
+        let trimmed_input = input.trim();
+
+        // Iterate over registered commands. Pass false to internal_only,
+        // to include cached, previously used external commands.
         for name in &registered_commands(false) {
+            if name == trimmed_input {
+                // Nothing to do here. User has already typed a valid command.
+                break;
+            }
+
             if name.starts_with(input) {
                 candidates.push(completion::Pair {
                     display: name.clone(),
@@ -317,16 +324,19 @@ impl completion::Completer for CmdLineHelper {
                 tail_pos += var_pos;
             }
         } else {
-            for kw in KEYWORDS {
-                if kw.to_lowercase().starts_with(&tail) {
-                    completions.push(completion::Pair {
-                        display: kw.to_string(),
-                        replacement: kw.to_string(),
-                    });
-                }
-            }
             if completions.is_empty() {
                 self.complete_commands(tail, &mut tail_pos, &mut completions);
+            }
+
+            if completions.is_empty() {
+                for kw in KEYWORDS {
+                    if kw.to_lowercase().starts_with(&tail) {
+                        completions.push(completion::Pair {
+                            display: kw.to_string(),
+                            replacement: kw.to_string(),
+                        });
+                    }
+                }
             }
 
             if completions.is_empty() {
@@ -346,6 +356,7 @@ impl completion::Completer for CmdLineHelper {
             // Handle (Windows-native and WSL) symbolic links.
             match_symlinks(&tail, &mut tail_pos, &mut completions);
         }
+
         if completions.is_empty() {
             self.completer.complete(line, pos, ctx) // Rustyline path completion
         } else {
