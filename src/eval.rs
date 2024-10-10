@@ -967,7 +967,11 @@ where
                     &**expr,
                     &format!(
                         "Unexpected expression, {} is not a recognized command",
-                        token
+                        if self.scope.use_colors(&io::stderr()) {
+                            token.bright_cyan()
+                        } else {
+                            token.normal()
+                        }
                     ),
                 );
             }
@@ -1860,7 +1864,11 @@ impl BinExpr {
                 self,
                 &format!(
                     "Cannot subtract strings, {} is not a recognized command",
-                    self.lhs.to_string()
+                    if self.scope.use_colors(&io::stderr()) {
+                        self.lhs.to_string().bright_cyan()
+                    } else {
+                        self.lhs.to_string().normal()
+                    }
                 ),
             ),
             (Str(_), Stat(_)) => error(self, ERR_SUB_STR_STATUS),

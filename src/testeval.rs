@@ -23,6 +23,9 @@ pub mod tests {
         let _stdout = io::stdout().lock();
 
         let mut interp = Interp::with_env_vars();
+        interp
+            .global_scope()
+            .insert("NO_COLOR".to_string(), Value::Int(1));
 
         // Debugging
         // interp.global_scope().insert("__dump_ast".into(), Value::Int(1));
@@ -408,7 +411,10 @@ pub mod tests {
     fn test_sub() {
         assert_eval_ok!("10000 - 2 ^ 14", Value::Int(-6384));
         assert_eval_ok!("1 - 2 * 2 - 1", Value::Int(-4));
-        assert_eval_err!("x - y", "Cannot subtract strings, x is not a recognized command");
+        assert_eval_err!(
+            "x - y",
+            "Cannot subtract strings, x is not a recognized command"
+        );
         assert_eval_err!("0 - y", "Cannot subtract string from number");
         assert_eval_err!("x - 2", "Cannot subtract number from string");
         assert_eval_err!("1 - (echo)", "Cannot subtract command status from number");
