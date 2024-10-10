@@ -80,6 +80,10 @@ mod imp {
         pub fn command_mut(&mut self) -> Option<&mut Command> {
             Some(&mut self.cmd)
         }
+
+        pub fn command<'b>(&'b self) -> Option<&'b Command> {
+            Some(&self.cmd)
+        }
     }
 }
 
