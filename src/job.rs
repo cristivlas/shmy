@@ -105,6 +105,7 @@ mod imp {
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{
         HANDLE, HINSTANCE, HWND, INVALID_HANDLE_VALUE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0,
+        WAIT_TIMEOUT,
     };
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Registry::HKEY;
@@ -554,21 +555,25 @@ mod imp {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
-
+            const TIMEOUT_MILLISECS: u32 = 3000;
             loop {
                 // Wait on the completion port and on the event that is set by Ctrl+C (see handles above).
-                // NOTE: WaitForMultipleObjects seems to panic occasionally, and the program deadlocks when
-                // another rust threads tries to unwind the stack.
-                let wait_res = std::panic::catch_unwind(|| unsafe {
-                    WaitForMultipleObjects(&handles, false, INFINITE)
-                })
-                .map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("WaitForMultipleObjects: {:?}", e.downcast_ref::<&str>()),
-                    )
-                })?;
-                // dbg!(&wait_res);
+                // Check that there are processes left in the job.
+                let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+                unsafe {
+                    QueryInformationJobObject(
+                        HANDLE(job.as_raw_handle()),
+                        JobObjectBasicAccountingInformation,
+                        &mut info as *mut _ as *mut _,
+                        std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                        None,
+                    )?;
+                }
+                if info.TotalProcesses == 0 {
+                    break;
+                }
+                let wait_res =
+                    unsafe { WaitForMultipleObjects(&handles, false, TIMEOUT_MILLISECS) };
 
                 if wait_res == WAIT_OBJECT_0 {
                     // Woken up by the completion port? Check that all processes associated with the job are done.
@@ -603,7 +608,7 @@ mod imp {
                         }
                         break;
                     }
-                } else {
+                } else if wait_res != WAIT_TIMEOUT {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
                         format!(
