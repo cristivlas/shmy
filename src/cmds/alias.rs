@@ -10,7 +10,7 @@ use std::io;
 use std::sync::Arc;
 
 pub struct AliasRunner {
-    args: Vec<String>,
+    pub args: Vec<String>,
     cmd: Option<ShellCommand>,
 }
 

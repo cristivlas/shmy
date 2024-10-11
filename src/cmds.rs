@@ -97,11 +97,18 @@ impl ShellCommand {
         &self.name
     }
 
+    fn get_alias(&self) -> Option<String> {
+        self.inner.as_ref().as_any().and_then(|any| {
+            any.downcast_ref::<alias::AliasRunner>()
+                .map(|runner| runner.args.join(" "))
+        })
+    }
+
     fn is_alias(&self) -> bool {
         self.inner
             .as_ref()
             .as_any()
-            .and_then(|any| any.downcast_ref::<alias::AliasRunner>())
+            .map(|any| any.downcast_ref::<alias::AliasRunner>())
             .is_some()
     }
 

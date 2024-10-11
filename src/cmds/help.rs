@@ -166,16 +166,23 @@ impl Help {
             }
             _ => match get_command(command) {
                 Some(cmd) => {
-                    if cmd.is_external() {
+                    let highlited_cmd = if scope.use_colors(&io::stderr()) {
+                        command.bright_cyan()
+                    } else {
+                        command.normal()
+                    };
+
+                    if cmd.is_alias() {
+                        eprintln!(
+                            "{} is an alias for: \"{}\"",
+                            highlited_cmd,
+                            cmd.get_alias().unwrap_or_default()
+                        )
+                    } else if cmd.is_external() {
                         #[cfg(windows)]
                         let help = "/? (or -h, --help)";
                         #[cfg(not(windows))]
                         let help = "-h (or --help)";
-                        let highlited_cmd = if scope.use_colors(&io::stderr()) {
-                            command.bright_cyan()
-                        } else {
-                            command.normal()
-                        };
                         eprintln!(
                             "{} is an external program, try: {} {}",
                             highlited_cmd, command, help
