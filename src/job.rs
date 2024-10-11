@@ -1,3 +1,4 @@
+use crate::cmds::which_executable;
 use crate::scope::Scope;
 use std::io;
 use std::path::Path;
@@ -639,9 +640,10 @@ mod imp {
                     command
                 } else {
                     // Fail over to using CMD.EXE /C as the launcher.
-                    self.exe = Cow::Owned(PathBuf::from("cmd.exe"));
+                    self.exe =
+                        Cow::Owned(which_executable("cmd").unwrap_or(PathBuf::from("cmd.exe")));
 
-                    let mut command = Command::new("cmd");
+                    let mut command = Command::new(&self.exe.as_os_str());
                     command.arg("/C").arg(path).args(args);
                     command
                 }

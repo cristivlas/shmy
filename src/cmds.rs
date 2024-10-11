@@ -199,7 +199,7 @@ pub fn registered_commands(internal_only: bool) -> Vec<String> {
     commands
 }
 
-fn which_executable<T: AsRef<OsStr>>(path: T) -> Option<PathBuf> {
+pub fn which_executable<T: AsRef<OsStr>>(path: T) -> Option<PathBuf> {
     match which(path) {
         Ok(path) => {
             // Check if the path is an executable
