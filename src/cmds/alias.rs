@@ -214,6 +214,7 @@ fn register() {
 
     #[cfg(windows)]
     {
+        _ = alias.register("killall", &["taskkill", "/f", "/im"]);
         _ = alias.register("reboot", &["shutdown", "/r", "/t", "0"]);
     }
 
