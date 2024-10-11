@@ -27,11 +27,11 @@ impl ChangeDir {
         env::set_current_dir(&path)
             .map_err(|e| format!("Change dir to \"{}\": {}", scope.err_str(dir), e))?;
 
-        if let Some(hooks) = &scope.hooks {
-            hooks.run(scope, "change_dir", &[])
-        } else {
-            Ok(())
-        }
+        scope
+            .hooks
+            .as_ref()
+            .map(|hooks| hooks.run(scope, "change_dir", &[]))
+            .unwrap_or(Ok(()))
     }
 
     fn chdir(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {

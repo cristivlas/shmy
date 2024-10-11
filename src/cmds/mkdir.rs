@@ -22,12 +22,12 @@ impl Exec for Mkdir {
         Box::new(self.flags.iter())
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let args = flags.parse(scope, args)?;
 
         if flags.is_present("help") {
-            println!("Usage: mkdir [OPTIONS] DIRECTORY...");
+            println!("Usage: {} [OPTIONS] DIRECTORY...", name);
             println!("Create the DIRECTORY(ies), if they do not already exist.");
             println!("\nOptions:");
             print!("{}", flags.help());

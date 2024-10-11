@@ -146,8 +146,8 @@ impl Dir {
         Ok(cmd_args)
     }
 
-    fn print_help(&self) {
-        println!("Usage: ls [OPTION]... [FILE]...");
+    fn print_help(&self, name: &str) {
+        println!("Usage: {} [OPTION]... [FILE]...", name);
         println!("List information about the FILEs (the current directory by default).");
         println!("\nOptions:");
         print!("{}", self.flags.help());
@@ -159,10 +159,10 @@ impl Exec for Dir {
         Box::new(self.flags.iter())
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut opts = self.parse_args(scope, args)?;
         if opts.help {
-            self.print_help();
+            self.print_help(name);
             return Ok(Value::success());
         }
 

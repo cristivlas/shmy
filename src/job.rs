@@ -553,6 +553,9 @@ mod imp {
             let iocp = Self::create_completion_port(&job)?;
 
             let handles = [HANDLE(iocp.as_raw_handle()), interrupt_event()?];
+            let mut completion_entries: [OVERLAPPED_ENTRY; 1] = [OVERLAPPED_ENTRY::default(); 1];
+            let mut num_entries_removed = 0u32;
+
             const TIMEOUT_MILLISECS: u32 = 3000;
             loop {
                 let wait_res =
@@ -561,9 +564,6 @@ mod imp {
                 if wait_res == WAIT_OBJECT_0 {
                     // Woken up by the completion port? Check that all processes associated with the job are done.
                     // https://devblogs.microsoft.com/oldnewthing/20130405-00/?p=4743
-                    let mut completion_entries: [OVERLAPPED_ENTRY; 1] =
-                        [OVERLAPPED_ENTRY::default(); 1];
-                    let mut num_entries_removed = 0u32;
 
                     unsafe {
                         GetQueuedCompletionStatusEx(
