@@ -12,9 +12,6 @@ Project purpose and goals:
 1. An exercise in Rust programming.
 2. Provide an alternative, light-weight solution for executing Unix-like commands in a Windows environment.
 3. Experiment with design ideas that enforce robust error handling practices in shell scripting.
-4. New in 0.19.6, Windows-only: execute external commands using Job object, experimental limit variables (```$__limit_proc_count, $__limit_proc_memory, $__limit_job_memory```)
-5. New in 0.20.0: **hooks**: custom commands that execute upon an event (currently ```on_external_command, on_start_eval_loop``` and ```on_change dir``` -- refer to src/hooks.rs for details).
-
 The interpreter operates in both interactive mode and script execution mode, with the latter activated by passing script files as command line arguments. In interactive mode, the interpreter leverages rustyline to provide history functionality and TAB completion.
 
 ## Key Features
@@ -22,6 +19,8 @@ The interpreter operates in both interactive mode and script execution mode, wit
 1. WSL (Windows Subsystem for Linux) symbolic link support.
 2. User-customizable autocompletion.
 3. Strict enforcement of command result error checking.
+4. New in 0.19.6, Windows-only: execute external commands using Job object, experimental limit variables (```$__limit_proc_count, $__limit_proc_memory, $__limit_job_memory```)
+5. New in 0.20.0: **hooks**: custom commands that execute upon an event (currently ```on_external_command, on_start_eval_loop``` and ```on_change dir``` -- refer to src/hooks.rs for details).
 
 The implementation of the built-in commands aims to be neither complete nor POSIX-compatible.
 The intent is to provide common functionality that *nix users are familiar with out of the box.
