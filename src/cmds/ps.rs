@@ -5,10 +5,6 @@ use crate::{
     utils::{format_error, MAX_USER_DISPLAY_LEN},
 };
 use colored::Colorize;
-use crossterm::{
-    execute,
-    terminal::{DisableLineWrap, EnableLineWrap},
-};
 use std::{
     any::Any,
     borrow::Cow,
@@ -865,13 +861,15 @@ impl Exec for ProcStatus {
             view.filters.push(Box::new(UserProc::new(&view.system)));
         }
 
-        _ = execute!(io::stdout(), DisableLineWrap);
+        let mut stdout = std::io::stdout();
+        let _disable_wrap =
+            crate::utils::DisableLineWrap::new(&mut stdout).map_err(|e| e.to_string())?;
+
         let result = if tree_view {
             view.process_tree(scope, long_view)
         } else {
             view.process_list(scope)
         };
-        _ = execute!(io::stdout(), EnableLineWrap);
 
         result?;
         Ok(Value::success())

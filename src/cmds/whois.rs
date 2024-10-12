@@ -1,10 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, utils::format_error};
-use crossterm::{
-    execute,
-    terminal::{DisableLineWrap, EnableLineWrap},
-};
-use std::io::{stdout, BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{
@@ -20,7 +16,12 @@ impl Whois {
     fn new() -> Self {
         let mut flags = CommandFlags::with_help();
         flags.add_value('h', "host", "server", "Whois server");
-        flags.add_value('t', "timeout", "seconds", "Read/write timeout (default: 10 sec)");
+        flags.add_value(
+            't',
+            "timeout",
+            "seconds",
+            "Read/write timeout (default: 10 sec)",
+        );
 
         Self { flags }
     }
@@ -93,9 +94,11 @@ impl Exec for Whois {
             .parse::<u64>()
             .map_err(|e| format!("Error parsing timeout value: {}", e))?;
 
-        _ = execute!(stdout(), DisableLineWrap);
+        let mut stdout = std::io::stdout();
+        let _disable_wrap =
+            crate::utils::DisableLineWrap::new(&mut stdout).map_err(|e| e.to_string())?;
+
         let result = Self::whois(&whois_args, flags.value("host"), timeout);
-        _ = execute!(stdout(), EnableLineWrap);
 
         Ok(result.map_err(|e| format_error(scope, &whois_args[0], &args, e))?)
     }

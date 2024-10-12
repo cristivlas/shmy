@@ -504,6 +504,7 @@ pub fn format_error<E: std::fmt::Display>(
     format!("{}: {}", scope.err_path_arg(value, args), error)
 }
 
+/// Detect if the current process is running with elevated privileges or as root user.
 pub fn is_elevated() -> bool {
     #[cfg(windows)]
     {
@@ -512,5 +513,45 @@ pub fn is_elevated() -> bool {
     #[cfg(not(windows))]
     {
         uzers::get_current_uid() == 0
+    }
+}
+
+///
+/// Crosterm RAII utils.
+///
+use crossterm;
+pub struct DisableLineWrap<'a, W: io::Write> {
+    writer: &'a mut W,
+}
+
+impl<'a, W: io::Write> DisableLineWrap<'a, W> {
+    pub fn new(writer: &'a mut W) -> io::Result<Self> {
+        crossterm::execute!(writer, crossterm::terminal::DisableLineWrap)?;
+        Ok(Self { writer })
+    }
+}
+
+impl<'a, W: io::Write> Drop for DisableLineWrap<'a, W> {
+    fn drop(&mut self) {
+        _ = crossterm::execute!(self.writer, crossterm::terminal::EnableLineWrap);
+    }
+}
+
+pub struct EnterAlternateScreen;
+
+impl EnterAlternateScreen {
+    pub fn new() -> io::Result<Self> {
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::cursor::MoveTo(0, 0)
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for EnterAlternateScreen {
+    fn drop(&mut self) {
+        _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
     }
 }

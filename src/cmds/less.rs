@@ -1,14 +1,18 @@
 use super::{register_command, Exec, Flag, ShellCommand};
 use crate::{
-    cmds::flags::CommandFlags, eval::Value, prompt, scope::Scope, symlnk::SymLink,
-    utils::format_error,
+    cmds::flags::CommandFlags,
+    eval::Value,
+    prompt,
+    scope::Scope,
+    symlnk::SymLink,
+    utils::{self, format_error},
 };
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     style::Print,
-    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{Clear, ClearType},
     QueueableCommand,
 };
 use memmap2::Mmap;
@@ -437,7 +441,7 @@ impl Viewer {
     fn run(&mut self) -> io::Result<FileAction> {
         let mut stdout = io::stdout();
         let _raw_mode = prompt::RawMode::new()?;
-        execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 0),)?;
+        let _alt_scrn = utils::EnterAlternateScreen::new();
 
         let mut action = FileAction::None;
         let mut buffer = String::with_capacity(self.screen_width * self.screen_height);
@@ -462,7 +466,6 @@ impl Viewer {
                 self.display_page(&mut stdout, &mut buffer)?;
             }
         }
-        execute!(stdout, LeaveAlternateScreen)?;
         Ok(action)
     }
 
