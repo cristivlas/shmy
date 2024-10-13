@@ -183,6 +183,7 @@ pub fn get_command(name: &str) -> Option<ShellCommand> {
     cmd
 }
 
+/// Return sorted list of all registered commands.
 pub fn registered_commands(internal_only: bool) -> Vec<String> {
     let registry = COMMAND_REGISTRY.lock().unwrap();
 
@@ -199,6 +200,7 @@ pub fn registered_commands(internal_only: bool) -> Vec<String> {
     commands
 }
 
+/// Locate executable using the 'which' crate.
 pub fn which_executable<T: AsRef<OsStr>>(path: T) -> Option<PathBuf> {
     match which(path) {
         Ok(path) => {
@@ -299,6 +301,7 @@ impl Exec for External {
 
         match job.run() {
             Ok(_) => {
+                // Pass args to the post-command execution hook.
                 self.run_post_cmd_hooks(scope, &args)?;
                 return Ok(Value::success());
             }

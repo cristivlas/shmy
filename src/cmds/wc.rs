@@ -40,8 +40,9 @@ impl WordCount {
             bytes: 0,
         };
 
-        for line in reader.lines() {
-            let line = line?;
+        for byte_line in reader.split(b'\n') {
+            let byte_line = byte_line?;
+            let line = String::from_utf8_lossy(&byte_line);
             result.lines += 1;
             result.words += line.split_whitespace().count();
             result.chars += line.chars().count();

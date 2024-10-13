@@ -26,7 +26,12 @@ impl CatHeadTail {
         flags.add_flag('n', "number", "Number output lines");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
-            flags.add_value('l', "lines", "number", "Specify the number of lines to output");
+            flags.add_value(
+                'l',
+                "lines",
+                "number",
+                "Specify the number of lines to output",
+            );
         }
         CatHeadTail { flags, mode }
     }
@@ -115,40 +120,37 @@ fn process_input<R: BufRead>(
         }
     }
 
-    for line in reader.lines() {
+    for byte_line in reader.split(b'\n') {
         if Scope::is_interrupted() {
             break;
         }
-        match line {
-            Ok(line) => {
-                i += 1;
-                let line = if line_numbers {
-                    format!("{:>6}: {}", i, line)
-                } else {
-                    line
+        let byte_line = byte_line.map_err(|e| format!("Error reading line: {}", e))?;
+
+        // Convert the line to a valid UTF-8 String, replacing invalid sequences
+        let line = String::from_utf8_lossy(&byte_line);
+        i += 1;
+        let line = if line_numbers {
+            format!("{:>6}: {}", i, line)
+        } else {
+            line.to_string()
+        };
+
+        match mode {
+            Mode::Cat => my_println!("{line}")?,
+            Mode::Head => {
+                if i > lines {
+                    break;
                 };
-                match mode {
-                    Mode::Cat => my_println!("{line}")?,
-                    Mode::Head => {
-                        if i > lines {
-                            break;
-                        };
-                        my_println!("{line}")?;
-                    }
-                    Mode::Tail => {
-                        if tail.len() == lines {
-                            tail.pop_front();
-                        }
-                        tail.push_back(line);
-                    }
-                }
+                my_println!("{line}")?;
             }
-            Err(e) => {
-                return Err(e.to_string());
+            Mode::Tail => {
+                if tail.len() == lines {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
             }
         }
     }
-
     for line in tail {
         my_println!("{line}")?;
     }
