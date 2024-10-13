@@ -267,6 +267,9 @@ fn match_symlinks(input: &str, pos: &mut usize, candidates: &mut Vec<completion:
 #[cfg(not(windows))]
 fn match_symlinks(_: &str, _: &mut usize, _: &mut Vec<completion::Pair>) {}
 
+///
+/// Command line (tab) completions.
+///
 impl completion::Completer for CmdLineHelper {
     type Candidate = completion::Pair;
 
@@ -350,6 +353,14 @@ impl completion::Completer for CmdLineHelper {
                     }
                 }
             }
+
+            if completions.is_empty() {
+                let candidates = self.get_history_matches(&line, pos, ctx);
+                completions.extend(candidates.iter().map(|entry| Self::Candidate {
+                    display: format!("{}{}", &line, entry),
+                    replacement: format!("{}{}", &line, entry),
+                }));
+            }
         }
 
         if completions.is_empty() {
@@ -383,11 +394,10 @@ struct Shell {
 
 /// Search history in reverse for entry that starts with &line[1..]
 fn search_history<H: Helper>(rl: &Editor<H, DefaultHistory>, line: &str) -> Option<String> {
-    let search = &line[1..];
     rl.history()
         .iter()
         .rev()
-        .find(|entry| entry.starts_with(search))
+        .find(|entry| entry.starts_with(line))
         .cloned()
 }
 
@@ -566,7 +576,7 @@ impl Shell {
                 match readline {
                     Ok(line) => {
                         if line.starts_with("!") {
-                            if let Some(history_entry) = search_history(&rl, &line) {
+                            if let Some(history_entry) = search_history(&rl, &line[1..]) {
                                 eprintln!("{}", &history_entry);
                                 // Make the entry found in history the most recent
                                 rl.add_history_entry(&history_entry)
