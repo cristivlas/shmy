@@ -944,6 +944,7 @@ mod tests {
         let expected_completions = vec![
             ("--no-help".to_string(), "--no-help".to_string()),
             ("--no-number".to_string(), "--no-number".to_string()),
+            ("--no-text".to_string(), "--no-text".to_string()),
         ];
         assert_eq!(actual_completions, expected_completions);
     }

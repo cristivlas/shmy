@@ -1,6 +1,6 @@
 use super::{flags::CommandFlags, register_command, Exec, Flag, ShellCommand};
 use crate::{eval::Value, scope::Scope, symlnk::SymLink};
-use colored::*;
+use colored::Colorize;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::{self, File};

@@ -24,6 +24,7 @@ impl CatHeadTail {
     fn new(mode: Mode) -> Self {
         let mut flags = CommandFlags::with_help();
         flags.add_flag('n', "number", "Number output lines");
+        flags.add_flag('a', "text", "Transcode to ASCII");
 
         if matches!(mode, Mode::Head | Mode::Tail) {
             flags.add_value(
@@ -63,6 +64,7 @@ impl Exec for CatHeadTail {
         }
 
         let line_num: bool = flags.is_present("number");
+        let text_out = flags.is_present("text");
 
         let lines = flags
             .value("lines")
@@ -77,7 +79,7 @@ impl Exec for CatHeadTail {
 
             let mode = self.mode.clone();
             let mut stdin = BufReader::new(io::stdin());
-            process_input(&mut stdin, mode, line_num, lines)
+            process_input(&mut stdin, mode, line_num, text_out, lines)
         } else {
             let mut result = Ok(());
             for filename in &filenames {
@@ -90,7 +92,7 @@ impl Exec for CatHeadTail {
                     File::open(&path).map_err(|e| format_error(&scope, filename, args, e))?;
 
                 let mut reader = BufReader::new(file);
-                result = process_input(&mut reader, mode, line_num, lines);
+                result = process_input(&mut reader, mode, line_num, text_out, lines);
 
                 if result.is_err() {
                     break;
@@ -108,6 +110,7 @@ fn process_input<R: BufRead>(
     reader: &mut R,
     mode: Mode, // Cat, Head or Tail
     line_numbers: bool,
+    text_out: bool,
     lines: usize,
 ) -> Result<(), String> {
     let mut i = 0;
@@ -126,13 +129,23 @@ fn process_input<R: BufRead>(
         }
         let byte_line = byte_line.map_err(|e| format!("Error reading line: {}", e))?;
 
-        // Convert the line to a valid UTF-8 String, replacing invalid sequences
-        let line = String::from_utf8_lossy(&byte_line);
+        let line = if text_out {
+            // Filter out non-ASCII bytes and collect into a Vec<u8>
+            let filtered_bytes: Vec<u8> = byte_line
+                .iter()
+                .filter(|&&c| c != 0 && c.is_ascii()) // Filter out non-ASCII bytes
+                .copied() // Copy u8 values directly
+                .collect(); // Collect the filtered bytes into a Vec<u8>
+            String::from_utf8(filtered_bytes).map_err(|e| e.to_string())?
+        } else {
+            String::from_utf8_lossy(&byte_line).to_string()
+        };
+
         i += 1;
         let line = if line_numbers {
             format!("{:>6}: {}", i, line)
         } else {
-            line.to_string()
+            line
         };
 
         match mode {
