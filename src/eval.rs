@@ -855,6 +855,7 @@ where
                     while let Some(&next_c) = self.chars.peek() {
                         if self.escaped {
                             match next_c {
+                                'e' => self.text.push('\x1b'),
                                 'n' => self.text.push('\n'),
                                 't' => self.text.push('\t'),
                                 'r' => self.text.push('\r'),
