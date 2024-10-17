@@ -1,4 +1,3 @@
-use crate::cmds::which_executable;
 use crate::scope::Scope;
 use std::io;
 use std::path::Path;
@@ -623,6 +622,8 @@ mod imp {
         /// If the path does not have EXE extension, look up the
         /// associated app; if not found, fail over to CMD.EXE /C
         fn create_command(&mut self, path: &Path, args: &[String]) {
+            use crate::cmds::which_executable;
+
             let is_exe = path
                 .extension()
                 .map(|ext| ext.to_string_lossy().to_lowercase())

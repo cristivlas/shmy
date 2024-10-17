@@ -211,6 +211,7 @@ fn register() {
 
     _ = alias.register("export", &["eval", "--export"]);
     _ = alias.register("source", &["eval", "--source"]);
+    _ = alias.register("reset", &["clear", "--reset"]);
 
     #[cfg(windows)]
     {

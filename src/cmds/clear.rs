@@ -16,6 +16,7 @@ impl ClearScreen {
         let mut flags = CommandFlags::new();
         flags.add_flag('?', "help", "Display this help message");
         flags.add_flag('k', "keep", "Keep the scroll (history) buffer");
+        flags.add_flag('r', "reset", "Reset and clear the terminal");
 
         Self { flags }
     }
@@ -38,19 +39,21 @@ impl Exec for ClearScreen {
             return Ok(Value::success());
         }
 
-        let mut stdout = stdout().lock();
-
-        execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
-            .and_then(|_| {
-                if !flags.is_present("keep") {
-                    execute!(stdout, Clear(ClearType::Purge))
-                } else {
-                    Ok(())
-                }
-                .and_then(|_| stdout.flush())
-            })
-            .map_err(|e| format!("Could not clear screen: {}", e))?;
-
+        if flags.is_present("reset") {
+            println!("\x1b\x63");
+        } else {
+            let mut stdout = stdout().lock();
+            execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
+                .and_then(|_| {
+                    if !flags.is_present("keep") {
+                        execute!(stdout, Clear(ClearType::Purge))
+                    } else {
+                        Ok(())
+                    }
+                    .and_then(|_| stdout.flush())
+                })
+                .map_err(|e| format!("Could not clear screen: {}", e))?;
+        }
         Ok(Value::success())
     }
 }

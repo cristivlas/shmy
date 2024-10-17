@@ -43,8 +43,6 @@ mod open;
 mod power;
 mod ps;
 mod realpath;
-#[cfg(windows)]
-mod reset;
 mod rm;
 mod run;
 mod sort;
