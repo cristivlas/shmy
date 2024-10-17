@@ -12,13 +12,18 @@ use std::sync::Arc;
 pub struct AliasRunner {
     pub args: Vec<String>,
     cmd: Option<ShellCommand>,
+    overriden: Option<ShellCommand>,
 }
 
 impl AliasRunner {
-    fn new(args: Vec<String>) -> Self {
+    fn new(args: Vec<String>, overriden: Option<ShellCommand>) -> Self {
         let arg = args[0].split_ascii_whitespace().collect::<Vec<_>>()[0];
         let cmd = get_command(arg);
-        Self { args, cmd }
+        Self {
+            args,
+            cmd,
+            overriden,
+        }
     }
 }
 
@@ -64,24 +69,41 @@ impl Alias {
         Self { flags }
     }
 
-    fn add(&self, name: String, args: Vec<String>) -> Result<Value, String> {
-        if get_command(&name).is_some() {
-            Err(format!("{} already exists", name))
-        } else {
-            assert!(!args.is_empty());
-            register_command(ShellCommand {
-                name,
-                inner: Arc::new(AliasRunner::new(args)),
-            });
+    fn add(
+        &self,
+        name: String,
+        args: Vec<String>,
+        scope: Option<Arc<Scope>>,
+    ) -> Result<Value, String> {
+        assert!(!args.is_empty());
 
-            Ok(Value::success())
+        let existing = get_command(&name);
+        if existing.is_some() && scope.is_some() {
+            if confirm(
+                format!("Command '{}' already defined, override", name),
+                &scope.unwrap(),
+                false,
+            )
+            .ok()
+                != Some(Answer::Yes)
+            {
+                return Ok(Value::success());
+            }
         }
+
+        register_command(ShellCommand {
+            name,
+            inner: Arc::new(AliasRunner::new(args, existing)),
+        });
+
+        Ok(Value::success())
     }
 
     fn register(&self, name: &str, args: &[&str]) -> Result<Value, String> {
         self.add(
             name.to_string(),
             args.iter().map(|s| s.to_string()).collect(),
+            None,
         )
     }
 
@@ -113,20 +135,26 @@ impl Alias {
         match get_command(name) {
             None => Err(format_error(scope, name, args, "alias not found")),
             Some(cmd) => {
-                if cmd
+                let runner = cmd
                     .inner
                     .as_ref()
                     .as_any()
-                    .and_then(|any| any.downcast_ref::<AliasRunner>())
-                    .is_some()
-                {
-                    let prompt = format!("Remove '{}'", name);
+                    .and_then(|any| any.downcast_ref::<AliasRunner>());
+
+                if runner.is_some() {
+                    let prompt = format!("Remove alias '{}'", name);
                     if confirm(prompt, &scope, false).ok() == Some(Answer::Yes) {
+                        let overriden = runner.unwrap().overriden.clone();
                         unregister_command(name);
+
+                        if overriden.is_some() {
+                            // Restore the previously overriden command
+                            register_command(overriden.unwrap());
+                        }
                     }
                     Ok(Value::success())
                 } else {
-                    Err(format_error(scope, name, args, "not an alias"))
+                    Err(format_error(scope, name, args, "is not an alias"))
                 }
             }
         }
@@ -147,12 +175,12 @@ impl Exec for Alias {
         Box::new(self.flags.iter())
     }
 
-    fn exec(&self, _name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
+    fn exec(&self, name: &str, args: &Vec<String>, scope: &Arc<Scope>) -> Result<Value, String> {
         let mut flags = self.flags.clone();
         let mut parsed_args = flags.parse_relaxed(scope, args);
 
         if flags.is_present("help") {
-            println!("Usage: alias [NAME EXPRESSION] [OPTIONS]");
+            println!("Usage: {} [NAME EXPRESSION] [OPTIONS]", name);
             println!("Register or deregister aliases (expression shortcuts).");
             println!("\nOptions:");
             println!("{}", flags.help());
@@ -201,7 +229,7 @@ impl Exec for Alias {
         }
 
         let name = parsed_args.remove(0);
-        self.add(name, parsed_args)
+        self.add(name, parsed_args, Some(scope.clone()))
     }
 }
 
@@ -245,36 +273,23 @@ mod tests {
     #[test]
     fn test_add_alias() {
         let (_scope, alias) = setup();
-        let name = "la".to_string();
-        let args = vec!["ls".to_string(), "-al".to_string()];
+        let name = "la";
+        let args = vec!["ls", "-al"];
 
-        let result = alias.add(name.clone(), args);
+        let result = alias.register(name, &args);
         assert!(result.is_ok());
         assert!(get_command(&name).is_some());
     }
 
     #[test]
-    fn test_add_existing_alias() {
-        let (_scope, alias) = setup();
-        let name = "la".to_string();
-        let args = vec!["ls".to_string(), "-al".to_string()];
-
-        // First add the alias
-        alias.add(name.clone(), args).unwrap();
-
-        // Try adding it again
-        let result = alias.add(name.clone(), vec!["another_cmd".to_string()]);
-        assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), format!("{} already exists", name));
-    }
-
-    #[test]
     fn test_remove_alias() {
         let (scope, alias) = setup();
-        let name = "la".to_string();
-        let args = vec!["ls".to_string(), "-al".to_string()];
+        let name = "la";
+        let args = vec!["ls", "-al"];
 
-        alias.add(name.clone(), args).unwrap();
+        let result = alias.register(name, &args);
+        assert!(result.is_ok());
+
         let result = alias.remove(&name, &scope, &vec![]);
 
         assert!(result.is_ok());
@@ -294,10 +309,10 @@ mod tests {
     #[test]
     fn test_remove_with_confirmation() {
         let (scope, alias) = setup();
-        let name = "la".to_string();
-        let args = vec!["ls".to_string(), "-al".to_string()];
+        let name = "ll";
+        let args = vec!["ls", "-al"];
 
-        alias.add(name.clone(), args).unwrap();
+        alias.register(name, &args).unwrap();
 
         let result = alias.remove(&name, &scope, &vec![]);
         assert!(result.is_ok());
@@ -307,10 +322,10 @@ mod tests {
     #[test]
     fn test_exec_with_list_flag() {
         let (scope, alias) = setup();
-        let name = "la".to_string();
-        let args = vec!["ls".to_string(), "-al".to_string()];
+        let name = "la";
+        let args = vec!["ls", "-al"];
 
-        alias.add(name.clone(), args).unwrap();
+        alias.register(name, &args).unwrap();
 
         let result = alias.exec("alias", &vec!["--list".to_string()], &scope);
         assert!(result.is_ok());
