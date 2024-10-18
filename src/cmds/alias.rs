@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_override_alias_with_another_alias() {
         let (scope, alias) = setup();
-        let name = "la";
+        let name = "ls";
 
         let args1 = vec!["ls", "-al"];
         alias.register(name, &args1).unwrap();
