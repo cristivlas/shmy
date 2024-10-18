@@ -186,7 +186,7 @@ impl Exec for Alias {
             println!("{}", flags.help());
             println!();
             println!("Examples:");
-            println!("    alias la ls -al");
+            println!("    alias la \"ls -al\"");
             println!("    alias --remove la");
             println!("    alias unalias \"alias --remove\"");
             println!();
