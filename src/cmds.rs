@@ -97,7 +97,7 @@ impl ShellCommand {
         &self.name
     }
 
-    fn get_alias(&self) -> Option<String> {
+    fn get_alias_def(&self) -> Option<String> {
         self.inner.as_ref().as_any().and_then(|any| {
             any.downcast_ref::<alias::AliasRunner>()
                 .map(|runner| runner.args.join(" "))

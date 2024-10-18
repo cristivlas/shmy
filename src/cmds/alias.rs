@@ -122,7 +122,7 @@ impl Alias {
                 None => {}
                 Some(runner) => {
                     count += 1;
-                    println!("{}: {}", name, runner.args.join(" "));
+                    println!("{:20} {}", name + ":", runner.args.join(" "));
                 }
             }
         }
@@ -329,5 +329,53 @@ mod tests {
 
         let result = alias.exec("alias", &vec!["--list".to_string()], &scope);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_override_existing_command() {
+        let (scope, alias) = setup();
+        let name = "ls";
+        let args = vec!["ls", "-al"];
+        alias.register(name, &args).unwrap();
+
+        // Check alias definition "took"
+        let cmd = get_command(name).unwrap();
+        let alias_def: String = cmd.get_alias_def().unwrap();
+        assert_eq!(alias_def, "ls -al");
+
+        // Remove alias and check previous command is restored
+        alias.remove(name, &scope, &vec![]).unwrap();
+        let restored_cmd = get_command(name);
+        assert!(restored_cmd.as_ref().is_some_and(|cmd| !cmd.is_alias()));
+    }
+
+    #[test]
+    fn test_override_alias_with_another_alias() {
+        let (scope, alias) = setup();
+        let name = "la";
+
+        let args1 = vec!["ls", "-al"];
+        alias.register(name, &args1).unwrap();
+        let cmd1 = get_command(name).unwrap();
+        let def1 = cmd1.get_alias_def().unwrap();
+        assert_eq!(def1, "ls -al");
+
+        // Define alias that overrides the first alias
+        let args2 = vec!["echo", "hello"];
+        alias.register(name, &args2).unwrap();
+        let cmd2 = get_command(name).unwrap();
+        let def2 = cmd2.get_alias_def().unwrap();
+        assert_eq!(def2, "echo hello");
+
+        // Remove second alias and check previous alias is now in effect
+        alias.remove(name, &scope, &vec![]).unwrap();
+        let restored_cmd1 = get_command(name).unwrap();
+        let def = restored_cmd1.get_alias_def().unwrap();
+        assert_eq!(def, "ls -al");
+
+        // Remove first alias and check original command is in effect
+        alias.remove(name, &scope, &vec![]).unwrap();
+        let restored_original_cmd = get_command(name).unwrap();
+        assert!(!restored_original_cmd.is_alias());
     }
 }

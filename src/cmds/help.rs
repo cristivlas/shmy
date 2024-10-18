@@ -172,12 +172,8 @@ impl Help {
                         command.normal()
                     };
 
-                    if cmd.is_alias() {
-                        eprintln!(
-                            "{} is an alias for: \"{}\"",
-                            highlited_cmd,
-                            cmd.get_alias().unwrap_or_default()
-                        )
+                    if let Some(alias_def) = cmd.get_alias_def() {
+                        eprintln!("{} is an alias for: \"{}\"", highlited_cmd, alias_def)
                     } else if cmd.is_external() {
                         #[cfg(windows)]
                         let help = "/? (or -h, --help)";
