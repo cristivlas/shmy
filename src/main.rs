@@ -354,13 +354,13 @@ impl completion::Completer for CmdLineHelper {
                 }
             }
 
-            if completions.is_empty() {
-                let candidates = self.get_history_matches(&line, pos, ctx);
-                completions.extend(candidates.iter().map(|entry| Self::Candidate {
-                    display: format!("{}{}", &line, entry),
-                    replacement: format!("{}{}", &line, entry),
-                }));
-            }
+            // if completions.is_empty() {
+            //     let candidates = self.get_history_matches(&line, pos, ctx);
+            //     completions.extend(candidates.iter().map(|entry| Self::Candidate {
+            //         display: format!("{}{}", &line, entry),
+            //         replacement: format!("{}{}", &line, entry),
+            //     }));
+            // }
         }
 
         if completions.is_empty() {
