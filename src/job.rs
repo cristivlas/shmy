@@ -591,9 +591,7 @@ mod imp {
                         break;
                     }
                 } else if wait_res == WAIT_TIMEOUT {
-                    if unsafe { WaitForSingleObject(process, TIMEOUT_MILLISECS) } != WAIT_TIMEOUT {
-                        break;
-                    }
+                    unsafe { WaitForSingleObject(process, TIMEOUT_MILLISECS); }
                 } else {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,

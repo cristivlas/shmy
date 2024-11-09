@@ -353,14 +353,6 @@ impl completion::Completer for CmdLineHelper {
                     }
                 }
             }
-
-            // if completions.is_empty() {
-            //     let candidates = self.get_history_matches(&line, pos, ctx);
-            //     completions.extend(candidates.iter().map(|entry| Self::Candidate {
-            //         display: format!("{}{}", &line, entry),
-            //         replacement: format!("{}{}", &line, entry),
-            //     }));
-            // }
         }
 
         if completions.is_empty() {
@@ -369,10 +361,22 @@ impl completion::Completer for CmdLineHelper {
         }
 
         if completions.is_empty() {
-            self.completer.complete(line, pos, ctx) // Rustyline path completion
-        } else {
-            Ok((tail_pos, completions))
+            // Rustyline path completion
+            let result = self.completer.complete(line, pos, ctx)?;
+            if !result.1.is_empty() {
+                return Ok(result)
+            }
+
+            if completions.is_empty() {
+                let candidates = self.get_history_matches(&line, pos, ctx);
+                completions.extend(candidates.iter().map(|entry| Self::Candidate {
+                    display: format!("{}{}", &line, entry),
+                    replacement: format!("{}{}", &line, entry),
+                }));
+            }
         }
+
+        Ok((tail_pos, completions))
     }
 }
 
