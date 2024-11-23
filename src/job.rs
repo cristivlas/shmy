@@ -109,10 +109,13 @@ mod imp {
     };
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Registry::HKEY;
-    use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
+    use windows::Win32::System::SystemServices::{
+        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_MSG_EXIT_PROCESS,
+    };
     use windows::Win32::System::Threading::*;
     use windows::Win32::System::IO::{
-        CreateIoCompletionPort, GetQueuedCompletionStatusEx, OVERLAPPED_ENTRY,
+        CreateIoCompletionPort, GetQueuedCompletionStatusEx, PostQueuedCompletionStatus,
+        OVERLAPPED_ENTRY,
     };
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -591,7 +594,16 @@ mod imp {
                         break;
                     }
                 } else if wait_res == WAIT_TIMEOUT {
-                    unsafe { WaitForSingleObject(process, TIMEOUT_MILLISECS); }
+                    unsafe {
+                        if WaitForSingleObject(process, TIMEOUT_MILLISECS) == WAIT_OBJECT_0 {
+                            _ = PostQueuedCompletionStatus(
+                                HANDLE(iocp.as_raw_handle()),
+                                JOB_OBJECT_MSG_EXIT_PROCESS,
+                                job.as_raw_handle() as usize,
+                                None,
+                            );
+                        }
+                    }
                 } else {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
