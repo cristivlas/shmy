@@ -1226,7 +1226,9 @@ where
                     }
                 }
                 Token::Literal(text) => {
-                    if !text.quoted && !self.group.is_args() {
+                    // Excluding quoted strings here seems wrong, e.g.:
+                    // "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+                    if /* !text.quoted && */ !self.group.is_args() {
                         if let Some(cmd) = get_command(&text.value) {
                             let expr = Rc::new(Expression::Cmd(RefCell::new(Command {
                                 cmd,
@@ -2075,6 +2077,13 @@ impl BinExpr {
 
         // Left-side evaluation's stdout goes into the pipe.
         let lhs_result = Status::check_result(lhs.eval(), false);
+
+        // Ensure expressions such as ```$HOME | cat ``` work.
+        if let Ok(val) = &lhs_result {
+            if !matches!(val, Value::Stat(_)) {
+                my_println!("{}", &val).map_err(|e| EvalError::new(self.loc(), e.to_string()))?;
+            }
+        }
 
         // Drop the redirect to close the write end of the pipe
         drop(redirect);

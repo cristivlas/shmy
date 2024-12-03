@@ -109,13 +109,10 @@ mod imp {
     };
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Registry::HKEY;
-    use windows::Win32::System::SystemServices::{
-        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_MSG_EXIT_PROCESS,
-    };
+    use windows::Win32::System::SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO;
     use windows::Win32::System::Threading::*;
     use windows::Win32::System::IO::{
-        CreateIoCompletionPort, GetQueuedCompletionStatusEx, PostQueuedCompletionStatus,
-        OVERLAPPED_ENTRY,
+        CreateIoCompletionPort, GetQueuedCompletionStatusEx, OVERLAPPED_ENTRY,
     };
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -596,12 +593,22 @@ mod imp {
                 } else if wait_res == WAIT_TIMEOUT {
                     unsafe {
                         if WaitForSingleObject(process, TIMEOUT_MILLISECS) == WAIT_OBJECT_0 {
-                            _ = PostQueuedCompletionStatus(
-                                HANDLE(iocp.as_raw_handle()),
-                                JOB_OBJECT_MSG_EXIT_PROCESS,
-                                job.as_raw_handle() as usize,
-                                None,
-                            );
+                            let mut accounting_info =
+                                JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+                            let mut returned_length = 0;
+
+                            QueryInformationJobObject(
+                                HANDLE(job.as_raw_handle()),
+                                JobObjectBasicAccountingInformation,
+                                &mut accounting_info as *mut _ as *mut _,
+                                size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                                Some(&mut returned_length),
+                            )?;
+                            // println!("{:?}", accounting_info);
+
+                            if accounting_info.ActiveProcesses == 0 {
+                                break;
+                            }
                         }
                     }
                 } else {
